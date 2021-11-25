@@ -1,7 +1,7 @@
 [project]
 name = "nb-autodoc"
 version = "0.1.0"
-description = "API doc generation for NoneBot."
+description = "API doc generator for NoneBot."
 authors = [
     {name = "iyume", email = "iyumelive@gmail.com"},
 ]
