@@ -14,6 +14,10 @@ T_FunctionDef = Union[ast.FunctionDef, ast.AsyncFunctionDef]
 def extract_all_overloads(
     source: str, *, globals: Optional[Dict[str, Any]] = None
 ) -> "OverloadPicker":
+    """
+    Args:
+        globals: the context for executing object.
+    """
     picker = OverloadPicker(globals or source)
     astmodule = ast.parse(source)
     picker.visit(astmodule)

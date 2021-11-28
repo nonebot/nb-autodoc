@@ -32,7 +32,7 @@ import re
 import ast
 import inspect
 import itertools
-from typing import Iterable, Iterator, List, Dict, Union, Optional, cast
+from typing import Iterable, Iterator, List, Dict, Set, Union, Optional, cast
 
 
 comment_re = re.compile(r"^\s*#: ?(.*)$")
@@ -123,6 +123,7 @@ class VariableCommentPicker(ast.NodeVisitor):
         self.current_class: Optional[ast.ClassDef] = None
         self.current_function: Optional[ast.FunctionDef] = None
         self.comments: Dict[str, str] = {}
+        self.instance_vars: Set[str] = set()
         self.previous: Optional[ast.AST] = None
         self.visited: List[str] = []
         super().__init__()
@@ -149,6 +150,14 @@ class VariableCommentPicker(ast.NodeVisitor):
                 name = ".".join((basename, name))
             self.comments[name] = comment
 
+    def add_instance_vars(self, name: str) -> None:
+        qualname = self.get_qualname_for(name)
+        if qualname:
+            basename = ".".join(qualname[:-1])
+            if basename:
+                name = ".".join((basename, name))
+            self.instance_vars.add(name)
+
     def get_self(self) -> Optional[ast.arg]:
         """Returns the name of the first argument if in a function."""
         if self.current_function and self.current_function.args.args:
@@ -165,7 +174,7 @@ class VariableCommentPicker(ast.NodeVisitor):
         super().visit(node)
         self.previous = node
 
-    def visit_Assign(self, node: ast.Assign) -> None:
+    def visit_Assign(self, node: Union[ast.Assign, ast.AnnAssign]) -> None:
         """Handles Assign node and pick up a variable comment."""
         try:
             targets = get_assign_targets(node)
@@ -177,6 +186,13 @@ class VariableCommentPicker(ast.NodeVisitor):
             current_line = self.get_line(node.lineno)
         except TypeError:
             return  # this assignment is not new definition!
+
+        if self.current_class and (farg := self.get_self()):
+            for target in get_assign_targets(node):
+                if not isinstance(target, ast.Attribute):
+                    continue
+                if isinstance(target.value, ast.Name) and target.value.id == farg.arg:
+                    self.add_instance_vars(target.attr)
 
         comment: Optional[str] = None
 
@@ -255,7 +271,9 @@ class VariableCommentPicker(ast.NodeVisitor):
         """Handles FunctionDef node and set context."""
         # ignore function inner function
         if self.current_function is None:
-            if self.current_class and not node.name == "__init__":
+            if not self.current_class or (
+                self.current_class and not node.name == "__init__"
+            ):
                 # only visit __init__ in class
                 return
             self.context.append(node.name)
