@@ -1,10 +1,17 @@
 import re
 import enum
 import inspect
-from typing import List, Optional
+from typing import Any, List, Optional
 from inspect import Signature, Parameter
 
 from nb_autodoc.pycode.annotransformer import formatannotation
+
+
+def get_signature(obj: Any) -> Signature:
+    """Wrapper of `inspect.signature`."""
+    if hasattr(obj, "__signature__"):
+        return obj.__signature__
+    return inspect.signature(obj)
 
 
 def signature_repr(sig: Signature, returns: Optional[List[str]] = None) -> str:

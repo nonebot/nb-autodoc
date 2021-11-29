@@ -112,6 +112,9 @@ class VariableCommentPicker(ast.NodeVisitor):
     Args:
         buffers: splitlines of source code, visit comment for convenience.
         encoding: encoding to decode bytes in ast.Expr or anyclass from ast.Constant.
+
+    Attribute:
+        instance_vars: the instance variable defined in `__init__`
     """
 
     def __init__(
@@ -167,6 +170,8 @@ class VariableCommentPicker(ast.NodeVisitor):
 
     def get_line(self, lineno: int) -> str:
         """Returns specified line."""
+        if lineno - 1 >= len(self.buffers):
+            return ""
         return self.buffers[lineno - 1]
 
     def visit(self, node: ast.AST) -> None:
@@ -176,6 +181,14 @@ class VariableCommentPicker(ast.NodeVisitor):
 
     def visit_Assign(self, node: Union[ast.Assign, ast.AnnAssign]) -> None:
         """Handles Assign node and pick up a variable comment."""
+        # Record if node formed in `self.<instance_var_name>` in `__init__`
+        if self.current_class and (farg := self.get_self()):
+            for target in get_assign_targets(node):
+                if not isinstance(target, ast.Attribute):
+                    continue
+                if isinstance(target.value, ast.Name) and target.value.id == farg.arg:
+                    self.add_instance_vars(target.attr)
+
         try:
             targets = get_assign_targets(node)
             varnames: List[str] = list(
@@ -187,13 +200,6 @@ class VariableCommentPicker(ast.NodeVisitor):
         except TypeError:
             return  # this assignment is not new definition!
 
-        if self.current_class and (farg := self.get_self()):
-            for target in get_assign_targets(node):
-                if not isinstance(target, ast.Attribute):
-                    continue
-                if isinstance(target.value, ast.Name) and target.value.id == farg.arg:
-                    self.add_instance_vars(target.attr)
-
         comment: Optional[str] = None
 
         if indent_re.match(current_line[: node.col_offset]):
@@ -201,7 +207,7 @@ class VariableCommentPicker(ast.NodeVisitor):
 
             # check comments after assignment
             current_line_ext = current_line[node.end_col_offset :]
-            current_line_after = self.get_line(node.lineno + 1)
+            current_line_after = self.get_line(node.end_lineno + 1)  # type: ignore
             if comment_re.match(current_line_after):
                 comment = comment_re.sub(r"\1", current_line_after)
             elif comment_re.match(current_line_ext):

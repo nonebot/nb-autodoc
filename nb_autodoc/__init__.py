@@ -420,6 +420,7 @@ class Class(Doc):
 
         public_objs: Dict[str, Any] = {}
         for name, obj in inspect.getmembers(self.obj):
+            # TODO: replace with inspect.classify_class_attrs
             # Filter only own members
             if (
                 is_public(name) or self.is_whitelisted(name)
@@ -451,7 +452,7 @@ class Class(Doc):
                 name,
                 Variable(
                     name,
-                    None,
+                    ...,
                     self.module,
                     docstring=var_comments[name],
                     cls=self,
@@ -519,8 +520,11 @@ class Variable(Doc):
         self.is_instance_var = is_instance_var
         self._type_annotation = type_annotation
 
+    @property
     def type_annotation(self) -> str:
-        return formatannotation(self._type_annotation) if self._type_annotation else ""
+        if self._type_annotation is None:
+            return ""
+        return formatannotation(self._type_annotation)
 
     @property
     def refname(self) -> str:
