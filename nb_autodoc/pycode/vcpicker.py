@@ -126,7 +126,7 @@ class VariableCommentPicker(ast.NodeVisitor):
         self.current_class: Optional[ast.ClassDef] = None
         self.current_function: Optional[ast.FunctionDef] = None
         self.comments: Dict[str, str] = {}
-        self.instance_vars: Set[str] = set()
+        self.instance_vars: Dict[str, Set[str]] = {}
         self.previous: Optional[ast.AST] = None
         self.visited: List[str] = []
         super().__init__()
@@ -152,14 +152,6 @@ class VariableCommentPicker(ast.NodeVisitor):
             if basename:
                 name = ".".join((basename, name))
             self.comments[name] = comment
-
-    def add_instance_vars(self, name: str) -> None:
-        qualname = self.get_qualname_for(name)
-        if qualname:
-            basename = ".".join(qualname[:-1])
-            if basename:
-                name = ".".join((basename, name))
-            self.instance_vars.add(name)
 
     def get_self(self) -> Optional[ast.arg]:
         """Returns the name of the first argument if in a function."""
@@ -187,7 +179,9 @@ class VariableCommentPicker(ast.NodeVisitor):
                 if not isinstance(target, ast.Attribute):
                     continue
                 if isinstance(target.value, ast.Name) and target.value.id == farg.arg:
-                    self.add_instance_vars(target.attr)
+                    self.instance_vars.setdefault(self.current_class.name, set()).add(
+                        target.attr
+                    )
 
         try:
             targets = get_assign_targets(node)

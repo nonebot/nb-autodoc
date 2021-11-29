@@ -22,6 +22,7 @@ from nb_autodoc.utils import formatannotation
 
 
 T = TypeVar("T")
+T_dobj = Union["Module", "Class", "Function", "Variable", "LibraryAttr"]
 
 
 def is_function(obj: object) -> bool:
@@ -89,13 +90,13 @@ class Module(Doc):
         "doc",
         "context",
         "skipped_submodules",
-        "vcpicker",
+        "var_comments",
         "overloads",
     )
     obj: ModuleType
     doc: Dict[str, Union["Module", "Class", "Function", "Variable", "LibraryAttr"]]
     skipped_submodules: Set[str]
-    vcpicker: pycode.VariableCommentPicker
+    var_comments: Dict[str, str]
     overloads: Dict[str, List[schema.OverloadFunctionDef]]
 
     def __init__(
@@ -105,6 +106,7 @@ class Module(Doc):
         supermodule: Optional["Module"] = None,
         context: Optional[Context] = None,
     ) -> None:
+        dobj: T_dobj
         if isinstance(obj, str):
             obj = import_module(obj)
         docstring = inspect.getdoc(obj)
@@ -125,10 +127,34 @@ class Module(Doc):
             elif condition is False or condition is None:
                 self.context.blacklisted.add(name)
 
+        # Scan the package dir for subpackages
+        if self.is_package:
+            # TODO: handle namespace (extend namespace path and try import recursively)
+            for _, name, ispkg in iter_modules(getattr(self.obj, "__path__")):
+                if name in self.doc:
+                    continue
+                if not is_public(name) and not self.is_whitelisted(name):
+                    continue
+                if self.is_blacklisted(name):
+                    self.skipped_submodules.add(name)
+                    continue
+                fullname = f"{self.name}.{name}"
+                try:
+                    module = import_module(fullname)
+                except Exception:
+                    print(f"ImportError: {fullname!r}")
+                    continue
+                m = Module(module, supermodule=self, context=self.context)
+                self.doc[name] = m
+                # Remove namespace without submodules
+                if m.is_namespace and not m.doc:
+                    del self.doc[name]
+                    self.context.pop(m.refname)
+
         annotations: Dict[str, Any] = getattr(self.obj, "__annotations__", {})
         vcpicker = pycode.extract_all_comments(self.source)
         ofpicker = pycode.extract_all_overloads(self.source)
-        self.vcpicker = vcpicker
+        self.var_comments = vcpicker.comments
         self.overloads = ofpicker.overloads
 
         # Find public members
@@ -154,7 +180,7 @@ class Module(Doc):
                     public_objs[name] = inspect.unwrap(obj)
 
         for name in annotations:
-            public_objs.setdefault(name, None)
+            public_objs.setdefault(name, ...)
 
         # Start construct of public objects
         for name, obj in public_objs.items():
@@ -174,38 +200,18 @@ class Module(Doc):
             if is_function(obj):
                 self.doc[name] = Function(name, obj, self)
             elif inspect.isclass(obj):
-                self.doc[name] = Class(name, obj, self)
+                self.doc[name] = Class(
+                    name,
+                    obj,
+                    self,
+                    instance_vars=vcpicker.instance_vars.get(name, set()),
+                )
             elif name in vcpicker.comments:
                 self.doc[name] = Variable(
                     name, obj, self, docstring=vcpicker.comments[name]
                 )
             else:
                 self.doc[name] = Variable(name, obj, self)
-
-        # Scan the package dir for subpackages
-        if self.is_package:
-            # TODO: handle namespace (extend namespace path and try import recursively)
-            for _, name, ispkg in iter_modules(getattr(self.obj, "__path__")):
-                if name in self.doc:
-                    continue
-                if not is_public(name) and not self.is_whitelisted(name):
-                    continue
-                if self.is_blacklisted(name):
-                    self.skipped_submodules.add(name)
-                    continue
-                fullname = f"{self.name}.{name}"
-                try:
-                    m = Module(
-                        import_module(fullname), supermodule=self, context=self.context
-                    )
-                except Exception:
-                    print(f"ImportError: {fullname!r}")
-                    continue
-                self.doc[name] = m
-                # Remove namespace without submodules
-                if m.is_namespace and not m.doc:
-                    del self.doc[name]
-                    self.context.pop(m.refname)
 
         # Find overload function from source code
         # Find stub file for a package
@@ -226,32 +232,22 @@ class Module(Doc):
                     pyi_source = f.read()
                 overloads = pycode.extract_all_overloads(pyi_source).overloads
                 public_names = public_objs.keys()
-                new_docstrings = pycode.extract_all_comments(pyi_source).comments
-                # Add `real` module docstring dictionary if not in pyi module
-                for dobj in self.doc.values():
-                    if dobj.docstring:
-                        new_docstrings.setdefault(dobj.qualname, dobj.docstring)
-                    if isinstance(dobj, Class):
-                        for dobj2 in dobj.doc.values():
-                            if dobj2.docstring:
-                                new_docstrings.setdefault(
-                                    dobj2.qualname, dobj2.docstring
-                                )
+                comments = pycode.extract_all_comments(pyi_source).comments
+                self.var_comments.update(comments)
 
                 # Proper pyi source code should be executable
                 _globals: Dict[str, Any] = {}
                 exec(pyi_source, _globals)
+                annotations.update(_globals.get("__annotations__", {}))
                 _globals_public = {
                     i: v for i, v in _globals.items() if i in public_names
                 }
-                annotations.update(_globals.get("__annotations__", {}))
-                for name in _globals.get("__annotations__", {}).keys():
-                    if name in public_names:
-                        _globals_public.setdefault(name, ...)
+                for name in annotations:
+                    _globals_public[name] = ...
                 skip_keys = public_names - _globals_public.keys()
                 if skip_keys:
                     print(
-                        f"Found {skip_keys} in `{self.refname}` "
+                        f"Found {skip_keys!r} in `{self.refname}` "
                         "but not found in its stub file",
                     )
 
@@ -274,20 +270,14 @@ class Module(Doc):
                     elif inspect.isclass(obj):
                         obj.__module__ = self.refname
                         solved_classes[name] = Class(name, obj, self)
-                    elif name in new_docstrings:
-                        solved_variables[name] = Variable(
-                            name,
-                            self.doc[name].obj,
-                            self,
-                            docstring=new_docstrings[name],
-                            type_annotation=annotations.get(name),
-                        )
                     else:
+                        if name in self.doc:
+                            obj = self.doc[name].obj
                         solved_variables[name] = Variable(
                             name,
-                            self.doc[name].obj,
+                            obj,
                             self,
-                            docstring=None,
+                            docstring=self.var_comments.get(name),
                             type_annotation=annotations.get(name),
                         )
 
@@ -310,7 +300,7 @@ class Module(Doc):
                                 ].docstring
                     for dobj in pyi_cls.variables():
                         if not dobj.docstring:
-                            dobj.docstring = new_docstrings.get(dobj.qualname, "")
+                            dobj.docstring = self.var_comments.get(dobj.qualname)
 
                 # Set pyi object
                 self.doc.clear()
@@ -389,32 +379,42 @@ class Module(Doc):
 
 
 class Class(Doc):
-    __slots__ = ("doc",)
+    __slots__ = ("doc", "instance_vars")
     obj: type
     doc: Dict[str, Union["Function", "Variable"]]
+    instance_vars: Set[str]
 
-    def __init__(self, name: str, obj: type, module: "Module", /) -> None:
+    def __init__(
+        self,
+        name: str,
+        obj: type,
+        module: "Module",
+        /,
+        instance_vars: Optional[Set[str]] = None,
+    ) -> None:
         docstring = inspect.getdoc(obj)
         super().__init__(name, obj, docstring, module)
         self.doc = {}
 
         annotations: Dict[str, Any] = getattr(self.obj, "__annotations__", {})
-        instance_var_names: Set[str]
-        if hasattr(self.obj, "__slots__"):
-            instance_var_names = set(getattr(self, "__slots__", ()))
-        else:
-            instance_var_names = (
-                {
-                    i
-                    for i in self.module.vcpicker.instance_vars
-                    if i.startswith(self.qualname + ".")
-                }
-                | annotations.keys()
-                | set(getattr(self.obj, "__slots__", ()))
-            )
+        if instance_vars is None:
+            if hasattr(self.obj, "__slots__"):
+                instance_vars = set(getattr(self, "__slots__", ()))
+            elif source := self.source:
+                # Try to get instance var from source code
+                instance_vars = (pycode.extract_all_comments(source).instance_vars).get(
+                    self.name
+                )
+                # default set here occurs mypy error
+                if instance_vars is None:
+                    instance_vars = set()
+                instance_vars |= annotations.keys()
+            else:
+                instance_vars = set(annotations.keys())
+        self.instance_vars = instance_vars
         var_comments = {
             k[len(self.qualname) + 1 :]: v
-            for k, v in self.module.vcpicker.comments.items()
+            for k, v in self.module.var_comments.items()
             if k.startswith(self.qualname + ".")
         }
 
@@ -443,7 +443,7 @@ class Class(Doc):
                     self.module,
                     docstring=var_comments.get(name),
                     cls=self,
-                    is_instance_var=name in instance_var_names,
+                    is_instance_var=name in instance_vars,
                     type_annotation=annotations.get(name),
                 )
 
@@ -456,7 +456,7 @@ class Class(Doc):
                     self.module,
                     docstring=var_comments[name],
                     cls=self,
-                    is_instance_var=name in instance_var_names,
+                    is_instance_var=name in instance_vars,
                     type_annotation=annotations.get(name),
                 ),
             )
