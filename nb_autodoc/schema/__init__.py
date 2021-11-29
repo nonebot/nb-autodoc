@@ -1,2 +1,6 @@
-from .ast import OverloadFunctionDef
-from .docstring import DocstringSection, DocstringParam, DocstringOverload
+from nb_autodoc.schema.ast import OverloadFunctionDef
+from nb_autodoc.schema.docstring import (
+    DocstringSection,
+    DocstringParam,
+    DocstringOverload,
+)
