@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import List, Optional
 from dataclasses import dataclass
 
 
@@ -15,12 +15,6 @@ class DocstringParam:
 
 
 @dataclass
-class DocstringOverload:
-    args: List[DocstringParam]
-    returns: List[DocstringParam]
-
-
-@dataclass
 class DocstringSection:
     """
     Attributes:
@@ -31,7 +25,6 @@ class DocstringSection:
     identity: str
     content: List[DocstringParam]
     source: str
-    overloads: Dict[str, DocstringOverload]
     version: Optional[str] = None  # second-level version
 
     def __str__(self) -> str:

@@ -480,6 +480,7 @@ class Class(Doc):
 
 class Function(Doc):
     __slots__ = ("cls", "overloads")
+    obj: Callable
 
     def __init__(
         self,
@@ -488,12 +489,12 @@ class Function(Doc):
         module: "Module",
         *,
         cls: Optional[Class] = None,
-        overloads: Optional[List[schema.OverloadFunctionDef]] = None,
+        overloads: List[schema.OverloadFunctionDef] = None,
     ) -> None:
         docstring = inspect.getdoc(obj)
         super().__init__(name, obj, docstring, module)
         self.cls = cls
-        self.overloads = overloads
+        self.overloads = overloads or []
 
     @property
     def qualname(self) -> str:
