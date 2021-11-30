@@ -94,6 +94,9 @@ class Builder(abc.ABC):
             dsobj = get_dsobj(dobj.docstring)
             yield dobj, dsobj
 
+    def module_docstring(self) -> Docstring:
+        return get_dsobj(self.dmodule.docstring)
+
     def write(self) -> None:
         """Generic writer implementation."""
         filepath = Path(self.output_dir, *self.dmodule.refname.split("."))

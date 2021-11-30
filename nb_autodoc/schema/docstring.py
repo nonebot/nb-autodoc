@@ -19,12 +19,11 @@ class DocstringSection:
     """
     Attributes:
         content: empty when text not match regex, that directly render source
-        overloads: key is the signature_repr, value is list of DocstringOverload.
     """
 
     identity: str
     content: List[DocstringParam]
-    source: str
+    source: str = ""
     version: Optional[str] = None  # second-level version
 
     def __str__(self) -> str:
