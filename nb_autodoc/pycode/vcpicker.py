@@ -174,6 +174,7 @@ class VariableCommentPicker(ast.NodeVisitor):
     def visit_Assign(self, node: Union[ast.Assign, ast.AnnAssign]) -> None:
         """Handles Assign node and pick up a variable comment."""
         # Record if node formed in `self.<instance_var_name>` in `__init__`
+        # TODO: add annotations marked in instance assignment
         if self.current_class and (farg := self.get_self()):
             for target in get_assign_targets(node):
                 if not isinstance(target, ast.Attribute):
