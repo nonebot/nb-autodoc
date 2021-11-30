@@ -496,6 +496,10 @@ class Function(Doc):
         self.overloads = overloads
 
     @property
+    def qualname(self) -> str:
+        return f"{self.cls.name}.{self.name}" if self.cls is not None else self.name
+
+    @property
     def refname(self) -> str:
         return f"{self.module.refname}.{self.qualname}"
 
@@ -525,6 +529,10 @@ class Variable(Doc):
         if self._type_annotation is None:
             return ""
         return formatannotation(self._type_annotation)
+
+    @property
+    def qualname(self) -> str:
+        return f"{self.cls.name}.{self.name}" if self.cls is not None else self.name
 
     @property
     def refname(self) -> str:
