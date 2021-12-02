@@ -11,9 +11,20 @@ from nb_autodoc.schema import DocstringSection, DocstringParam
 _MULTIPLE = DocstringSection
 _SINGULAR = Optional[str]
 
+_sections = {
+    "args": {"Arguments", "Args", "Parameters", "Params", "参数"},
+    "returns": {"Return", "Returns", "返回"},
+    "attributes": {"Attributes", "属性"},
+    "raises": {"Raises", "Exceptions", "Except", "异常"},
+    "examples": {"Example", "Examples", "示例", "用法"},
+    "require": {"Require", "要求"},
+    "version": {"Version", "版本"},
+    "type_version": {"TypeVersion", "类型版本"},
+}
+
 
 def get_sections(names: Set[str]) -> Dict[str, Set[str]]:
-    return {k: v for k, v in Docstring._sections.items() if k in names}
+    return {k: v for k, v in _sections.items() if k in names}
 
 
 def get_dsobj(
@@ -38,16 +49,7 @@ class Docstring:
     MULTIPLE = _MULTIPLE
     SINGULAR = _SINGULAR
 
-    _sections = {
-        "args": {"Arguments", "Args", "Parameters", "Params", "参数"},
-        "returns": {"Return", "Returns", "返回"},
-        "attributes": {"Attributes", "属性"},
-        "raises": {"Raises", "Exceptions", "Except", "异常"},
-        "examples": {"Example", "Examples", "示例", "用法"},
-        "require": {"Require", "要求"},
-        "version": {"Version", "版本"},
-        "type_version": {"TypeVersion", "类型版本"},
-    }
+    _sections = _sections
     _sections_variable = get_sections(
         {"examples", "require", "version", "type_version"}
     )
@@ -89,7 +91,7 @@ class Docstring:
         self.attributes: _MULTIPLE = DocstringSection("attributes", content=[])
         self.raises: _MULTIPLE = DocstringSection("raises", content=[])
         self.examples: _SINGULAR = None
-        self.require: _MULTIPLE = DocstringSection("require", content=[])
+        self.require: _SINGULAR = None
         self.version: _SINGULAR = None
         self.type_version: _SINGULAR = None
         self.patch: Dict[str, Any] = {}
