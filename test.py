@@ -9,5 +9,7 @@ module = Module("test_pkg", context=context)
 
 builder = MarkdownBuilder(module, output_dir="build")
 
+builder.write()
+
 
 exit(0)

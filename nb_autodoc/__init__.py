@@ -17,7 +17,7 @@ from collections import UserDict
 from importlib import import_module
 from pkgutil import iter_modules
 
-from nb_autodoc import schema, pycode
+from nb_autodoc import schema, pycode, utils
 from nb_autodoc.utils import formatannotation
 
 
@@ -358,7 +358,7 @@ class Module(Doc):
         Args:
             cls_level: returns with class-level function.
         """
-        result: List[Function] = []
+        result: List[Function] = filter_type(Function, self.doc.values())
         if cls_level:
             for c in self.classes():
                 result.extend(filter_type(Function, c.doc.values()))
@@ -473,6 +473,10 @@ class Class(Doc):
     def functions(self) -> List["Function"]:
         return filter_type(Function, self.doc.values())
 
+    def params(self) -> str:
+        """Returns string of signature without annotation and returns."""
+        return utils.signature_repr(utils.get_signature(self.obj))
+
     @property
     def refname(self) -> str:
         return f"{self.module.refname}.{self.qualname}"
@@ -495,6 +499,10 @@ class Function(Doc):
         super().__init__(name, obj, docstring, module)
         self.cls = cls
         self.overloads = overloads or []
+
+    def params(self) -> str:
+        """Returns string of signature without annotation and returns."""
+        return utils.signature_repr(utils.get_signature(self.obj))
 
     @property
     def qualname(self) -> str:

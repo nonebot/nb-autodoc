@@ -3,6 +3,7 @@ Documentation builder.
 """
 import abc
 import inspect
+import shutil
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple, NamedTuple
 
@@ -29,12 +30,16 @@ def resolve_dsobj_from_signature(
     for param in params:
         param.version, param.description = save_docstring.get(param.name, (None, None))
     dsobj.args.content = params
-    if not dsobj.returns:
+    if not dsobj.returns.content:
         return_anno = signature.return_annotation
-        if return_anno is inspect.Signature.empty:
-            dsobj.returns.source = "Unknown"
-        else:
-            dsobj.returns.source = utils.formatannotation(return_anno)
+        dsobj.returns.content.append(
+            schema.DocstringParam(
+                utils.formatannotation(return_anno)
+                if not return_anno is inspect.Signature.empty
+                else "Unknown",
+                description=dsobj.returns.source,
+            )
+        )
     return dsobj
 
 
@@ -102,10 +107,17 @@ class Builder(abc.ABC):
 
     def write(self) -> None:
         """Generic writer implementation."""
-        filepath = Path(self.output_dir, *self.dmodule.refname.split("."))
-        filepath.touch(exist_ok=True)
-        with open(filepath, "w") as f:
-            f.write(self.text())
+        path = Path(self.output_dir, *self.dmodule.refname.split("."))
+        if self.dmodule.is_package:
+            shutil.rmtree(path, ignore_errors=True)
+            path.mkdir(parents=True, exist_ok=True)
+            filepath = path / "index.md"
+        else:
+            filepath = path.with_suffix(".md")
+        if not self.dmodule.is_namespace:
+            filepath.touch(exist_ok=False)
+            with open(filepath, "w") as f:
+                f.write(self.text())
         for submod in self.dmodule.submodules():
             self.__class__(submod, output_dir=self.output_dir).write()
 
