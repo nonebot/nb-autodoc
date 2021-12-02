@@ -8,8 +8,8 @@ from typing import Any, Dict, Literal, Set, Optional, List, Tuple
 from nb_autodoc.schema import DocstringSection, DocstringParam
 
 
-_MULTIPLE = DocstringSection
-_SINGULAR = Optional[str]
+MULTIPLE = DocstringSection
+SINGULAR = Optional[str]
 
 _sections = {
     "args": {"Arguments", "Args", "Parameters", "Params", "参数"},
@@ -45,9 +45,6 @@ class Docstring:
     so we define duck type rather than define MULTIPLE_OR_SINGULAR for another type hints.
     When match regex, we think section is multiple, or singular.
     """
-
-    MULTIPLE = _MULTIPLE
-    SINGULAR = _SINGULAR
 
     _sections = _sections
     _sections_variable = get_sections(
@@ -86,14 +83,14 @@ class Docstring:
         self.short_desc: str = ""
         self.long_desc: str = ""
         self.description: str = ""
-        self.args: _MULTIPLE = DocstringSection("args", content=[])
-        self.returns: _MULTIPLE = DocstringSection("returns", content=[])
-        self.attributes: _MULTIPLE = DocstringSection("attributes", content=[])
-        self.raises: _MULTIPLE = DocstringSection("raises", content=[])
-        self.examples: _SINGULAR = None
-        self.require: _SINGULAR = None
-        self.version: _SINGULAR = None
-        self.type_version: _SINGULAR = None
+        self.args: MULTIPLE = DocstringSection("args", content=[])
+        self.returns: MULTIPLE = DocstringSection("returns", content=[])
+        self.attributes: MULTIPLE = DocstringSection("attributes", content=[])
+        self.raises: MULTIPLE = DocstringSection("raises", content=[])
+        self.examples: SINGULAR = None
+        self.require: SINGULAR = None
+        self.version: SINGULAR = None
+        self.type_version: SINGULAR = None
         self.patch: Dict[str, Any] = {}
 
     def parse(self, text: str) -> None:

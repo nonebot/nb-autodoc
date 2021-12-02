@@ -264,8 +264,11 @@ class Module(Doc):
                         obj.__signature__ = inspect.signature(obj)
                         # Magic trick the dummy code object point to the real code
                         obj.__code__ = self.doc[name].obj.__code__  # type: ignore
-                        if not obj.__doc__:
-                            obj.__doc__ = self.doc[name].docstring
+                        if name not in overloads:
+                            if not obj.__doc__:
+                                obj.__doc__ = self.doc[name].docstring
+                        else:
+                            obj = self.doc[name].obj
                         solved_functions[name] = Function(name, obj, self)
                     elif inspect.isclass(obj):
                         obj.__module__ = self.refname
