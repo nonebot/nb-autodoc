@@ -4,7 +4,7 @@ Documentation builder.
 import abc
 import inspect
 from pathlib import Path
-from typing import Iterable, List, Tuple, NamedTuple
+from typing import Dict, Iterable, List, Tuple, NamedTuple
 
 from nb_autodoc import Module, Class, Function, Variable, LibraryAttr
 from nb_autodoc import schema, utils
@@ -71,14 +71,17 @@ class Builder(abc.ABC):
             signature = utils.get_signature(dobj.obj)
             dsobj = resolve_dsobj_from_signature(dsobj, signature)
             if dobj.overloads:
-                myoverloads = DocstringOverloads(args=[], returns=[])
+                myoverloads: Dict[str, List[DocstringOverloads]] = {}
                 for overload in dobj.overloads:
                     overload_dsobj = get_dsobj(overload.docstring)
                     overload_dsobj = resolve_dsobj_from_signature(
                         overload_dsobj, overload.signature
                     )
-                    myoverloads.args.append(overload_dsobj.args)
-                    myoverloads.returns.append(overload_dsobj.returns)
+                    key = utils.signature_repr(overload.signature)
+                    myoverload = DocstringOverloads(args=[], returns=[])
+                    myoverload.args.append(overload_dsobj.args)
+                    myoverload.returns.append(overload_dsobj.returns)
+                    myoverloads.setdefault(key, []).append(myoverload)
                 dsobj.patch["overloads"] = myoverloads
             yield dobj, dsobj
 
