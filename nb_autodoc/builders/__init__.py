@@ -44,6 +44,7 @@ def resolve_dsobj_from_signature(
 
 
 class DocstringOverload(NamedTuple):
+    signature: str
     args: schema.DocstringSection
     returns: schema.DocstringSection
 
@@ -76,17 +77,20 @@ class Builder(abc.ABC):
             signature = utils.get_signature(dobj.obj)
             dsobj = resolve_dsobj_from_signature(dsobj, signature)
             if dobj.overloads:
-                myoverloads: Dict[str, List[DocstringOverload]] = {}
+                myoverloads: List[DocstringOverload] = []
                 for overload in dobj.overloads:
                     overload_dsobj = get_dsobj(overload.docstring)
                     overload_dsobj = resolve_dsobj_from_signature(
                         overload_dsobj, overload.signature
                     )
                     key = utils.signature_repr(overload.signature)
-                    myoverload = DocstringOverload(
-                        args=overload_dsobj.args, returns=overload_dsobj.returns
+                    myoverloads.append(
+                        DocstringOverload(
+                            signature=key,
+                            args=overload_dsobj.args,
+                            returns=overload_dsobj.returns,
+                        ),
                     )
-                    myoverloads.setdefault(key, []).append(myoverload)
                 dsobj.patch["overloads"] = myoverloads
             yield dobj, dsobj
 

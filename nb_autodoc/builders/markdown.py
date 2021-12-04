@@ -33,7 +33,7 @@ def get_version(
 
 
 def get_param(p: DocstringParam, ident: int = 4, /) -> str:
-    return "{spaces}{name}{annotation}{version}{description}".format(
+    return "{spaces}- `{name}`{annotation}{version}{description}".format(
         spaces=" " * ident,
         name=p.name,
         annotation=get_if_exists(p.annotation, " ({})"),
@@ -45,7 +45,7 @@ def get_param(p: DocstringParam, ident: int = 4, /) -> str:
 def render_function(dobj: Function, dsobj: "Docstring", /) -> str:
     builder: List[str] = []
     section: Union[SINGULAR, MULTIPLE]
-    overloads: Optional[Dict[str, DocstringOverload]]
+    overloads: Optional[List[DocstringOverload]]
     builder.append(f"## {get_title(dobj)}{get_version(dsobj)}")
     if dsobj.description:
         builder.append("- **说明**")
@@ -55,8 +55,8 @@ def render_function(dobj: Function, dsobj: "Docstring", /) -> str:
         builder.append(indent(section, prefix="    "))
     if overloads := dsobj.patch.get("overloads"):
         builder.append("- **重载**")
-        for i, (title, overload) in enumerate(overloads.items()):
-            builder.append(f"    {i + 1}. `{title}`")
+        for i, overload in enumerate(overloads):
+            builder.append(f"    {i + 1}. `{overload.signature}`")
             builder.append("    参数")
             for param in overload.args.content:
                 builder.append(get_param(param, 8))
