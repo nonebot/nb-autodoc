@@ -269,7 +269,9 @@ class Module(Doc):
                                 obj.__doc__ = self.doc[name].docstring
                         else:
                             obj = self.doc[name].obj
-                        solved_functions[name] = Function(name, obj, self)
+                        solved_functions[name] = Function(
+                            name, obj, self, overloads=overloads.get(name)
+                        )
                     elif inspect.isclass(obj):
                         obj.__module__ = self.refname
                         solved_classes[name] = Class(name, obj, self)
@@ -288,20 +290,29 @@ class Module(Doc):
                 for raw_cls in self.classes():
                     if raw_cls.name in skip_keys:
                         continue
-                    pyi_cls = solved_classes[raw_cls.name]
-                    to_resolve_keys = raw_cls.doc.keys() & pyi_cls.doc.keys()
+                    solved_cls = solved_classes[raw_cls.name]
+                    to_resolve_keys = raw_cls.doc.keys() & solved_cls.doc.keys()
                     for name in to_resolve_keys:
-                        dobj = pyi_cls.doc[name]
+                        dobj = solved_cls.doc[name]
                         if isinstance(dobj, Function):
                             obj = dobj.obj
+                            qualname = dobj.qualname
                             obj.__module__ = self.refname
                             obj.__signature__ = inspect.signature(obj)
                             obj.__code__ = raw_cls.doc[name].obj.__code__
-                            if not dobj.docstring:
-                                dobj.docstring = obj.__doc__ = raw_cls.doc[
-                                    name
-                                ].docstring
-                    for dobj in pyi_cls.variables():
+                            if qualname not in overloads:
+                                if not obj.__doc__:
+                                    obj.__doc__ = raw_cls.doc[name].docstring
+                            else:
+                                obj = raw_cls.doc[name].obj
+                            solved_cls.doc[name] = Function(
+                                name,
+                                obj,
+                                self,
+                                cls=solved_cls,
+                                overloads=overloads.get(qualname),
+                            )
+                    for dobj in solved_cls.variables():
                         if not dobj.docstring:
                             dobj.docstring = self.var_comments.get(dobj.qualname)
 
