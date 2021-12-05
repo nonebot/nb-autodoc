@@ -92,6 +92,8 @@ class Docstring:
         self.version: SINGULAR = None
         self.type_version: SINGULAR = None
         self.patch: Dict[str, Any] = {}
+        for name in self._sections.keys() - self.sections.keys():
+            delattr(self, name)
 
     def parse(self, text: str) -> None:
         text = inspect.cleandoc(text)
