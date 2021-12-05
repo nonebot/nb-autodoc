@@ -5,7 +5,7 @@ import abc
 import inspect
 import shutil
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple, NamedTuple
+from typing import Iterable, List, Tuple, NamedTuple, Union
 
 from nb_autodoc import Module, Class, Function, Variable, LibraryAttr
 from nb_autodoc import schema, utils
@@ -13,7 +13,7 @@ from nb_autodoc.builders.parser.google import Docstring, get_dsobj
 
 
 def resolve_dsobj_from_signature(
-    dsobj: Docstring, signature: inspect.Signature
+    dsobj: Docstring, signature: inspect.Signature, *, no_returns: bool = False
 ) -> Docstring:
     params: List[schema.DocstringParam] = []
     for p in signature.parameters.values():
@@ -30,16 +30,17 @@ def resolve_dsobj_from_signature(
     for param in params:
         param.version, param.description = save_docstring.get(param.name, (None, None))
     dsobj.args.content = params
-    if not dsobj.returns.content:
-        return_anno = signature.return_annotation
-        dsobj.returns.content.append(
-            schema.DocstringParam(
-                utils.formatannotation(return_anno)
-                if not return_anno is inspect.Signature.empty
-                else "Unknown",
-                description=dsobj.returns.source,
+    if not no_returns:
+        if not dsobj.returns.content:
+            return_anno = signature.return_annotation
+            dsobj.returns.content.append(
+                schema.DocstringParam(
+                    utils.formatannotation(return_anno)
+                    if not return_anno is inspect.Signature.empty
+                    else "Unknown",
+                    description=dsobj.returns.source,
+                )
             )
-        )
     return dsobj
 
 
@@ -58,7 +59,7 @@ class Builder(abc.ABC):
     Call method `write` to build module's documentation recursively.
 
     Args:
-        dmodule: the Module with correct public object.
+        dmodule: the documentation module.
         output_dir: documentation output directory.
     """
 
@@ -66,13 +67,11 @@ class Builder(abc.ABC):
         self.dmodule = dmodule
         self.output_dir = output_dir
 
-    def variable_docstrings(self) -> Iterable[Tuple[Variable, Docstring]]:
-        for dobj in self.dmodule.variables():
-            dsobj = get_dsobj(dobj.docstring, "variable")
-            yield dobj, dsobj
-
-    def function_docstrings(self) -> Iterable[Tuple[Function, Docstring]]:
-        for dobj in self.dmodule.functions():
+    @staticmethod
+    def get_docstring(dobj: Union[Variable, Function, Class, LibraryAttr]) -> Docstring:
+        if isinstance(dobj, Variable):
+            return get_dsobj(dobj.docstring, "variable")
+        elif isinstance(dobj, Function):
             dsobj = get_dsobj(dobj.docstring, "function")
             signature = utils.get_signature(dobj.obj)
             dsobj = resolve_dsobj_from_signature(dsobj, signature)
@@ -83,30 +82,43 @@ class Builder(abc.ABC):
                     overload_dsobj = resolve_dsobj_from_signature(
                         overload_dsobj, overload.signature
                     )
-                    key = utils.signature_repr(overload.signature)
                     myoverloads.append(
                         DocstringOverload(
-                            signature=key,
+                            signature=utils.signature_repr(overload.signature),
                             args=overload_dsobj.args,
                             returns=overload_dsobj.returns,
                         ),
                     )
                 dsobj.patch["overloads"] = myoverloads
-            yield dobj, dsobj
-
-    def class_docstrings(self) -> Iterable[Tuple[Class, Docstring]]:
-        for dobj in self.dmodule.classes():
+            return dsobj
+        elif isinstance(dobj, Class):
             dsobj = get_dsobj(dobj.docstring, "class")
             init_signature = utils.get_signature(dobj.obj)
-            dsobj = resolve_dsobj_from_signature(dsobj, init_signature)
-            yield dobj, dsobj
+            dsobj = resolve_dsobj_from_signature(dsobj, init_signature, no_returns=True)
+            return dsobj
+        elif isinstance(dobj, LibraryAttr):
+            return get_dsobj(dobj.docstring)
 
-    def libraryattr_docstrings(self) -> Iterable[Tuple[LibraryAttr, Docstring]]:
+    def iter_documentation_attrs(
+        self,
+    ) -> Iterable[Tuple[Union[Variable, Function, Class, LibraryAttr], Docstring]]:
+        """Yield all documentation object in order."""
+        dobj: Union[Variable, Function, Class, LibraryAttr]
+        cls_dobj: Union[Function, Variable]
+        for dobj in self.dmodule.variables():
+            yield dobj, self.get_docstring(dobj)
+        for dobj in self.dmodule.functions():
+            yield dobj, self.get_docstring(dobj)
+        for dobj in self.dmodule.classes():
+            yield dobj, self.get_docstring(dobj)
+            for cls_dobj in dobj.variables():
+                yield cls_dobj, self.get_docstring(cls_dobj)
+            for cls_dobj in dobj.functions():
+                yield cls_dobj, self.get_docstring(cls_dobj)
         for dobj in self.dmodule.libraryattrs():
-            dsobj = get_dsobj(dobj.docstring)
-            yield dobj, dsobj
+            yield dobj, self.get_docstring(dobj)
 
-    def module_docstring(self) -> Docstring:
+    def get_module_docstring(self) -> Docstring:
         return get_dsobj(self.dmodule.docstring)
 
     def write(self) -> None:
@@ -127,5 +139,5 @@ class Builder(abc.ABC):
 
     @abc.abstractmethod
     def text(self) -> str:
-        """Get string of documentation."""
+        """Get string of current module documentation."""
         raise NotImplementedError
