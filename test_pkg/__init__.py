@@ -87,4 +87,4 @@ class Foo:
         ...
 
 
-__pdoc__ = {"Foo.innerfunc": False}
+__autodoc__ = {"Foo.innerfunc": False}

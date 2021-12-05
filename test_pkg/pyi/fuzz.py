@@ -45,4 +45,4 @@ class A:
         return self.ping(name)
 
 
-__pdoc__ = {"A.b": False}
+__autodoc__ = {"A.b": False}
