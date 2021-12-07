@@ -47,8 +47,11 @@ def render_variable(dobj: Variable, dsobj: "Docstring") -> str:
         builder.append(f"## {get_title(dobj)}{get_version(dsobj)}")
     builder.append(f"- **类型:** {dobj.type_annotation}{get_version(dsobj.type_version)}")
     if dsobj.description:
-        builder.append("- **说明**")
-        builder.append(dsobj.description)
+        if "\n" in dsobj.description:
+            builder.append("- **说明**")
+            builder.append(dsobj.description)
+        else:
+            builder.append(f"- **说明:** {dsobj.description}")
     if section := dsobj.examples:
         builder.append("- **用法**")
         builder.append(section)
@@ -103,8 +106,10 @@ def render_class(dobj: Class, dsobj: "Docstring") -> str:
     if section := dsobj.require:
         builder.append(f"- **要求**{get_version(section)}")
         builder.append(section)
-    builder.append(f"- **参数**{get_version(dsobj.args)}")
-    builder.append(render_params(dsobj.args.content) or "    无")
+    if section := dsobj.args:
+        if section.content:
+            builder.append(f"- **参数**{get_version(section)}")
+            builder.append(render_params(section.content))
     if section := dsobj.examples:
         builder.append("- **用法**")
         builder.append(section)
