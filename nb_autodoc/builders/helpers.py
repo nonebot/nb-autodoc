@@ -29,22 +29,13 @@ def get_title(dobj: Union[Class, Function, Variable, LibraryAttr]) -> str:
     elif isinstance(dobj, Function):
         if inspect.isabstract(dobj.obj):
             prefix_builder.append("abstract")
-        if inspect.ismethod(dobj.obj):
-            prefix_builder.append("method")
-        elif inspect.iscoroutinefunction(dobj.obj):
-            prefix_builder.append("async def")
-        else:
-            prefix_builder.append("def")
+        prefix_builder.append(dobj.functype)
         body += dobj.params()
     elif isinstance(dobj, Variable):
         if is_property(dobj.obj):
             prefix_builder.append("property")
-        elif dobj.cls is None:
-            prefix_builder.append("var")
         else:
-            prefix_builder.append(
-                "instance-var" if dobj.is_instance_var else "class-var"
-            )
+            prefix_builder.append(dobj.vartype)
     elif isinstance(dobj, LibraryAttr):
         prefix_builder.append("library-attr")
     prefix = " ".join(prefix_builder)

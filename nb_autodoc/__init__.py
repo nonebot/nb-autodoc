@@ -5,6 +5,7 @@ from typing import (
     Dict,
     Iterable,
     List,
+    NamedTuple,
     Optional,
     Set,
     Type,
@@ -27,7 +28,7 @@ T_dobj = Union["Module", "Class", "Function", "Variable", "LibraryAttr"]
 
 def is_function(obj: object) -> bool:
     """Return true if the object is a user-defined function."""
-    return inspect.isfunction(obj)
+    return inspect.isroutine(obj)
 
 
 def is_public(name: str) -> bool:
@@ -204,7 +205,6 @@ class Module(Doc):
                     name,
                     obj,
                     self,
-                    instance_vars=vcpicker.instance_vars.get(name, set()),
                 )
             elif name in vcpicker.comments:
                 self.doc[name] = Variable(
@@ -398,33 +398,22 @@ class Class(Doc):
     doc: Dict[str, Union["Function", "Variable"]]
     instance_vars: Set[str]
 
-    def __init__(
-        self,
-        name: str,
-        obj: type,
-        module: "Module",
-        /,
-        instance_vars: Optional[Set[str]] = None,
-    ) -> None:
+    def __init__(self, name: str, obj: Any, module: "Module", /) -> None:
         docstring = inspect.getdoc(obj)
         super().__init__(name, obj, docstring, module)
         self.doc = {}
 
         annotations: Dict[str, Any] = getattr(self.obj, "__annotations__", {})
-        if instance_vars is None:
-            if hasattr(self.obj, "__slots__"):
-                instance_vars = set(getattr(self, "__slots__", ()))
-            elif source := self.source:
-                # Try to get instance var from source code
-                instance_vars = (pycode.extract_all_comments(source).instance_vars).get(
-                    self.name
-                )
-                # default set here occurs mypy error
-                if instance_vars is None:
-                    instance_vars = set()
-                instance_vars |= annotations.keys()
-            else:
-                instance_vars = set(annotations.keys())
+        if hasattr(self.obj, "__slots__"):
+            instance_vars = set(getattr(self, "__slots__", ()))
+        elif source := self.source:
+            # Get instance vars from source code
+            instance_vars = (pycode.extract_all_comments(source).instance_vars).get(
+                self.name, set()
+            )
+            instance_vars |= annotations.keys()
+        else:
+            instance_vars = set(annotations.keys())
         self.instance_vars = instance_vars
         var_comments = {
             k[len(self.qualname) + 1 :]: v
@@ -432,22 +421,22 @@ class Class(Doc):
             if k.startswith(self.qualname + ".")
         }
 
-        public_objs: Dict[str, Any] = {}
-        for name, obj in inspect.getmembers(self.obj):
-            # TODO: replace with inspect.classify_class_attrs
-            # Filter only own members
-            if (
-                is_public(name) or self.is_whitelisted(name)
-            ) and name in self.obj.__dict__:
-                if self.is_blacklisted(name):
-                    self.module.context.blacklisted.add(f"{self.refname}.{name}")
-                    continue
-                public_objs[name] = inspect.unwrap(obj)
+        public_objs: List[Class.Attribute] = []
+        for name, kind, cls, obj in inspect.classify_class_attrs(self.obj):
+            if cls is self.obj:
+                if is_public(name) or self.is_whitelisted(name):
+                    if self.is_blacklisted(name):
+                        continue
+                    if kind == "class method" or kind == "static method":
+                        obj = obj.__func__
+                    public_objs.append(Class.Attribute(name, kind, obj))
 
         # Convert the public Python objects to documentation objects.
-        for name, obj in public_objs.items():
+        for name, kind, obj in public_objs:
             if is_function(obj):
-                self.doc[name] = Function(name, obj, self.module, cls=self)
+                self.doc[name] = Function(
+                    name, obj, self.module, cls=self, method_type=kind
+                )
             elif inspect.isclass(obj):
                 pass
             else:
@@ -457,7 +446,6 @@ class Class(Doc):
                     self.module,
                     docstring=var_comments.get(name),
                     cls=self,
-                    is_instance_var=name in instance_vars,
                     type_annotation=annotations.get(name),
                 )
 
@@ -470,10 +458,14 @@ class Class(Doc):
                     self.module,
                     docstring=var_comments[name],
                     cls=self,
-                    is_instance_var=name in instance_vars,
                     type_annotation=annotations.get(name),
                 ),
             )
+
+    class Attribute(NamedTuple):
+        name: str
+        kind: str
+        obj: Any
 
     def is_whitelisted(self, name: str) -> bool:
         return f"{self.refname}.{name}" in self.module.context.whitelisted
@@ -497,7 +489,7 @@ class Class(Doc):
 
 
 class Function(Doc):
-    __slots__ = ("cls", "overloads")
+    __slots__ = ("cls", "overloads", "method_type")
     obj: Callable
 
     def __init__(
@@ -508,15 +500,40 @@ class Function(Doc):
         *,
         cls: Optional[Class] = None,
         overloads: List[schema.OverloadFunctionDef] = None,
+        method_type: str = "method",
     ) -> None:
         docstring = inspect.getdoc(obj)
         super().__init__(name, obj, docstring, module)
         self.cls = cls
         self.overloads = overloads or []
+        self.method_type = method_type
 
     def params(self) -> str:
         """Returns string of signature without annotation and returns."""
         return utils.signature_repr(utils.get_signature(self.obj))
+
+    @staticmethod
+    def is_async(obj: Callable) -> bool:
+        return inspect.iscoroutinefunction(obj)
+
+    @property
+    def functype(self) -> str:
+        """Classify function type seperated by space."""
+        builder = []
+        if self.is_async(self.obj):
+            builder.append("async")
+        if self.cls:
+            if self.method_type == "class method":
+                builder.append("classmethod")
+            elif self.method_type == "static method":
+                builder.append("staticmethod")
+            elif self.method_type == "property":
+                builder.append("property")
+            else:
+                builder.append("method")
+        else:
+            builder.append("def")
+        return " ".join(builder)
 
     @property
     def qualname(self) -> str:
@@ -539,16 +556,27 @@ class Variable(Doc):
         *,
         docstring: Optional[str] = None,
         cls: Optional[Class] = None,
-        is_instance_var: bool = False,
         type_annotation: Optional[type] = None,
     ) -> None:
         super().__init__(name, obj, docstring, module)
         self.cls = cls
-        self.is_instance_var = is_instance_var
         self._type_annotation = type_annotation
 
     @property
+    def vartype(self) -> str:
+        """Classify variable type seperated by space."""
+        if self.cls:
+            return (
+                "instance-var" if self.name in self.cls.instance_vars else "class-var"
+            )
+        return "var"
+
+    @property
     def type_annotation(self) -> str:
+        if isinstance(self.obj, property):
+            return formatannotation(
+                inspect.signature(self.obj.fget or self.obj.__get__).return_annotation
+            )
         if self._type_annotation is None:
             return ""
         return formatannotation(self._type_annotation)
