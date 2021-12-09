@@ -89,11 +89,10 @@ class OverloadPicker(ast.NodeVisitor):
 
     def get_docstring(self, node: T_FunctionDef) -> str:
         docstring = ""
-        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Str):
-            if isinstance(node.value.s, str):
-                docstring = node.value.s
-            else:
-                docstring = node.value.s.decode(self.encoding)
+        fst = node.body[0]
+        if isinstance(fst, ast.Expr) and isinstance(fst.value, ast.Str):
+            if isinstance(fst.value.s, str):
+                docstring = fst.value.s
         return inspect.cleandoc(docstring)
 
     def visit_Import(self, node: ast.Import) -> None:
