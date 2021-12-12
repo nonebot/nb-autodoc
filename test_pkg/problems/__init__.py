@@ -7,6 +7,8 @@ class A:
     inst1: str
     """inst1 docstring"""
     inst_no_doc: str
+    inst3: str = "inst3var"
+    """inheritlink inst3"""
 
     @property
     def descriptor_no_doc(self) -> str:
@@ -19,5 +21,5 @@ class A:
 
 
 class A2(A):
-    __slots__ = "inst2"
+    __slots__ = ("inst2",)
     inst2: str
