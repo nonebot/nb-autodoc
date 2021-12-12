@@ -317,7 +317,6 @@ class Module(Doc):
                             dobj.docstring = self.var_comments.get(dobj.qualname)
 
                 # Set pyi object
-                self.doc.clear()
                 self.doc.update(solved_variables)
                 self.doc.update(solved_functions)
                 self.doc.update(solved_classes)
@@ -405,7 +404,7 @@ class Class(Doc):
 
         annotations: Dict[str, Any] = getattr(self.obj, "__annotations__", {})
         if hasattr(self.obj, "__slots__"):
-            instance_vars = set(getattr(self, "__slots__", ()))
+            instance_vars = set(getattr(self.obj, "__slots__", ()))
         elif source := self.source:
             # Get instance vars from source code
             instance_vars = (pycode.extract_all_comments(source).instance_vars).get(
@@ -430,6 +429,14 @@ class Class(Doc):
                     if kind == "class method" or kind == "static method":
                         obj = obj.__func__
                     public_objs.append(Class.Attribute(name, kind, obj))
+
+        # TODO: Filter and sort own member
+        public_names = tuple(
+            name
+            for name in self.obj.__dict__.keys()
+            if (is_public(name) or self.is_whitelisted(name))
+            and not self.is_blacklisted(name)
+        )
 
         # Convert the public Python objects to documentation objects.
         for name, kind, obj in public_objs:
@@ -467,6 +474,7 @@ class Class(Doc):
         kind: str
         obj: Any
 
+    # TODO: fix whitelist and blacklist from its class mro
     def is_whitelisted(self, name: str) -> bool:
         return f"{self.refname}.{name}" in self.module.context.whitelisted
 
@@ -558,6 +566,8 @@ class Variable(Doc):
         cls: Optional[Class] = None,
         type_annotation: Optional[type] = None,
     ) -> None:
+        if isinstance(obj, property):
+            docstring = inspect.getdoc(obj)
         super().__init__(name, obj, docstring, module)
         self.cls = cls
         self._type_annotation = type_annotation
