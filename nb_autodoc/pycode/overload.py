@@ -1,14 +1,21 @@
 import ast
 import inspect
-from typing import Any, Callable, List, Dict, Union, Optional, get_args
+from typing import Any, Callable, List, Dict, Union, Optional
 from copy import deepcopy
 from random import randint
-from inspect import Signature
+from inspect import Parameter, Signature
 
 from nb_autodoc.schema import OverloadFunctionDef
 
 
-T_FunctionDef = Union[ast.FunctionDef, ast.AsyncFunctionDef]
+class force_repr:
+    __slots__ = ("value",)
+
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+    def __repr__(self) -> str:
+        return self.value
 
 
 def extract_all_overloads(
@@ -24,6 +31,95 @@ def extract_all_overloads(
     return picker
 
 
+def signature_from_ast(node: ast.FunctionDef) -> Signature:
+    args = node.args
+    params: List[Parameter] = []
+    defaults = args.defaults.copy()
+    kwdefaults = args.kw_defaults
+    non_default_count = len(args.args) - len(defaults)
+    for arg in args.posonlyargs:
+        params.append(
+            Parameter(
+                arg.arg,
+                kind=Parameter.POSITIONAL_ONLY,
+                annotation=(
+                    force_repr(ast.unparse(arg.annotation))
+                    if arg.annotation
+                    else Parameter.empty
+                ),
+            )
+        )
+    for arg in args.args[:non_default_count]:
+        params.append(
+            Parameter(
+                arg.arg,
+                kind=Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=(
+                    force_repr(ast.unparse(arg.annotation))
+                    if arg.annotation
+                    else Parameter.empty
+                ),
+            )
+        )
+    for i, arg in enumerate(args.args[non_default_count:]):
+        params.append(
+            Parameter(
+                arg.arg,
+                kind=Parameter.POSITIONAL_OR_KEYWORD,
+                default=ast.unparse(defaults[i]),
+                annotation=(
+                    force_repr(ast.unparse(arg.annotation))
+                    if arg.annotation
+                    else Parameter.empty
+                ),
+            )
+        )
+    if args.vararg:
+        params.append(
+            Parameter(
+                args.vararg.arg,
+                kind=Parameter.VAR_POSITIONAL,
+                annotation=(
+                    force_repr(ast.unparse(args.vararg.annotation))
+                    if args.vararg.annotation
+                    else Parameter.empty
+                ),
+            )
+        )
+    for i, arg in enumerate(args.kwonlyargs):
+        default = kwdefaults[i]
+        params.append(
+            Parameter(
+                arg.arg,
+                kind=Parameter.KEYWORD_ONLY,
+                default=(
+                    force_repr(ast.unparse(default)) if default else Parameter.empty
+                ),
+                annotation=(
+                    force_repr(ast.unparse(arg.annotation))
+                    if arg.annotation
+                    else Parameter.empty
+                ),
+            )
+        )
+    if args.kwarg:
+        params.append(
+            Parameter(
+                args.kwarg.arg,
+                kind=Parameter.VAR_KEYWORD,
+                annotation=(
+                    force_repr(ast.unparse(args.kwarg.annotation))
+                    if args.kwarg.annotation
+                    else Parameter.empty
+                ),
+            )
+        )
+    return_anno = (
+        force_repr(ast.unparse(node.returns)) if node.returns else Parameter.empty
+    )
+    return Signature(params, return_annotation=return_anno)
+
+
 class OverloadPicker(ast.NodeVisitor):
     """
     Python ast visitor to pick up overload function signature and docstring.
@@ -34,7 +130,7 @@ class OverloadPicker(ast.NodeVisitor):
     ) -> None:
         self.encoding = encoding
         self.context: List[str] = []
-        self.current_function: Optional[T_FunctionDef] = None
+        self.current_function: Optional[ast.FunctionDef] = None
         self.current_class: Optional[ast.ClassDef] = None
         self.overloads: Dict[str, List[OverloadFunctionDef]] = {}
         self.globals: Dict[str, Any] = {}
@@ -49,14 +145,14 @@ class OverloadPicker(ast.NodeVisitor):
         elif isinstance(source, dict):
             self.globals = source.copy()
 
-    def is_overload(self, node: T_FunctionDef) -> bool:
+    def is_overload(self, node: ast.FunctionDef) -> bool:
         overload_ids = [f"{i}.overload" for i in self.typing] + self.typing_overload
         for decorator in node.decorator_list:
             if ast.unparse(decorator) in overload_ids:
                 return True
         return False
 
-    def exec_safety(self, node: T_FunctionDef) -> Callable:
+    def exec_safety(self, node: ast.FunctionDef) -> Callable:
         """Safely exec source code by giving a random fake name."""
         node = deepcopy(node)
         newname = self.get_safety_function_name()
@@ -78,7 +174,7 @@ class OverloadPicker(ast.NodeVisitor):
             return f"{self.current_class.name}.{name}"
         return name
 
-    def get_signature(self, node: T_FunctionDef) -> Signature:
+    def get_signature(self, node: ast.FunctionDef) -> Signature:
         node = deepcopy(node)
         node.decorator_list.clear()
         unwrap_obj = self.exec_safety(node)
@@ -87,7 +183,7 @@ class OverloadPicker(ast.NodeVisitor):
         signature = inspect.signature(unwrap_obj)
         return signature
 
-    def get_docstring(self, node: T_FunctionDef) -> str:
+    def get_docstring(self, node: ast.FunctionDef) -> str:
         docstring = ""
         fst = node.body[0]
         if isinstance(fst, ast.Expr) and isinstance(fst.value, ast.Str):
@@ -117,7 +213,7 @@ class OverloadPicker(ast.NodeVisitor):
             self.current_class = node
             self.context.append(node.name)
             for child in node.body:
-                if isinstance(child, get_args(T_FunctionDef)):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     self.visit(child)
             self.context.pop()
             self.current_class = None
@@ -129,7 +225,10 @@ class OverloadPicker(ast.NodeVisitor):
             self.current_function = node
             self.context.append(node.name)
             if self.is_overload(node):
-                signature = self.get_signature(node)
+                try:
+                    signature = self.get_signature(node)
+                except:
+                    signature = signature_from_ast(node)
                 docstring = self.get_docstring(node)
                 overload = OverloadFunctionDef(
                     ast=node, signature=signature, docstring=docstring
