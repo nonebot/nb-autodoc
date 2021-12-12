@@ -38,7 +38,7 @@ def render_params(params: List[DocstringParam], ident: int = 4, /) -> str:
     )
 
 
-def render_variable(dobj: Variable, dsobj: "Docstring") -> str:
+def render_Variable(dobj: Variable, dsobj: "Docstring") -> str:
     builder: List[str] = []
     section: Union[SINGULAR, MULTIPLE]
     if dobj.cls:
@@ -58,7 +58,7 @@ def render_variable(dobj: Variable, dsobj: "Docstring") -> str:
     return "\n\n".join(builder)
 
 
-def render_function(dobj: Function, dsobj: "Docstring") -> str:
+def render_Function(dobj: Function, dsobj: "Docstring") -> str:
     builder: List[str] = []
     section: Union[SINGULAR, MULTIPLE]
     overloads: Optional[List[DocstringOverload]]
@@ -96,7 +96,7 @@ def render_function(dobj: Function, dsobj: "Docstring") -> str:
     return "\n\n".join(builder)
 
 
-def render_class(dobj: Class, dsobj: "Docstring") -> str:
+def render_Class(dobj: Class, dsobj: "Docstring") -> str:
     builder: List[str] = []
     section: Union[SINGULAR, MULTIPLE]
     builder.append(f"## {get_title(dobj)}{get_version(dsobj)}")
@@ -116,7 +116,7 @@ def render_class(dobj: Class, dsobj: "Docstring") -> str:
     return "\n\n".join(builder)
 
 
-def render_libraryattr(dobj: LibraryAttr, dsobj: "Docstring") -> str:
+def render_LibraryAttr(dobj: LibraryAttr, dsobj: "Docstring") -> str:
     builder: List[str] = []
     builder.append(f"## {get_title(dobj)}")
     builder.append("- **说明**")
@@ -127,18 +127,12 @@ def render_libraryattr(dobj: LibraryAttr, dsobj: "Docstring") -> str:
 class MarkdownBuilder(Builder):
     def text(self) -> str:
         builder: List[str] = []
+        builder.append("---\n" "contentSidebar: true\n" "sidebarDepth: 0\n" "---")
         heading = "命名空间" if self.dmodule.is_namespace else "模块"
         dsobj = self.get_module_docstring()
         builder.append(f"# `{self.dmodule.refname}` {heading}{get_version(dsobj)}")
         if self.dmodule.docstring:
             builder.append(self.dmodule.docstring)
         for dobj, dsobj in self.iter_documentation_attrs():
-            if isinstance(dobj, Variable):
-                builder.append(render_variable(dobj, dsobj))
-            elif isinstance(dobj, Function):
-                builder.append(render_function(dobj, dsobj))
-            elif isinstance(dobj, Class):
-                builder.append(render_class(dobj, dsobj))
-            elif isinstance(dobj, LibraryAttr):
-                builder.append(render_libraryattr(dobj, dsobj))
+            builder.append(globals()["render_" + dobj.__class__.__name__](dobj, dsobj))
         return "\n\n".join(builder)
