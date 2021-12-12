@@ -196,7 +196,7 @@ class Module(Doc):
                 # Writing user docstring in `__autodoc__` is recommended
                 docstring = "三方库 API"
                 if isinstance((_docstring := self.__autodoc__.get(name)), str):
-                    docstring = _docstring
+                    docstring = inspect.cleandoc(_docstring)
                 self.doc[name] = LibraryAttr(name, obj, docstring, self)
                 continue
             if is_function(obj):

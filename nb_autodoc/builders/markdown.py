@@ -70,7 +70,7 @@ def render_Function(dobj: Function, dsobj: "Docstring") -> str:
         builder.append("- **说明**")
         builder.append(dsobj.description)
     if section := dsobj.require:
-        builder.append(f"- **要求**{get_version(section)}")
+        builder.append(f"- **要求**")
         builder.append(section)
     if overloads := dsobj.patch.get("overloads"):
         builder.append("- **重载**")
@@ -104,7 +104,7 @@ def render_Class(dobj: Class, dsobj: "Docstring") -> str:
         builder.append("- **说明**")
         builder.append(dsobj.description)
     if section := dsobj.require:
-        builder.append(f"- **要求**{get_version(section)}")
+        builder.append(f"- **要求**")
         builder.append(section)
     if section := dsobj.args:
         if section.content:
