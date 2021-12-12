@@ -154,7 +154,7 @@ class Module(Doc):
 
         annotations: Dict[str, Any] = getattr(self.obj, "__annotations__", {})
         vcpicker = pycode.extract_all_comments(self.source)
-        ofpicker = pycode.extract_all_overloads(self.source)
+        ofpicker = pycode.extract_all_overloads(self.source, globals=self.obj.__dict__)
         self.var_comments = vcpicker.comments
         self.overloads = ofpicker.overloads
 
@@ -217,12 +217,9 @@ class Module(Doc):
         # Find stub file for a package
         if not self.is_namespace:
 
-            overloads = pycode.extract_all_overloads(
-                self.source, globals=self.obj.__dict__
-            ).overloads
             for dfunction in self.functions(cls_level=True):
-                if dfunction.qualname in overloads:
-                    dfunction.overloads = overloads[dfunction.qualname]
+                if dfunction.qualname in self.overloads:
+                    dfunction.overloads = self.overloads[dfunction.qualname]
 
             if not self.obj.__file__:
                 raise
