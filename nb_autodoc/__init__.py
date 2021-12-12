@@ -17,6 +17,7 @@ from types import ModuleType
 from collections import UserDict
 from importlib import import_module
 from pkgutil import iter_modules
+from textwrap import dedent
 
 from nb_autodoc import schema, pycode, utils
 from nb_autodoc.utils import formatannotation
@@ -404,6 +405,7 @@ class Class(Doc):
             instance_vars = set(getattr(self.obj, "__slots__", ()))
         elif source := self.source:
             # Get instance vars from source code
+            source = dedent(source)  # avoid unexpected source indent in try block
             instance_vars = (pycode.extract_all_comments(source).instance_vars).get(
                 self.name, set()
             )
