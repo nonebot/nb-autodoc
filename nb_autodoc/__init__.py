@@ -494,7 +494,7 @@ class Class(Doc):
 
     def params(self) -> str:
         """Returns string of signature without annotation and returns."""
-        return utils.signature_repr(utils.get_signature(self.obj))
+        return utils.signature_repr(utils.get_signature(self.obj.__dict__["__init__"]))
 
     @property
     def refname(self) -> str:

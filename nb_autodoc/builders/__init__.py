@@ -93,7 +93,7 @@ class Builder(abc.ABC):
             return dsobj
         elif isinstance(dobj, Class):
             dsobj = get_dsobj(dobj.docstring, "class")
-            init_signature = utils.get_signature(dobj.obj)
+            init_signature = utils.get_signature(dobj.obj.__dict__["__init__"])
             dsobj = resolve_dsobj_from_signature(dsobj, init_signature, no_returns=True)
             return dsobj
         elif isinstance(dobj, LibraryAttr):
