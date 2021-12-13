@@ -181,9 +181,6 @@ class Module(Doc):
                 ):
                     public_objs[name] = inspect.unwrap(obj)
 
-        for name in annotations:
-            public_objs.setdefault(name, ...)
-
         # Start construct of public objects
         for name, obj in public_objs.items():
             if obj is None:
@@ -494,7 +491,7 @@ class Class(Doc):
 
     def params(self) -> str:
         """Returns string of signature without annotation and returns."""
-        return utils.signature_repr(utils.get_signature(self.obj.__dict__["__init__"]))
+        return utils.signature_repr(utils.get_signature(getattr(self.obj, "__init__")))
 
     @property
     def refname(self) -> str:

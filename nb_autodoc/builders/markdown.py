@@ -81,8 +81,9 @@ def render_Function(dobj: Function, dsobj: "Docstring") -> str:
             builder.append("    返回")
             builder.append(render_params(overload.returns.content, 8))
     else:
-        builder.append(f"- **参数**{get_version(dsobj.args)}")
-        builder.append(render_params(dsobj.args.content) or "    无")
+        if dsobj.args.content:
+            builder.append(f"- **参数**{get_version(dsobj.args)}")
+            builder.append(render_params(dsobj.args.content))
         builder.append(f"- **返回**{get_version(dsobj.returns)}")
         builder.append(render_params(dsobj.returns.content))
     if section := dsobj.raises:

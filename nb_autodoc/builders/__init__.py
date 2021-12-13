@@ -5,7 +5,7 @@ import abc
 import inspect
 import shutil
 from pathlib import Path
-from typing import Iterable, List, Tuple, NamedTuple, Union
+from typing import Iterable, List, Optional, Tuple, NamedTuple, Union
 
 from nb_autodoc import Module, Class, Function, Variable, LibraryAttr
 from nb_autodoc import schema, utils
@@ -16,7 +16,13 @@ def resolve_dsobj_from_signature(
     dsobj: Docstring, signature: inspect.Signature, *, no_returns: bool = False
 ) -> Docstring:
     params: List[schema.DocstringParam] = []
+    var_positional: Optional[str] = None
+    var_keyword: Optional[str] = None
     for p in signature.parameters.values():
+        if p.kind is inspect.Parameter.VAR_POSITIONAL:
+            var_positional = p.name
+        elif p.kind is inspect.Parameter.VAR_KEYWORD:
+            var_keyword = p.name
         if p.name == "self":
             continue
         params.append(
@@ -29,6 +35,10 @@ def resolve_dsobj_from_signature(
     }
     for param in params:
         param.version, param.description = save_docstring.get(param.name, (None, None))
+        if param.name == var_positional:
+            param.name = "*" + param.name
+        elif param.name == var_keyword:
+            param.name = "**" + param.name
     dsobj.args.content = params
     if not no_returns:
         if not dsobj.returns.content:
@@ -93,7 +103,7 @@ class Builder(abc.ABC):
             return dsobj
         elif isinstance(dobj, Class):
             dsobj = get_dsobj(dobj.docstring, "class")
-            init_signature = utils.get_signature(dobj.obj.__dict__["__init__"])
+            init_signature = utils.get_signature(getattr(dobj.obj, "__init__"))
             dsobj = resolve_dsobj_from_signature(dsobj, init_signature, no_returns=True)
             return dsobj
         elif isinstance(dobj, LibraryAttr):
