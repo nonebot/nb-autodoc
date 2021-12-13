@@ -235,13 +235,17 @@ class Module(Doc):
 
                 # Proper pyi source code should be executable
                 _globals: Dict[str, Any] = {}
+                # Performance relative import
+                _globals["__name__"] = self.refname + (
+                    ".__init__" if self.is_package else ""
+                )
                 exec(pyi_source, _globals)
                 annotations.update(_globals.get("__annotations__", {}))
                 _globals_public = {
                     i: v for i, v in _globals.items() if i in public_names
                 }
                 for name in annotations:
-                    _globals_public[name] = ...
+                    _globals_public.setdefault(name, ...)
                 skip_keys = public_names - _globals_public.keys()
                 if skip_keys:
                     print(
@@ -430,6 +434,8 @@ class Class(Doc):
                     public_objs.append(Class.Attribute(name, kind, obj))
 
         # TODO: Filter and sort own member
+        if hasattr(self.obj, "__slots__"):
+            public_names = tuple(self.obj.__slots__)
         public_names = tuple(
             name
             for name in self.obj.__dict__.keys()
