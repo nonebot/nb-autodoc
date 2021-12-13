@@ -20,14 +20,20 @@ def formatannotation(annot: type, new_style: bool = True) -> str:
     """
     if annot is inspect.Parameter.empty:
         return ""
+    elif annot is type(None) or annot is None:
+        return "None"
+    elif isinstance(annot, str):
+        # annot in a bare string, just return it
+        return annot
     module = getattr(annot, "__module__", "")
-    formatted = inspect.formatannotation(annot)
     if module == "typing" and getattr(annot, "__qualname__", "").startswith("NewType."):
-        formatted = annot.__name__
+        return annot.__name__
     elif module.startswith("nptyping."):
-        formatted = repr(annot)
+        return repr(annot)
+    formatted = inspect.formatannotation(annot)
     if new_style:
         formatted = convert_anno_new_style(formatted)
+    # annot string in class subscript will construct a ForwardRef
     formatted = re.sub(
         r"\b(typing\.)?ForwardRef\((?P<quot>[\"\'])(?P<str>.*?)(?P=quot)\)",
         r"\g<str>",
