@@ -5,11 +5,31 @@ import abc
 import inspect
 import shutil
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple, NamedTuple, Union
+from typing import Callable, Iterable, List, Optional, Tuple, NamedTuple, Union
 
 from nb_autodoc import Module, Class, Function, Variable, LibraryAttr
 from nb_autodoc import schema, utils
 from nb_autodoc.builders.parser.google import Docstring, get_dsobj
+
+
+def default_path_factory(refname: str, ispkg: bool, /) -> Path:
+    """Default path factory for markdown."""
+    path = Path(*refname.split("."))
+    if ispkg:
+        filepath = path / "index.md"
+    else:
+        filepath = path.with_suffix(".md")
+    return filepath
+
+
+def default_uri_factory(refname: str, ispkg: bool, /) -> str:
+    """Default uri factory for html."""
+    uri = refname.replace(".", "/")
+    if ispkg:
+        uri += "/index.html"
+    else:
+        uri += ".html"
+    return uri
 
 
 def resolve_dsobj_from_signature(
@@ -71,11 +91,26 @@ class Builder(abc.ABC):
     Args:
         dmodule: the documentation module.
         output_dir: documentation output directory.
+        path_factory: construct local filename relative to `output_dir`.
+                Receive two positional_only parameters (`refname`, `ispkg`).
+                Return the filepath.
+        uri_factory: specify the resource location on internet.
+                Receive two positional_only parameters (`refname`, `qualname`).
+                Return tuple in (`relative_uri`, `header_id`).
     """
 
-    def __init__(self, dmodule: Module, *, output_dir: str) -> None:
-        self.dmodule = dmodule
-        self.output_dir = output_dir
+    def __init__(
+        self,
+        dmodule: Module,
+        *,
+        output_dir: str,
+        path_factory: Callable[[str, bool], Path] = default_path_factory,
+        uri_factory: Callable[[str, bool], str] = default_uri_factory,
+    ) -> None:
+        self.dmodule: Module = dmodule
+        self.output_dir: str = output_dir
+        self.path_factory: Callable[[str, bool], Path] = path_factory
+        self.uri_factory: Callable[[str, bool], str] = uri_factory
 
     @staticmethod
     def get_docstring(dobj: Union[Variable, Function, Class, LibraryAttr]) -> Docstring:
@@ -133,19 +168,28 @@ class Builder(abc.ABC):
 
     def write(self) -> None:
         """Generic writer implementation."""
-        path = Path(self.output_dir, *self.dmodule.refname.split("."))
+        buildpath = Path(self.output_dir).resolve()
+        filepath = buildpath / self.path_factory(
+            self.dmodule.refname, self.dmodule.is_package
+        )
+        if not self.dmodule.supermodule:
+            shutil.rmtree(filepath.parent, ignore_errors=True)
+        # Prevent damage from unreliable filepath
+        if not filepath.is_relative_to(buildpath):
+            raise Exception(f"{filepath!r} is not under {buildpath!r}!")
         if self.dmodule.is_package:
-            shutil.rmtree(path, ignore_errors=True)
-            path.mkdir(parents=True, exist_ok=True)
-            filepath = path / "index.md"
-        else:
-            filepath = path.with_suffix(".md")
+            filepath.parent.mkdir(parents=True, exist_ok=True)
         if not self.dmodule.is_namespace:
             filepath.touch(exist_ok=False)
             with open(filepath, "w") as f:
                 f.write(self.text())
         for submod in self.dmodule.submodules():
-            self.__class__(submod, output_dir=self.output_dir).write()
+            self.__class__(
+                submod,
+                output_dir=self.output_dir,
+                path_factory=self.path_factory,
+                uri_factory=self.uri_factory,
+            ).write()
 
     @abc.abstractmethod
     def text(self) -> str:
