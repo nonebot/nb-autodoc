@@ -27,11 +27,13 @@ def get_title(dobj: Union[Class, Function, Variable, LibraryAttr]) -> str:
         prefix_builder.append("class")
         body += dobj.params()
     elif isinstance(dobj, Function):
-        if inspect.isabstract(dobj.obj):
+        if getattr(dobj.obj, "__isabstractmethod__", False):
             prefix_builder.append("abstract")
         prefix_builder.append(dobj.functype)
         body += dobj.params()
     elif isinstance(dobj, Variable):
+        if getattr(dobj.obj, "__isabstractmethod__", False):
+            prefix_builder.append("abstract")
         if is_property(dobj.obj):
             prefix_builder.append("property")
         else:
