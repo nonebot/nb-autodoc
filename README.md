@@ -19,3 +19,13 @@
 3. 提高代码质量
 
 4. 提高文档质量
+
+## Development Roadmap
+
+- 1.0
+
+    - [ ] 使用 AST 解析整个模块和子模块和命名空间，解除对 import_module 的完全依赖。此处仅在单文件层面操作，并且会获取字符串层面的所有 docstring 和类型注解。最后在保持文档和源码一致的基础上增加功能。
+
+    - [ ] 使用 AST 解析 `if TYPE_CHECKING` 的所有 import 和 importfrom (performance relative import) 并加入到每个模块的 attributes dict，用于实现 `get_type_hints`，理论上可以正确签名所有 callable 对象。
+
+    - [ ] 更好的 pyi 解析逻辑。更好的 overload 解析逻辑。
