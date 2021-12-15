@@ -11,6 +11,11 @@ def get_signature(obj: Any) -> Signature:
     """Wrapper of `inspect.signature`."""
     if hasattr(obj, "__signature__"):
         return obj.__signature__
+    if inspect.isclass(obj):
+        if issubclass(obj, (Exception, type)):
+            return Signature()
+        if obj.__init__.__class__.__module__ == "builtins":
+            return Signature()
     return inspect.signature(obj)
 
 

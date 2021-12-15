@@ -298,7 +298,6 @@ class Module(Doc):
                             qualname = dobj.qualname
                             obj.__module__ = self.refname
                             obj.__signature__ = inspect.signature(obj)
-                            obj.__code__ = raw_cls.doc[name].obj.__code__
                             if qualname not in overloads:
                                 if not obj.__doc__:
                                     obj.__doc__ = raw_cls.doc[name].docstring
@@ -491,7 +490,7 @@ class Class(Doc):
 
     def params(self) -> str:
         """Returns string of signature without annotation and returns."""
-        return utils.signature_repr(utils.get_signature(getattr(self.obj, "__init__")))
+        return utils.signature_repr(utils.get_signature(self.obj))
 
     @property
     def refname(self) -> str:
