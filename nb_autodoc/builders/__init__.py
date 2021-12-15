@@ -87,16 +87,6 @@ class Builder(abc.ABC):
 
     The class inherits from this should implement the render of docstring object.
     Call method `write` to build module's documentation recursively.
-
-    Args:
-        dmodule: the documentation module.
-        output_dir: documentation output directory.
-        path_factory: construct local filename relative to `output_dir`.
-                Receive two positional_only parameters (`refname`, `ispkg`).
-                Return the filepath.
-        uri_factory: specify the resource location on internet.
-                Receive two positional_only parameters (`refname`, `qualname`).
-                Return tuple in (`relative_uri`, `header_id`).
     """
 
     def __init__(
@@ -107,6 +97,17 @@ class Builder(abc.ABC):
         path_factory: Callable[[str, bool], Path] = default_path_factory,
         uri_factory: Callable[[str, bool], str] = default_uri_factory,
     ) -> None:
+        """
+        Args:
+            dmodule: the documentation module.
+            output_dir: documentation output directory.
+            path_factory: construct local filename relative to `output_dir`.
+                    Receive two positional_only parameters (`refname`, `ispkg`).
+                    Return `filepath`.
+            uri_factory: specify the resource location on internet.
+                    Receive two positional_only parameters (`refname`, `qualname`).
+                    Return `uri`.
+        """
         self.dmodule: Module = dmodule
         self.output_dir: str = output_dir
         self.path_factory: Callable[[str, bool], Path] = path_factory
