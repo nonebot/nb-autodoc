@@ -171,6 +171,8 @@ class Module(Doc):
                         "exported in `__all__`"
                     )
                     continue
+                if self.is_blacklisted(name):
+                    continue
                 public_objs[name] = inspect.unwrap(obj)
         else:
             for name, obj in self.obj.__dict__.items():
