@@ -556,7 +556,7 @@ class Function(Doc):
 
 
 class Variable(Doc):
-    __slots__ = ("cls", "is_instance_var", "_type_annotation")
+    __slots__ = ("cls", "_type_annotation")
     _type_annotation: Optional[type]
 
     def __init__(

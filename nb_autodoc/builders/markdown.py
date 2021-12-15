@@ -68,10 +68,16 @@ class MarkdownBuilder(Builder):
         heading = "命名空间" if self.dmodule.is_namespace else "模块"
         dsobj = self.get_module_docstring()
         builder.append(f"# `{self.dmodule.refname}` {heading}{get_version(dsobj)}")
-        if self.dmodule.docstring:
-            builder.append(self.dmodule.docstring)
+        if dsobj.description:
+            builder.append(dsobj.description)
         for dobj, dsobj in self.iter_documentation_attrs():
             self.current_dobj = dobj
+            if (
+                isinstance(dobj, Variable)
+                and not dsobj.description
+                and not dobj.type_annotation
+            ):
+                continue
             builder.append(
                 getattr(self, "render_" + dobj.__class__.__name__)(dobj, dsobj)
             )

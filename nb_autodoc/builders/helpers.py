@@ -8,7 +8,7 @@ def linkify(
     annotation: str, *, add_link: Callable[[Doc], str], context: Context
 ) -> str:
     """
-    Function for re.sub to replace refname with link.
+    Add url link for annotation.
 
     Args:
         annotation: Type's repr get from formatannotation
