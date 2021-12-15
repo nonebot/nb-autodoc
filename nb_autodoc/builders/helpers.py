@@ -1,44 +1,27 @@
-import inspect
-from typing import Union
+import re
+from typing import Callable, Match
 
-from nb_autodoc import Class, Function, Variable, LibraryAttr
-
-
-def is_property(obj: object) -> bool:
-    return isinstance(obj, property)
+from nb_autodoc import Doc, Context
 
 
-def get_title(dobj: Union[Class, Function, Variable, LibraryAttr]) -> str:
+def linkify(
+    annotation: str, *, add_link: Callable[[Doc], str], context: Context
+) -> str:
     """
-    Get a simple title of documentation object.
+    Function for re.sub to replace refname with link.
 
-    Example:
-        ```python
-        async def foo(a: int, *, b, **kwargs) -> str:
-            ...
-        ```
-        -> `_async def_ foo(a, *, b, **kwargs)`
+    Args:
+        annotation: Type's repr get from formatannotation
+        add_link: add url link for refname found.
     """
-    prefix_builder = []
-    body = dobj.name
-    if isinstance(dobj, Class):
-        if inspect.isabstract(dobj.obj):
-            prefix_builder.append("abstract")
-        prefix_builder.append("class")
-        body += dobj.params()
-    elif isinstance(dobj, Function):
-        if getattr(dobj.obj, "__isabstractmethod__", False):
-            prefix_builder.append("abstract")
-        prefix_builder.append(dobj.functype)
-        body += dobj.params()
-    elif isinstance(dobj, Variable):
-        if getattr(dobj.obj, "__isabstractmethod__", False):
-            prefix_builder.append("abstract")
-        if is_property(dobj.obj):
-            prefix_builder.append("property")
-        else:
-            prefix_builder.append(dobj.vartype)
-    elif isinstance(dobj, LibraryAttr):
-        prefix_builder.append("library-attr")
-    prefix = " ".join(prefix_builder)
-    return f"_{prefix}_ `{body}`"
+
+    def _add_link(match: Match) -> str:
+        refname = match.group()
+        dobj = context.get(refname)
+        if not dobj:
+            return refname
+        return add_link(dobj)
+
+    annotation = re.sub(r"[A-Za-z0-9_\.]+", _add_link, annotation)
+
+    return annotation
