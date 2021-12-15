@@ -14,8 +14,9 @@ def get_signature(obj: Any) -> Signature:
     if inspect.isclass(obj):
         if issubclass(obj, (Exception, type)):
             return Signature()
-        if obj.__init__.__class__.__module__ == "builtins":
-            return Signature()
+        for cls in obj.__bases__:
+            if obj.__init__ is cls.__init__ and cls.__module__ == "builtins":
+                return Signature()
     return inspect.signature(obj)
 
 
