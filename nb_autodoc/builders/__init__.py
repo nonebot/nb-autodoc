@@ -37,29 +37,27 @@ def resolve_dsobj_from_signature(
     dsobj: Docstring, signature: inspect.Signature, *, no_returns: bool = False
 ) -> Docstring:
     params: List[schema.DocstringParam] = []
-    var_positional: Optional[str] = None
-    var_keyword: Optional[str] = None
+
+    def get_dparam(name: str) -> Optional[schema.DocstringParam]:
+        param = None
+        for p in dsobj.args.content:
+            if name == p.name:
+                param = p
+        return param
+
     for p in signature.parameters.values():
-        if p.kind is inspect.Parameter.VAR_POSITIONAL:
-            var_positional = p.name
-        elif p.kind is inspect.Parameter.VAR_KEYWORD:
-            var_keyword = p.name
         if p.name == "self":
             continue
-        params.append(
-            schema.DocstringParam(
-                name=p.name, annotation=utils.formatannotation(p.annotation)
-            )
+        dp = get_dparam(p.name) or schema.DocstringParam(
+            name=p.name, annotation=utils.formatannotation(p.annotation)
         )
-    save_docstring = {
-        arg.name: (arg.version, arg.description) for arg in dsobj.args.content
-    }
-    for param in params:
-        param.version, param.description = save_docstring.get(param.name, (None, None))
-        if param.name == var_positional:
-            param.name = "*" + param.name
-        elif param.name == var_keyword:
-            param.name = "**" + param.name
+        if p.kind is inspect.Parameter.VAR_POSITIONAL:
+            dp.name = "*" + p.name
+        elif p.kind is inspect.Parameter.VAR_KEYWORD:
+            dp.name = "**" + p.name
+        if not dp.annotation:
+            dp.annotation = utils.formatannotation(p.annotation)
+        params.append(dp)
     dsobj.args.content = params
     if not no_returns:
         if not dsobj.returns.content:

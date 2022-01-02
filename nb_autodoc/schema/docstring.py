@@ -1,20 +1,31 @@
-from typing import List, Optional
-from dataclasses import dataclass
+import re
+from typing import Dict, List, Optional
+
+from attrs import define, field
 
 
-@dataclass
+def parse_roles(s: str) -> Dict[str, str]:
+    return {
+        match.group(1): match.group(2)
+        for match in re.finditer(r"{([\w]+)}`([\w\.\[\], ]+)`", s)
+    }
+
+
+@define
 class DocstringParam:
     """
-    Formed in `name (annotation) <badge>: desc`.
+    Formed in `name (annotation) rest: description`.
+    rest should be Roles to determind version or such other things.
     """
 
     name: str
     annotation: Optional[str] = None
-    version: Optional[str] = None  # third-level version
+    # default is passing before convert
+    rest: Dict[str, str] = field(converter=parse_roles, default="")
     description: Optional[str] = None
 
 
-@dataclass
+@define
 class DocstringSection:
     """
     Attributes:
@@ -22,7 +33,7 @@ class DocstringSection:
     """
 
     identity: str
-    content: List[DocstringParam]
+    content: List[DocstringParam] = field(factory=list)
     source: str = ""
     version: Optional[str] = None  # second-level version
 

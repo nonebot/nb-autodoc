@@ -10,6 +10,7 @@ from nb_autodoc.schema import DocstringSection, DocstringParam
 
 MULTIPLE = DocstringSection
 SINGULAR = Optional[str]
+ANNO_RE = r"[\w\.\[\], ]+"
 
 _sections = {
     "args": {"Arguments", "Args", "Parameters", "Params", "参数"},
@@ -83,10 +84,10 @@ class Docstring:
         self.short_desc: str = ""
         self.long_desc: str = ""
         self.description: str = ""
-        self.args: MULTIPLE = DocstringSection("args", content=[])
-        self.returns: MULTIPLE = DocstringSection("returns", content=[])
-        self.attributes: MULTIPLE = DocstringSection("attributes", content=[])
-        self.raises: MULTIPLE = DocstringSection("raises", content=[])
+        self.args: MULTIPLE = DocstringSection("args")
+        self.returns: MULTIPLE = DocstringSection("returns")
+        self.attributes: MULTIPLE = DocstringSection("attributes")
+        self.raises: MULTIPLE = DocstringSection("raises")
         self.examples: SINGULAR = None
         self.require: SINGULAR = None
         self.version: SINGULAR = None
@@ -144,29 +145,29 @@ class Docstring:
 
     @staticmethod
     def _parse_params(
-        s: str, *, argument_regex: Optional[str] = None
+        s: str, *, name_regex: Optional[str] = None
     ) -> List[DocstringParam]:
         """
         Parse text to list of DocstringParam if match regex.
         """
-        _regex = r"^({argument}) ?(?:\((.*?)\))?:"
-        regex = _regex.format(argument=argument_regex or r"[a-zA-Z0-9_]+")
+        line_regex = r"^({name})(?: *\(({anno})\))?(.*?):".format(  # noqa
+            name=name_regex or r"[\w]+", anno=ANNO_RE
+        )
         result: List[DocstringParam] = []
-        matches = list(re.finditer(regex, s, flags=re.M))
+        matches = list(re.finditer(line_regex, s, flags=re.M))
         if not matches:
             return []
-        splits: List[Tuple[str, str]] = []
+        descriptions: List[str] = []
         for i in range(len(matches) - 1):
-            splits.append(
-                (matches[i].group(1), s[matches[i].end() : matches[i + 1].start()])
-            )
-        splits.append((matches[-1].group(1), s[matches[-1].end() :]))
-        for i, (name, desc) in enumerate(splits):
+            descriptions.append(s[matches[i].end() : matches[i + 1].start()])
+        descriptions.append(s[matches[-1].end() :])
+        for i, description in enumerate(descriptions):
             result.append(
                 DocstringParam(
-                    name=name,
-                    version=matches[i].group(2),
-                    description=re.sub(r"\n[ ]*", " ", desc).strip(),
+                    name=matches[i].group(1),
+                    annotation=matches[i].group(2),
+                    rest=matches[i].group(3),  # type: ignore
+                    description=re.sub(r"\n[ ]*", " ", description).strip(),
                 )
             )
         return result
@@ -181,6 +182,6 @@ class Docstring:
 
     def parse_returns(self) -> None:
         text = self.returns.source
-        params = self._parse_params(text, argument_regex=r"[a-zA-Z0-9_\[\]]+")
+        params = self._parse_params(text, name_regex=ANNO_RE)
         if params:
             self.returns.content = params

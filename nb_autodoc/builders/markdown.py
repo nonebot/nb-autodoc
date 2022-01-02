@@ -1,14 +1,11 @@
 import inspect
-from typing import List, Optional, Union, TYPE_CHECKING
+from typing import List, Optional, Union
 from textwrap import indent
 
 from nb_autodoc import schema, Doc, Class, Function, Variable, LibraryAttr
 from nb_autodoc.builders import Builder, DocstringOverload
 from nb_autodoc.builders.helpers import linkify
-from nb_autodoc.schema.docstring import DocstringParam
-
-if TYPE_CHECKING:
-    from nb_autodoc.builders.parser.google import Docstring, SINGULAR, MULTIPLE
+from nb_autodoc.builders.parser.google import Docstring, SINGULAR, MULTIPLE
 
 
 def get_title(dobj: Union[Class, Function, Variable, LibraryAttr]) -> str:
@@ -48,11 +45,15 @@ def get_title(dobj: Union[Class, Function, Variable, LibraryAttr]) -> str:
 
 
 def get_version(
-    obj: Union["SINGULAR", "Docstring", schema.DocstringSection, schema.DocstringParam],
+    obj: Union["SINGULAR", Docstring, schema.DocstringSection, schema.DocstringParam],
     *,
     prefix: str = " ",
 ) -> str:
-    ver = obj if isinstance(obj, str) or obj is None else obj.version
+    ver = obj if isinstance(obj, str) else None
+    if isinstance(obj, (Docstring, schema.DocstringSection)):
+        ver = obj.version
+    elif isinstance(obj, schema.DocstringParam):
+        ver = obj.rest.get("ref")
     if not ver:
         return ""
     if ver.endswith("-"):
@@ -90,7 +91,9 @@ class MarkdownBuilder(Builder):
             dobj.qualname,
         )
 
-    def render_params(self, params: List[DocstringParam], ident: int = 4, /) -> str:
+    def render_params(
+        self, params: List[schema.DocstringParam], ident: int = 4, /
+    ) -> str:
         return "\n\n".join(
             "{spaces}- `{name}`{annotation}{version}{description}".format(
                 spaces=" " * ident,
