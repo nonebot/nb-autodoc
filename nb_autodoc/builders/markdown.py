@@ -53,7 +53,7 @@ def get_version(
     if isinstance(obj, (Docstring, schema.DocstringSection)):
         ver = obj.version
     elif isinstance(obj, schema.DocstringParam):
-        ver = obj.rest.get("ref")
+        ver = obj.rest.get("version")
     if not ver:
         return ""
     if ver.endswith("-"):

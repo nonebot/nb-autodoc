@@ -6,8 +6,7 @@ from attrs import define, field
 
 def parse_roles(s: str) -> Dict[str, str]:
     return {
-        match.group(1): match.group(2)
-        for match in re.finditer(r"{([\w]+)}`([\w\.\[\], ]+)`", s)
+        match.group(1): match.group(2) for match in re.finditer(r"{([\w]+)}`(.*?)`", s)
     }
 
 

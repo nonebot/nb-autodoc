@@ -45,10 +45,10 @@ class Foo:
 
         Version: 1.1.0+
 
-        Args:
+        Args (1.1.0+):
             arg1: desc1
-            arg2: desc2
-            arg3: desc3
+            arg2 (Union[str, test_pkg.api.Api]) {version}`1.1.0+`: desc2
+            arg3 {version}`1.1.0+`: desc3
 
         Returns:
             simply description for returns.
