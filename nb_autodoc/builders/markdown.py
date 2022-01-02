@@ -88,7 +88,7 @@ class MarkdownBuilder(Builder):
         return "[{}]({}#{})".format(
             dobj.qualname,
             self.uri_factory(dobj.module.refname, dobj.module.is_package),
-            dobj.qualname,
+            dobj.ident,
         )
 
     def render_params(
@@ -118,8 +118,7 @@ class MarkdownBuilder(Builder):
         section: Union[SINGULAR, MULTIPLE]
         ftitle = "### {}{}" if dobj.cls else "## {}{}"
         builder.append(
-            ftitle.format(get_title(dobj), get_version(dsobj))
-            + f" {{#{dobj.qualname}}}"
+            ftitle.format(get_title(dobj), get_version(dsobj)) + f" {{#{dobj.ident}}}"
         )
         builder.append(
             f"- **类型:** {dobj.type_annotation}{get_version(dsobj.type_version)}"
@@ -141,8 +140,7 @@ class MarkdownBuilder(Builder):
         overloads: Optional[List[DocstringOverload]]
         ftitle = "### {}{}" if dobj.cls else "## {}{}"
         builder.append(
-            ftitle.format(get_title(dobj), get_version(dsobj))
-            + f" {{#{dobj.qualname}}}"
+            ftitle.format(get_title(dobj), get_version(dsobj)) + f" {{#{dobj.ident}}}"
         )
         if dsobj.description:
             builder.append("- **说明**")
@@ -179,7 +177,7 @@ class MarkdownBuilder(Builder):
         builder: List[str] = []
         section: Union[SINGULAR, MULTIPLE]
         builder.append(
-            f"## {get_title(dobj)}{get_version(dsobj)}" + f" {{#{dobj.qualname}}}"
+            f"## {get_title(dobj)}{get_version(dsobj)}" + f" {{#{dobj.ident}}}"
         )
         if dsobj.description:
             builder.append("- **说明**")

@@ -85,6 +85,10 @@ class Doc:
         """Qualified name of current object."""
         return getattr(self.obj, "__qualname__", self.name)
 
+    @property
+    def ident(self) -> str:
+        return self.qualname.replace(".", "-")
+
 
 class Module(Doc):
     __slots__ = (
