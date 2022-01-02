@@ -44,8 +44,10 @@ def formatannotation(annot: type, new_style: bool = True) -> str:
 
 class MyTransformer(ast.NodeTransformer):
     def visit_Subscript(self, node: ast.Subscript) -> ast.AST:
+        if not isinstance(node.value, ast.Name):
+            return node
         result: Any = node
-        name = cast(ast.Name, node.value)
+        name = node.value
         if name.id in ("List", "Set", "Tuple", "Dict"):
             name.id = name.id.lower()
         elif name.id == "Union":
