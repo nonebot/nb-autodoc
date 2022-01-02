@@ -1,6 +1,15 @@
+[[package]]
+name = "attrs"
+version = "21.4.0"
+requires_python = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
+summary = "Classes Without Boilerplate"
 
 [metadata]
 lock_version = "3.1"
-content_hash = "sha256:53528eb5109021aadd3d11c0dd3fd1798a5668d55704a6f000ab12fc02fdfbc0"
+content_hash = "sha256:11b9d16f57788acf1fbe62ab2e90a3baf2cc222e744167038e8dffa956c63dc9"
 
 [metadata.files]
+"attrs 21.4.0" = [
+    {file = "attrs-21.4.0-py2.py3-none-any.whl", hash = "sha256:2d27e3784d7a565d36ab851fe94887c5eccd6a463168875832a1be79c82828b4"},
+    {file = "attrs-21.4.0.tar.gz", hash = "sha256:626ba8234211db98e869df76230a137c4c40a12d72445c45d5f5b716f076e2fd"},
+]

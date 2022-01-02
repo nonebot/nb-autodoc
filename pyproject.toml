@@ -5,7 +5,9 @@ description = "API doc generator for NoneBot."
 authors = [
     {name = "iyume", email = "iyumelive@gmail.com"},
 ]
-dependencies = []
+dependencies = [
+    "attrs~=21.4",
+]
 requires-python = ">=3.9"
 license = {text = "MIT"}
 readme = "README.md"
