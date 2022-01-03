@@ -86,7 +86,7 @@ class Doc:
         return getattr(self.obj, "__qualname__", self.name)
 
     @property
-    def ident(self) -> str:
+    def heading_id(self) -> str:
         return self.qualname.replace(".", "-")
 
 
