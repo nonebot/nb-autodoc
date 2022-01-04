@@ -10,17 +10,25 @@ from nb_autodoc.schema import DocstringSection, DocstringParam
 
 MULTIPLE = DocstringSection
 SINGULAR = Optional[str]
-ANNO_RE = r"[\w\.\[\], ]+"
+
+ARGS = "args"
+RETURNS = "returns"
+ATTRIBUTES = "attributes"
+RAISES = "raises"
+EXAMPLES = "examples"
+REQUIRE = "require"
+VERSION = "version"
+TYPE_VERSION = "type_version"
 
 _sections = {
-    "args": {"Arguments", "Args", "Parameters", "Params", "参数"},
-    "returns": {"Return", "Returns", "返回"},
-    "attributes": {"Attributes", "属性"},
-    "raises": {"Raises", "Exceptions", "Except", "异常"},
-    "examples": {"Example", "Examples", "示例", "用法"},
-    "require": {"Require", "要求"},
-    "version": {"Version", "版本"},
-    "type_version": {"TypeVersion", "类型版本"},
+    ARGS: {"Arguments", "Args", "Parameters", "Params", "参数"},
+    RETURNS: {"Return", "Returns", "返回"},
+    ATTRIBUTES: {"Attributes", "属性"},
+    RAISES: {"Raises", "Exceptions", "Except", "异常"},
+    EXAMPLES: {"Example", "Examples", "示例", "用法"},
+    REQUIRE: {"Require", "要求"},
+    VERSION: {"Version", "版本"},
+    TYPE_VERSION: {"TypeVersion", "类型版本"},
 }
 
 
@@ -42,9 +50,9 @@ class Docstring:
     When description include `\\n`, a short_desc is required,
     or the first line of long_desc will be thinked as short_desc.
 
-    A section maybe ambitious (singular_or_multiple),
+    A section maybe ambitious (singular or multiple),
     so we define duck type rather than define MULTIPLE_OR_SINGULAR for another type hints.
-    When match regex, we think section is multiple, or singular.
+    When match regex, we think section is multiple, else singular.
     """
 
     _sections = _sections
@@ -56,14 +64,6 @@ class Docstring:
     )
     _sections_class = get_sections(
         {"args", "attributes", "examples", "require", "version"}
-    )
-    __slots__ = (
-        "sections",
-        "short_desc",
-        "long_desc",
-        "description",
-        *_sections.keys(),
-        "patch",
     )
     title_re = re.compile(
         "^("
@@ -84,10 +84,10 @@ class Docstring:
         self.short_desc: str = ""
         self.long_desc: str = ""
         self.description: str = ""
-        self.args: MULTIPLE = DocstringSection("args")
-        self.returns: MULTIPLE = DocstringSection("returns")
-        self.attributes: MULTIPLE = DocstringSection("attributes")
-        self.raises: MULTIPLE = DocstringSection("raises")
+        self.args: MULTIPLE = DocstringSection(ARGS)
+        self.returns: MULTIPLE = DocstringSection(RETURNS)
+        self.attributes: MULTIPLE = DocstringSection(ATTRIBUTES)
+        self.raises: MULTIPLE = DocstringSection(RAISES)
         self.examples: SINGULAR = None
         self.require: SINGULAR = None
         self.version: SINGULAR = None
@@ -95,13 +95,14 @@ class Docstring:
         self.patch: Dict[str, Any] = {}
         for name in self._sections.keys() - self.sections.keys():
             delattr(self, name)
+        self.current_section: Optional[DocstringSection] = None
 
-    def parse(self, text: str) -> None:
-        text = inspect.cleandoc(text)
-        if not text:
+    def parse(self, docstring: str) -> None:
+        docstring = inspect.cleandoc(docstring)
+        if not docstring:
             return
-        matches = list(self.title_re.finditer(text))
-        desc_chunk = text[: matches[0].start()] if matches else text
+        matches = list(self.title_re.finditer(docstring))
+        desc_chunk = docstring[: matches[0].start()] if matches else docstring
         desc_chunk = desc_chunk.strip()
         desc_parts = [i.strip() for i in desc_chunk.split("\n", 1)]
         self.short_desc = self.description = desc_parts[0]
@@ -117,71 +118,66 @@ class Docstring:
             )
         splits.append((matches[-1].group(1), slice(matches[-1].end(), None)))
         for i, (name, seg) in enumerate(splits):
-            for identity, set_ in self.sections.items():
-                if not name in set_:
-                    continue
-                text_seg = inspect.cleandoc(text[seg])
-                section = getattr(self, identity)
-                if section is None:
-                    setattr(self, identity, text_seg)
-                    continue
-                elif isinstance(section, DocstringSection):
-                    section.version = matches[i].group(2)
-                    section.source = text_seg
-                else:
-                    continue
-                # try to call self-defined method
-                method = getattr(self, "parse_" + identity, None)
-                if method is not None and callable(method):
-                    try:
-                        method()
-                    except Exception:
-                        print(
-                            "Error parsing docstring: "
-                            f"find method {method.__name__!r} but raises when calling.",
-                        )
-                else:
-                    self.generic_parser(section)
+            identity = None
+            # find identity
+            for _id, _aliases in self.sections.items():
+                if name in _aliases:
+                    identity = _id
+            if identity is None:
+                continue
+            text = inspect.cleandoc(docstring[seg])
+            section = getattr(self, identity)
+            if not isinstance(section, DocstringSection):
+                # SINGULAR section type
+                setattr(self, identity, text)
+                continue
+            section.version = matches[i].group(2)
+            section.source = text
+            self.current_section = section
+            self.generic_parse()
 
-    @staticmethod
-    def _parse_params(
-        s: str, *, name_regex: Optional[str] = None
-    ) -> List[DocstringParam]:
-        """
-        Parse text to list of DocstringParam if match regex.
-        """
-        line_regex = r"^({name})(?: *\(({anno})\))?(.*?):".format(  # noqa
-            name=name_regex or r"[\w]+", anno=ANNO_RE
-        )
-        result: List[DocstringParam] = []
-        matches = list(re.finditer(line_regex, s, flags=re.M))
-        if not matches:
-            return []
-        descriptions: List[str] = []
-        for i in range(len(matches) - 1):
-            descriptions.append(s[matches[i].end() : matches[i + 1].start()])
-        descriptions.append(s[matches[-1].end() :])
-        for i, description in enumerate(descriptions):
-            result.append(
-                DocstringParam(
-                    name=matches[i].group(1),
-                    annotation=matches[i].group(2),
-                    rest=matches[i].group(3),  # type: ignore
-                    description=re.sub(r"\n[ ]*", " ", description).strip(),
-                )
-            )
-        return result
-
-    def generic_parser(self, section: DocstringSection) -> None:
-        text = section.source
-        if not isinstance(text, str):
+    def generic_parse(self) -> None:
+        section = self.current_section
+        if section is None:
             return
-        params = self._parse_params(text)
-        if params:
-            section.content = params
 
-    def parse_returns(self) -> None:
-        text = self.returns.source
-        params = self._parse_params(text, name_regex=ANNO_RE)
-        if params:
-            self.returns.content = params
+        method = getattr(self, "parse_" + section.identity, None)
+        if callable(method):
+            try:
+                method(section)
+            except Exception:
+                print(
+                    "Error parsing docstring: "
+                    f"find method {method.__name__!r} but raises during running."
+                )
+        else:
+
+            def parse_roles(s: str) -> List["DocstringParam.Role"]:
+                return [
+                    DocstringParam.Role(match.group(1), match.group(2))
+                    for match in re.finditer(r"{([\w]+)}`(.*?)`", s)
+                ]
+
+            anno_re = r"[\w\.\[\], ]+"
+            name_re = anno_re if section.identity == RETURNS else r"[\w]+"
+            line_re = r"^({name})(?: *\(({anno})\))?(.*?):".format(  # noqa
+                name=name_re, anno=anno_re
+            )
+            matches = list(re.finditer(line_re, section.source, flags=re.M))
+            if not matches:
+                return
+            descriptions: List[str] = []
+            for i in range(len(matches) - 1):
+                descriptions.append(
+                    section.source[matches[i].end() : matches[i + 1].start()]
+                )
+            descriptions.append(section.source[matches[-1].end() :])
+            for i, description in enumerate(descriptions):
+                section.content.append(
+                    DocstringParam(
+                        name=matches[i].group(1),
+                        annotation=matches[i].group(2),
+                        roles=parse_roles(matches[i].group(3)),
+                        description=re.sub(r"\n[ ]*", " ", description).strip(),
+                    )
+                )

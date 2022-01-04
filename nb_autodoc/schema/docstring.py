@@ -1,16 +1,9 @@
-import re
-from typing import Dict, List, Optional
+from typing import List, NamedTuple, Optional
 
 from attrs import define, field
 
 
-def parse_roles(s: str) -> Dict[str, str]:
-    return {
-        match.group(1): match.group(2) for match in re.finditer(r"{([\w]+)}`(.*?)`", s)
-    }
-
-
-@define
+@define(slots=True)
 class DocstringParam:
     """
     Formed in `name (annotation) rest: description`.
@@ -20,11 +13,23 @@ class DocstringParam:
     name: str
     annotation: Optional[str] = None
     # default is passing before convert
-    rest: Dict[str, str] = field(converter=parse_roles, default="")
+    roles: List["Role"] = field(factory=list)
     description: Optional[str] = None
 
+    class Role(NamedTuple):
+        id: str
+        content: str
 
-@define
+    def __getattr__(self, name: str) -> Optional[str]:
+        if name in ("version", "ref"):
+            for role in self.roles:
+                if name == role.id:
+                    return role.content
+            return None
+        return self.__getattribute__(name)
+
+
+@define(slots=True)
 class DocstringSection:
     """
     Attributes:

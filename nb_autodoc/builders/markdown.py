@@ -53,7 +53,7 @@ def get_version(
     if isinstance(obj, (Docstring, schema.DocstringSection)):
         ver = obj.version
     elif isinstance(obj, schema.DocstringParam):
-        ver = obj.rest.get("version")
+        ver = obj.version
     if not ver:
         return ""
     if ver.endswith("-"):
@@ -92,11 +92,10 @@ class MarkdownBuilder(Builder):
         )
 
     def render_params(
-        self, params: List[schema.DocstringParam], ident: int = 4, /
+        self, params: List[schema.DocstringParam], level: int = 1, /
     ) -> str:
-        return "\n\n".join(
-            "{spaces}- `{name}`{annotation}{version}{description}".format(
-                spaces=" " * ident,
+        text = "\n\n".join(
+            "- `{name}`{annotation}{version}{description}".format(
                 name=p.name,
                 annotation=" ({})".format(
                     linkify(
@@ -112,6 +111,7 @@ class MarkdownBuilder(Builder):
             )
             for p in params
         )
+        return indent(text, prefix=" " * level * 4)
 
     def render_Variable(self, dobj: Variable, dsobj: "Docstring") -> str:
         builder: List[str] = []
@@ -155,9 +155,9 @@ class MarkdownBuilder(Builder):
             for i, overload in enumerate(overloads):
                 builder.append(f"    {i + 1}. `{overload.signature}`")
                 builder.append("    参数")
-                builder.append(self.render_params(overload.args.content, 8))
+                builder.append(self.render_params(overload.args.content, 2))
                 builder.append("    返回")
-                builder.append(self.render_params(overload.returns.content, 8))
+                builder.append(self.render_params(overload.returns.content, 2))
         else:
             if dsobj.args.content:
                 builder.append(f"- **参数**{get_version(dsobj.args)}")
