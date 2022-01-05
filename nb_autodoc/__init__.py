@@ -76,6 +76,11 @@ class Doc:
             return ""
 
     @property
+    def kind(self) -> str:
+        """Identify every kind of object."""
+        raise NotImplementedError
+
+    @property
     def refname(self) -> str:
         """Refname of current object."""
         return self.name
@@ -499,6 +504,12 @@ class Class(Doc):
         return utils.signature_repr(utils.get_signature(self.obj))
 
     @property
+    def kind(self) -> str:
+        if inspect.isabstract(self.obj):
+            return "abstract class"
+        return "class"
+
+    @property
     def refname(self) -> str:
         return f"{self.module.refname}.{self.qualname}"
 
@@ -532,9 +543,10 @@ class Function(Doc):
         return inspect.iscoroutinefunction(obj)
 
     @property
-    def functype(self) -> str:
-        """Classify function type seperated by space."""
+    def kind(self) -> str:
         builder = []
+        if getattr(self.obj, "__isabstractmethod__", False):
+            builder.append("abstract")
         if self.is_async(self.obj):
             builder.append("async")
         if self.cls:
@@ -580,8 +592,11 @@ class Variable(Doc):
         self._type_annotation = type_annotation
 
     @property
-    def vartype(self) -> str:
-        """Classify variable type seperated by space."""
+    def kind(self) -> str:
+        if isinstance(self.obj, property):
+            if getattr(self.obj, "__isabstractmethod__", False):
+                return "abstract property"
+            return "property"
         if self.cls:
             return (
                 "instance-var" if self.name in self.cls.instance_vars else "class-var"
@@ -608,6 +623,10 @@ class Variable(Doc):
 
 
 class LibraryAttr(Doc):
+    @property
+    def kind(self) -> str:
+        return "library-attr"
+
     @property
     def refname(self) -> str:
         return f"{self.module.refname}.{self.name}"

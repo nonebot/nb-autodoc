@@ -1,4 +1,3 @@
-import inspect
 from typing import List, Optional, Union
 from textwrap import indent
 
@@ -6,42 +5,6 @@ from nb_autodoc import schema, Doc, Class, Function, Variable, LibraryAttr
 from nb_autodoc.builders import Builder, DocstringOverload
 from nb_autodoc.builders.helpers import linkify
 from nb_autodoc.builders.parser.google import Docstring, SINGULAR, MULTIPLE
-
-
-def get_title(dobj: Union[Class, Function, Variable, LibraryAttr]) -> str:
-    """
-    Get a simple title of documentation object.
-
-    Example:
-        ```python
-        async def foo(a: int, *, b, **kwargs) -> str:
-            ...
-        ```
-        -> `_async def_ foo(a, *, b, **kwargs)`
-    """
-    prefix_builder = []
-    body = dobj.name
-    if isinstance(dobj, Class):
-        if inspect.isabstract(dobj.obj):
-            prefix_builder.append("abstract")
-        prefix_builder.append("class")
-        body += dobj.params()
-    elif isinstance(dobj, Function):
-        if getattr(dobj.obj, "__isabstractmethod__", False):
-            prefix_builder.append("abstract")
-        prefix_builder.append(dobj.functype)
-        body += dobj.params()
-    elif isinstance(dobj, Variable):
-        if getattr(dobj.obj, "__isabstractmethod__", False):
-            prefix_builder.append("abstract")
-        if isinstance(dobj.obj, property):
-            prefix_builder.append("property")
-        else:
-            prefix_builder.append(dobj.vartype)
-    elif isinstance(dobj, LibraryAttr):
-        prefix_builder.append("library-attr")
-    prefix = " ".join(prefix_builder)
-    return f"_{prefix}_ `{body}`"
 
 
 def get_version(
@@ -116,9 +79,11 @@ class MarkdownBuilder(Builder):
     def render_Variable(self, dobj: Variable, dsobj: "Docstring") -> str:
         builder: List[str] = []
         section: Union[SINGULAR, MULTIPLE]
-        ftitle = "### {}{}" if dobj.cls else "## {}{}"
+        ftitle = "## _{}_ `{}`{}"
+        if dobj.cls is not None:
+            ftitle = "#" + ftitle
         builder.append(
-            ftitle.format(get_title(dobj), get_version(dsobj))
+            ftitle.format(dobj.kind, dobj.name, get_version(dsobj))
             + f" {{#{dobj.heading_id}}}"
         )
         builder.append(
@@ -139,9 +104,11 @@ class MarkdownBuilder(Builder):
         builder: List[str] = []
         section: Union[SINGULAR, MULTIPLE]
         overloads: Optional[List[DocstringOverload]]
-        ftitle = "### {}{}" if dobj.cls else "## {}{}"
+        ftitle = "## _{}_ `{}`{}"
+        if dobj.cls is not None:
+            ftitle = "#" + ftitle
         builder.append(
-            ftitle.format(get_title(dobj), get_version(dsobj))
+            ftitle.format(dobj.kind, dobj.name + dobj.params(), get_version(dsobj))
             + f" {{#{dobj.heading_id}}}"
         )
         if dsobj.description:
@@ -179,7 +146,10 @@ class MarkdownBuilder(Builder):
         builder: List[str] = []
         section: Union[SINGULAR, MULTIPLE]
         builder.append(
-            f"## {get_title(dobj)}{get_version(dsobj)}" + f" {{#{dobj.heading_id}}}"
+            "## _{}_ `{}`{}".format(
+                dobj.kind, dobj.name + dobj.params(), get_version(dsobj)
+            )
+            + f" {{#{dobj.heading_id}}}"
         )
         if dsobj.description:
             builder.append("- **说明**")
@@ -198,7 +168,7 @@ class MarkdownBuilder(Builder):
 
     def render_LibraryAttr(self, dobj: LibraryAttr, dsobj: "Docstring") -> str:
         builder: List[str] = []
-        builder.append(f"## {get_title(dobj)}")
+        builder.append(f"## _{dobj.kind}_ `{dobj.name}`")
         builder.append("- **说明**")
         builder.append(dobj.docstring or "暂无文档")
         return "\n\n".join(builder)
