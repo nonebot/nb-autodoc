@@ -4,7 +4,7 @@ import inspect
 from typing import Any, List, Optional
 from inspect import Signature, Parameter
 
-from nb_autodoc.pycode.annotransformer import formatannotation
+from nb_autodoc.pycode.annotransformer import formatannotation, convert_anno_new_style
 
 
 def get_signature(obj: Any) -> Signature:

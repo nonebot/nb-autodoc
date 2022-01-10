@@ -37,18 +37,13 @@ def resolve_dsobj_from_signature(
     dsobj: Docstring, signature: inspect.Signature, *, no_returns: bool = False
 ) -> Docstring:
     params: List[schema.DocstringParam] = []
-    extra_params = {i.name for i in dsobj.args.content} - signature.parameters.keys()
-
-    def get_dparam(name: str) -> Optional[schema.DocstringParam]:
-        for p in dsobj.args.content:
-            if name == p.name:
-                return p
-        return None
+    dparams_dict = {dp.name: dp for dp in dsobj.args.content}
+    extra_params = dparams_dict.keys() - signature.parameters.keys()
 
     for p in signature.parameters.values():
-        if p.name == "self":
+        if p.name == "self" or p.name == "cls":
             continue
-        dp = get_dparam(p.name) or schema.DocstringParam(
+        dp = dparams_dict.get(p.name) or schema.DocstringParam(
             name=p.name, annotation=utils.formatannotation(p.annotation)
         )
         if p.kind is inspect.Parameter.VAR_POSITIONAL:
@@ -59,7 +54,11 @@ def resolve_dsobj_from_signature(
             dp.annotation = utils.formatannotation(p.annotation)
         params.append(dp)
 
-    params.extend(i for s in extra_params if (i := get_dparam(s)))
+    for name in extra_params:
+        dp = dparams_dict[name]
+        if dp.annotation:
+            dp.annotation = utils.convert_anno_new_style(dp.annotation)
+        params.append(dp)
     dsobj.args.content = params
 
     if not no_returns:
@@ -73,6 +72,9 @@ def resolve_dsobj_from_signature(
                     description=dsobj.returns.source,
                 )
             )
+        else:
+            for dp in dsobj.returns.content:
+                dp.name = utils.convert_anno_new_style(dp.name)
 
     return dsobj
 
