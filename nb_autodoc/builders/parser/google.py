@@ -4,35 +4,10 @@ Google style docstring parser.
 import re
 import inspect
 from typing import Any, Dict, Literal, Set, Optional, List, Tuple
-from enum import IntEnum
+from enum import Enum
 from textwrap import dedent
 
 from nb_autodoc.schema import DocstringParam, DocstringSection
-
-
-ARGS = "args"
-RETURNS = "returns"
-ATTRIBUTES = "attributes"
-RAISES = "raises"
-EXAMPLES = "examples"
-REQUIRE = "require"
-VERSION = "version"
-TYPE_VERSION = "type_version"
-
-_sections = {
-    ARGS: {"Arguments", "Args", "Parameters", "Params", "参数"},
-    RETURNS: {"Return", "Returns", "返回"},
-    ATTRIBUTES: {"Attributes", "属性"},
-    RAISES: {"Raises", "Exceptions", "Except", "异常"},
-    EXAMPLES: {"Example", "Examples", "示例", "用法"},
-    REQUIRE: {"Require", "要求"},
-    VERSION: {"Version", "版本"},
-    TYPE_VERSION: {"TypeVersion", "类型版本"},
-}
-
-
-def get_sections(names: Set[str]) -> Dict[str, Set[str]]:
-    return {k: v for k, v in _sections.items() if k in names}
 
 
 def get_dsobj(
@@ -44,13 +19,35 @@ def get_dsobj(
     return dsobj
 
 
-class _SectionKind(IntEnum):
+class _SectionKind(Enum):
     SINGULAR = 0
     MULTIPLE = 1
 
 
+class _SectionType(Enum):
+    ARGS = 0
+    RETURNS = 1
+    ATTRIBUTES = 2
+    RAISES = 3
+    EXAMPLES = 4
+    REQUIRE = 5
+    VERSION = 6
+    TYPE_VERSION = 7
+
+
 _SINGULAR = _SectionKind.SINGULAR
 _MULTIPLE = _SectionKind.MULTIPLE
+
+_sections = {
+    _SectionType.ARGS: {"Arguments", "Args", "Parameters", "Params", "参数"},
+    _SectionType.RETURNS: {"Return", "Returns", "返回"},
+    _SectionType.ATTRIBUTES: {"Attributes", "属性"},
+    _SectionType.RAISES: {"Raises", "Exceptions", "Except", "异常"},
+    _SectionType.EXAMPLES: {"Example", "Examples", "示例", "用法"},
+    _SectionType.REQUIRE: {"Require", "要求"},
+    _SectionType.VERSION: {"Version", "版本"},
+    _SectionType.TYPE_VERSION: {"TypeVersion", "类型版本"},
+}
 
 
 class Docstring:
@@ -65,7 +62,7 @@ class Docstring:
 
     SINGULAR = _SectionKind.SINGULAR
     MULTIPLE = _SectionKind.MULTIPLE
-
+    SectionType = _SectionType
     sections = _sections
     title_re = re.compile(
         "^("
@@ -82,17 +79,18 @@ class Docstring:
         self.short_desc: str = ""
         self.long_desc: str = ""
         self.description: str = ""
-        self.args = DocstringSection(ARGS, kind=_MULTIPLE)
-        self.returns = DocstringSection(RETURNS, kind=_MULTIPLE)
-        self.attributes = DocstringSection(ATTRIBUTES, kind=_MULTIPLE)
-        self.raises = DocstringSection(RAISES, kind=_MULTIPLE)
-        self.examples = DocstringSection(EXAMPLES, kind=_SINGULAR)
-        self.require = DocstringSection(REQUIRE, kind=_SINGULAR)
-        self.version = DocstringSection(VERSION, kind=_SINGULAR)
-        self.type_version = DocstringSection(TYPE_VERSION, kind=_SINGULAR)
+        self.args = DocstringSection(_SectionType.ARGS, _MULTIPLE)
+        self.returns = DocstringSection(_SectionType.RETURNS, _MULTIPLE)
+        self.attributes = DocstringSection(_SectionType.ATTRIBUTES, _MULTIPLE)
+        self.raises = DocstringSection(_SectionType.RAISES, _MULTIPLE)
+        self.examples = DocstringSection(_SectionType.EXAMPLES, _SINGULAR)
+        self.require = DocstringSection(_SectionType.REQUIRE, _SINGULAR)
+        self.version = DocstringSection(_SectionType.VERSION, _SINGULAR)
+        self.type_version = DocstringSection(_SectionType.TYPE_VERSION, _SINGULAR)
         self.patch: Dict[str, Any] = {}
+        section_keys = {s.name.lower() for s in _sections.keys()}
         if typ == "variable":
-            for id in _sections.keys() - {
+            for id in section_keys - {
                 "examples",
                 "require",
                 "version",
@@ -100,7 +98,7 @@ class Docstring:
             }:
                 delattr(self, id)
         elif typ == "function":
-            for id in _sections.keys() - {
+            for id in section_keys - {
                 "args",
                 "returns",
                 "raises",
@@ -110,7 +108,7 @@ class Docstring:
             }:
                 delattr(self, id)
         elif typ == "class":
-            for id in _sections.keys() - {
+            for id in section_keys - {
                 "args",
                 "attributes",
                 "examples",
@@ -148,13 +146,13 @@ class Docstring:
             if identity is None:
                 continue
             text = inspect.cleandoc(docstring[seg])
-            section = getattr(self, identity)
+            section = getattr(self, identity.name.lower())
             section.version = matches[i].group(2)
             section.source = text
             self.generic_parse(section)
 
     def generic_parse(self, section: DocstringSection) -> None:
-        method = getattr(self, "parse_" + section.identity, None)
+        method = getattr(self, "parse_" + section.type.name.lower(), None)
         if method is not None:
             try:
                 method(section)
@@ -164,7 +162,7 @@ class Docstring:
                     f"find method {method.__name__!r} but raises during running."
                 )
         else:
-            if section.kind == _SINGULAR:
+            if section.kind is _SINGULAR:
                 return
 
             def parse_roles(s: str) -> List[DocstringParam.Role]:
@@ -174,7 +172,7 @@ class Docstring:
                 ]
 
             anno_re = r"[\w\.\[\], ]+"
-            name_re = anno_re if section.identity == RETURNS else r"[\w]+"
+            name_re = anno_re if section.type is _SectionType.RETURNS else r"[\w]+"
             line_re = r"^({name})(?: *\(({anno})\))?(.*?):".format(  # noqa
                 name=name_re, anno=anno_re
             )

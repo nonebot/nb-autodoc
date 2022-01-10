@@ -1,4 +1,5 @@
 from typing import List, NamedTuple, Optional
+from enum import Enum
 
 from attrs import define, field
 
@@ -37,8 +38,8 @@ class DocstringSection:
         content: try parse source if kind is MULTIPLE
     """
 
-    identity: str
-    kind: int
+    type: Enum
+    kind: Enum
     version: Optional[str] = None
     content: List[DocstringParam] = field(factory=list)
     source: str = ""
