@@ -3,7 +3,7 @@ Google style docstring parser.
 """
 import re
 import inspect
-from typing import Any, Dict, Literal, Set, Optional, List, Tuple
+from typing import Any, Dict, Literal, Optional, List, Tuple
 from enum import Enum
 from textwrap import dedent
 
@@ -99,6 +99,7 @@ class Docstring:
             for id in section_keys - {
                 "args",
                 "returns",
+                "attributes",
                 "raises",
                 "examples",
                 "require",
