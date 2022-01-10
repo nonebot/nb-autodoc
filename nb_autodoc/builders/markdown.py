@@ -38,7 +38,6 @@ class MarkdownBuilder(Builder):
         if dsobj.description:
             builder.append(dsobj.description)
         for dobj, dsobj in self.iter_documentation_attrs():
-            self.current_dobj = dobj
             if (
                 isinstance(dobj, Variable)
                 and not dsobj.description
@@ -58,15 +57,21 @@ class MarkdownBuilder(Builder):
         )
 
     @staticmethod
-    def indent(s: str, level: int = 1) -> str:
-        return _indent(s, prefix=" " * level * 4)
+    def indent(s: str, level: int = 1, /) -> str:
+        return _indent(s, prefix=" " * level * 2)
 
-    def render_params(
-        self, params: List[schema.DocstringParam], level: int = 1, /
-    ) -> str:
+    def render_params(self, section: schema.DocstringSection, level: int = 1, /) -> str:
+        if not section.content:
+            return ""
         text = "\n\n".join(
-            "- `{name}`{annotation}{version}{desc}{long_desc}".format(
-                name=p.name,
+            "- {name}{annotation}{version}{desc}{long_desc}".format(
+                name=linkify(
+                    p.name,
+                    add_link=self.add_link,
+                    context=self.dmodule.context,
+                )
+                if section.type is Docstring.SectionType.RETURNS
+                else f"`{p.name}`",
                 annotation=" ({})".format(
                     linkify(
                         p.annotation,
@@ -82,9 +87,9 @@ class MarkdownBuilder(Builder):
                 if p.long_description
                 else "",
             )
-            for p in params
+            for p in section.content
         )
-        return self.indent(text, level=level)
+        return self.indent(text, level)
 
     def render_Variable(self, dobj: Variable, dsobj: "Docstring") -> str:
         builder: List[str] = []
@@ -130,20 +135,18 @@ class MarkdownBuilder(Builder):
             for i, overload in enumerate(overloads):
                 builder.append(f"    {i + 1}. `{overload.signature}`")
                 builder.append("    参数")
-                builder.append(self.render_params(overload.args.content, 2))
+                builder.append(self.render_params(overload.args, 2))
                 builder.append("    返回")
-                builder.append(self.render_params(overload.returns.content, 2))
+                builder.append(self.render_params(overload.returns, 2))
         else:
             if dsobj.args.content:
                 builder.append(f"- **参数**{get_version(dsobj.args)}")
-                builder.append(self.render_params(dsobj.args.content))
+                builder.append(self.render_params(dsobj.args))
             builder.append(f"- **返回**{get_version(dsobj.returns)}")
-            builder.append(self.render_params(dsobj.returns.content))
+            builder.append(self.render_params(dsobj.returns))
         if section := dsobj.raises:
             builder.append(f"- **异常**{get_version(section)}")
-            builder.append(
-                self.render_params(section.content) or self.indent(section.source)
-            )
+            builder.append(self.render_params(section) or self.indent(section.source))
         if section := dsobj.examples:
             builder.append("- **用法**")
             builder.append(section.source)
@@ -166,7 +169,7 @@ class MarkdownBuilder(Builder):
         if section := dsobj.args:
             if section.content:
                 builder.append(f"- **参数**{get_version(section)}")
-                builder.append(self.render_params(section.content))
+                builder.append(self.render_params(section))
         if section := dsobj.examples:
             builder.append("- **用法**")
             builder.append(section.source)

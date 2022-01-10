@@ -76,8 +76,6 @@ class Docstring:
         *,
         typ: Optional[Literal["variable", "function", "class"]] = None,
     ) -> None:
-        self.short_desc: str = ""
-        self.long_desc: str = ""
         self.description: str = ""
         self.args = DocstringSection(_SectionType.ARGS, _MULTIPLE)
         self.returns = DocstringSection(_SectionType.RETURNS, _MULTIPLE)
@@ -122,15 +120,10 @@ class Docstring:
         if not docstring:
             return
         matches = list(self.title_re.finditer(docstring))
-        desc_chunk = docstring[: matches[0].start()] if matches else docstring
-        desc_chunk = desc_chunk.strip()
-        desc_parts = [i.strip() for i in desc_chunk.split("\n", 1)]
-        self.short_desc = self.description = desc_parts[0]
-        if len(desc_parts) == 2:
-            self.long_desc = desc_parts[1]
-            self.description += f"\n\n{self.long_desc}"
         if not matches:
+            self.description = docstring.strip()
             return
+        self.description = docstring[: matches[0].start()].strip()
         splits: List[Tuple[str, slice]] = []  # raw text sections
         for i in range(len(matches) - 1):
             splits.append(
@@ -145,7 +138,7 @@ class Docstring:
                     identity = _id
             if identity is None:
                 continue
-            text = inspect.cleandoc(docstring[seg])
+            text = dedent(docstring[seg]).strip()
             section = getattr(self, identity.name.lower())
             section.version = matches[i].group(2)
             section.source = text
@@ -186,6 +179,7 @@ class Docstring:
                 )
             descriptions.append(section.source[matches[-1].end() :])
             for i, description in enumerate(descriptions):
+                # self splitor rather than inspect.cleandoc
                 description, long_description = (description + "\n").split("\n", 1)
                 section.content.append(
                     DocstringParam(
