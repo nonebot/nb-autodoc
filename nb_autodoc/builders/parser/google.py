@@ -167,7 +167,7 @@ class Docstring:
 
             anno_re = r"[\w\.\[\], ]+"
             name_re = anno_re if section.type is _SectionType.RETURNS else r"[\w]+"
-            line_re = r"^({name})(?: *\(({anno})\))?(.*?):".format(  # noqa
+            line_re = r"^(?! )({name})(?: *\(({anno})\))?(.*?):".format(  # noqa
                 name=name_re, anno=anno_re
             )
             matches = list(re.finditer(line_re, section.source, flags=re.M))
