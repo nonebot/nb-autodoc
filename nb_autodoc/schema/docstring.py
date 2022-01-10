@@ -15,6 +15,7 @@ class DocstringParam:
     # default is passing before convert
     roles: List["Role"] = field(factory=list)
     description: Optional[str] = None
+    long_description: Optional[str] = None
 
     class Role(NamedTuple):
         id: str

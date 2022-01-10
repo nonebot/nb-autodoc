@@ -4,6 +4,7 @@ Google style docstring parser.
 import re
 import inspect
 from typing import Any, Dict, Literal, Set, Optional, List, Tuple
+from textwrap import dedent
 
 from nb_autodoc.schema import DocstringSection, DocstringParam
 
@@ -95,7 +96,6 @@ class Docstring:
         self.patch: Dict[str, Any] = {}
         for name in self._sections.keys() - self.sections.keys():
             delattr(self, name)
-        self.current_section: Optional[DocstringSection] = None
 
     def parse(self, docstring: str) -> None:
         docstring = inspect.cleandoc(docstring)
@@ -133,14 +133,9 @@ class Docstring:
                 continue
             section.version = matches[i].group(2)
             section.source = text
-            self.current_section = section
-            self.generic_parse()
+            self.generic_parse(section)
 
-    def generic_parse(self) -> None:
-        section = self.current_section
-        if section is None:
-            return
-
+    def generic_parse(self, section: DocstringSection) -> None:
         method = getattr(self, "parse_" + section.identity, None)
         if callable(method):
             try:
@@ -152,7 +147,7 @@ class Docstring:
                 )
         else:
 
-            def parse_roles(s: str) -> List["DocstringParam.Role"]:
+            def parse_roles(s: str) -> List[DocstringParam.Role]:
                 return [
                     DocstringParam.Role(match.group(1), match.group(2))
                     for match in re.finditer(r"{([\w]+)}`(.*?)`", s)
@@ -173,11 +168,13 @@ class Docstring:
                 )
             descriptions.append(section.source[matches[-1].end() :])
             for i, description in enumerate(descriptions):
+                description, long_description = (description + "\n").split("\n", 1)
                 section.content.append(
                     DocstringParam(
                         name=matches[i].group(1),
                         annotation=matches[i].group(2),
                         roles=parse_roles(matches[i].group(3)),
-                        description=re.sub(r"\n[ ]*", " ", description).strip(),
+                        description=description.strip(),
+                        long_description=dedent(long_description).strip(),
                     )
                 )

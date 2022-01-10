@@ -58,7 +58,7 @@ class MarkdownBuilder(Builder):
         self, params: List[schema.DocstringParam], level: int = 1, /
     ) -> str:
         text = "\n\n".join(
-            "- `{name}`{annotation}{version}{description}".format(
+            "- `{name}`{annotation}{version}{desc}{long_desc}".format(
                 name=p.name,
                 annotation=" ({})".format(
                     linkify(
@@ -70,7 +70,10 @@ class MarkdownBuilder(Builder):
                 if p.annotation
                 else "",
                 version=get_version(p),
-                description=(p.description or "") and f": {p.description}",  # noqa
+                desc=(p.description or "") and f": {p.description}",  # noqa
+                long_desc="\n" + indent(p.long_description, prefix=" " * 4)
+                if p.long_description
+                else "",
             )
             for p in params
         )
