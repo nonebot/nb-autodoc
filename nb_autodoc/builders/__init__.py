@@ -37,13 +37,13 @@ def resolve_dsobj_from_signature(
     dsobj: Docstring, signature: inspect.Signature, *, no_returns: bool = False
 ) -> Docstring:
     params: List[schema.DocstringParam] = []
+    extra_params = {i.name for i in dsobj.args.content} - signature.parameters.keys()
 
     def get_dparam(name: str) -> Optional[schema.DocstringParam]:
-        param = None
         for p in dsobj.args.content:
             if name == p.name:
-                param = p
-        return param
+                return p
+        return None
 
     for p in signature.parameters.values():
         if p.name == "self":
@@ -58,7 +58,10 @@ def resolve_dsobj_from_signature(
         if not dp.annotation:
             dp.annotation = utils.formatannotation(p.annotation)
         params.append(dp)
+
+    params.extend(i for s in extra_params if (i := get_dparam(s)))
     dsobj.args.content = params
+
     if not no_returns:
         if not dsobj.returns.content:
             return_anno = signature.return_annotation
@@ -70,6 +73,7 @@ def resolve_dsobj_from_signature(
                     description=dsobj.returns.source,
                 )
             )
+
     return dsobj
 
 
