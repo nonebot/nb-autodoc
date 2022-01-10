@@ -1,22 +1,25 @@
 from typing import List, Optional, Union
-from textwrap import indent
+from textwrap import indent as _indent
 
 from nb_autodoc import schema, Doc, Class, Function, Variable, LibraryAttr
 from nb_autodoc.builders import Builder, DocstringOverload
 from nb_autodoc.builders.helpers import linkify
-from nb_autodoc.builders.parser.google import Docstring, SINGULAR, MULTIPLE
+from nb_autodoc.builders.parser.google import Docstring
 
 
 def get_version(
-    obj: Union["SINGULAR", Docstring, schema.DocstringSection, schema.DocstringParam],
+    obj: Union[
+        Optional[str], Docstring, schema.DocstringSection, schema.DocstringParam
+    ],
     *,
     prefix: str = " ",
 ) -> str:
-    ver = obj if isinstance(obj, str) else None
-    if isinstance(obj, (Docstring, schema.DocstringSection)):
+    if isinstance(obj, (schema.DocstringParam, schema.DocstringSection)):
         ver = obj.version
-    elif isinstance(obj, schema.DocstringParam):
-        ver = obj.version
+    elif isinstance(obj, Docstring):
+        ver = obj.version.source
+    else:
+        ver = obj
     if not ver:
         return ""
     if ver.endswith("-"):
@@ -54,6 +57,10 @@ class MarkdownBuilder(Builder):
             dobj.heading_id,
         )
 
+    @staticmethod
+    def indent(s: str, level: int = 1) -> str:
+        return _indent(s, prefix=" " * level * 4)
+
     def render_params(
         self, params: List[schema.DocstringParam], level: int = 1, /
     ) -> str:
@@ -71,17 +78,16 @@ class MarkdownBuilder(Builder):
                 else "",
                 version=get_version(p),
                 desc=(p.description or "") and f": {p.description}",  # noqa
-                long_desc="\n" + indent(p.long_description, prefix=" " * 4)
+                long_desc="\n" + self.indent(p.long_description)
                 if p.long_description
                 else "",
             )
             for p in params
         )
-        return indent(text, prefix=" " * level * 4)
+        return self.indent(text, level=level)
 
     def render_Variable(self, dobj: Variable, dsobj: "Docstring") -> str:
         builder: List[str] = []
-        section: Union[SINGULAR, MULTIPLE]
         ftitle = "## _{}_ `{}`{}"
         if dobj.cls is not None:
             ftitle = "#" + ftitle
@@ -100,12 +106,11 @@ class MarkdownBuilder(Builder):
                 builder.append(f"- **说明:** {dsobj.description}")
         if section := dsobj.examples:
             builder.append("- **用法**")
-            builder.append(section)
+            builder.append(section.source)
         return "\n\n".join(builder)
 
     def render_Function(self, dobj: Function, dsobj: "Docstring") -> str:
         builder: List[str] = []
-        section: Union[SINGULAR, MULTIPLE]
         overloads: Optional[List[DocstringOverload]]
         ftitle = "## _{}_ `{}`{}"
         if dobj.cls is not None:
@@ -118,8 +123,8 @@ class MarkdownBuilder(Builder):
             builder.append("- **说明**")
             builder.append(dsobj.description)
         if section := dsobj.require:
-            builder.append(f"- **要求**")
-            builder.append(section)
+            builder.append(f"- **要求**{get_version(section)}")
+            builder.append(section.source)
         if overloads := dsobj.patch.get("overloads"):
             builder.append("- **重载**")
             for i, overload in enumerate(overloads):
@@ -137,17 +142,15 @@ class MarkdownBuilder(Builder):
         if section := dsobj.raises:
             builder.append(f"- **异常**{get_version(section)}")
             builder.append(
-                self.render_params(section.content)
-                or indent(section.source, prefix="    ")
+                self.render_params(section.content) or self.indent(section.source)
             )
         if section := dsobj.examples:
             builder.append("- **用法**")
-            builder.append(section)
+            builder.append(section.source)
         return "\n\n".join(builder)
 
     def render_Class(self, dobj: Class, dsobj: "Docstring") -> str:
         builder: List[str] = []
-        section: Union[SINGULAR, MULTIPLE]
         builder.append(
             "## _{}_ `{}`{}".format(
                 dobj.kind, dobj.name + dobj.params(), get_version(dsobj)
@@ -158,15 +161,15 @@ class MarkdownBuilder(Builder):
             builder.append("- **说明**")
             builder.append(dsobj.description)
         if section := dsobj.require:
-            builder.append(f"- **要求**")
-            builder.append(section)
+            builder.append(f"- **要求**{get_version(section)}")
+            builder.append(section.source)
         if section := dsobj.args:
             if section.content:
                 builder.append(f"- **参数**{get_version(section)}")
                 builder.append(self.render_params(section.content))
         if section := dsobj.examples:
             builder.append("- **用法**")
-            builder.append(section)
+            builder.append(section.source)
         return "\n\n".join(builder)
 
     def render_LibraryAttr(self, dobj: LibraryAttr, dsobj: "Docstring") -> str:

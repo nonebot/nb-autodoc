@@ -34,13 +34,14 @@ class DocstringParam:
 class DocstringSection:
     """
     Attributes:
-        content: empty when text not match regex, that directly render source
+        content: try parse source if kind is MULTIPLE
     """
 
     identity: str
+    kind: int
+    version: Optional[str] = None
     content: List[DocstringParam] = field(factory=list)
     source: str = ""
-    version: Optional[str] = None  # second-level version
 
     def __str__(self) -> str:
         return self.source
