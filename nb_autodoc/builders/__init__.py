@@ -187,7 +187,7 @@ class Builder(abc.ABC):
             filepath.parent.mkdir(parents=True, exist_ok=True)
         if not self.dmodule.is_namespace:
             filepath.touch(exist_ok=False)
-            with open(filepath, "w") as f:
+            with open(filepath, "w", encoding="utf-8") as f:
                 f.write(self.text())
         for submod in self.dmodule.submodules():
             self.__class__(

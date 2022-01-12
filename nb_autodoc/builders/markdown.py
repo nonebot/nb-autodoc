@@ -83,7 +83,7 @@ class MarkdownBuilder(Builder):
                 else "",
                 version=get_version(p),
                 desc=(p.description or "") and f": {p.description}",  # noqa
-                long_desc="\n" + self.indent(p.long_description)
+                long_desc="\n\n" + self.indent(p.long_description)
                 if p.long_description
                 else "",
             )
@@ -176,6 +176,13 @@ class MarkdownBuilder(Builder):
         if section := dsobj.examples:
             builder.append("- **用法**")
             builder.append(self.indent(section.source))
+        if section := dsobj.attributes:
+            for dp in section.content:
+                builder.append(f"### _other-attr_ `{dp.name}`")
+                if dp.description:
+                    builder.append(dp.description)
+                if dp.long_description:
+                    builder.append(dp.long_description)
         return "\n\n".join(builder)
 
     def render_LibraryAttr(self, dobj: LibraryAttr, dsobj: "Docstring") -> str:
