@@ -101,7 +101,7 @@ class MarkdownBuilder(Builder):
             + f" {{#{dobj.heading_id}}}"
         )
         builder.append(
-            f"- **类型:** {dobj.type_annotation}{get_version(dsobj.type_version)}"
+            f"- **类型:** {dobj.type_annotation}{get_version(dsobj.type_version.source)}"
         )
         if dsobj.description:
             if "\n" in dsobj.description:

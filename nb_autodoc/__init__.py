@@ -609,6 +609,8 @@ class Variable(Doc):
             return formatannotation(
                 inspect.signature(self.obj.fget or self.obj.__get__).return_annotation
             )
+        elif getattr(self.obj, "__module__", None) == "typing":
+            return formatannotation(self.obj)
         if self._type_annotation is None:
             return ""
         return formatannotation(self._type_annotation)
