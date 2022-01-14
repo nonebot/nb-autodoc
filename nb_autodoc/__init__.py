@@ -54,7 +54,7 @@ class Doc:
     __slots__ = ("name", "obj", "docstring", "module")
 
     def __init__(
-        self, name: str, obj: Any, docstring: Optional[str], module: "Module", /
+        self, name: str, obj: Any, docstring: Optional[str], module: "Module"
     ) -> None:
         self.name = name
         self.obj = obj
@@ -203,7 +203,8 @@ class Module(Doc):
                 # Override docstring from `__autodoc__: Dict[str, str]`
                 # Writing user docstring in `__autodoc__` is recommended
                 docstring = "三方库 API"
-                if isinstance((_docstring := self.__autodoc__.get(name)), str):
+                _docstring = self.__autodoc__.get(name)
+                if isinstance(_docstring, str):
                     docstring = inspect.cleandoc(_docstring)
                 self.doc[name] = LibraryAttr(name, obj, docstring, self)
                 continue
@@ -406,7 +407,7 @@ class Class(Doc):
     doc: Dict[str, Union["Function", "Variable"]]
     instance_vars: Set[str]
 
-    def __init__(self, name: str, obj: Any, module: "Module", /) -> None:
+    def __init__(self, name: str, obj: Any, module: "Module") -> None:
         docstring = inspect.getdoc(obj)
         super().__init__(name, obj, docstring, module)
         self.doc = {}
@@ -414,9 +415,9 @@ class Class(Doc):
         annotations: Dict[str, Any] = getattr(self.obj, "__annotations__", {})
         if hasattr(self.obj, "__slots__"):
             instance_vars = set(getattr(self.obj, "__slots__", ()))
-        elif source := self.source:
+        elif self.source:
             # Get instance vars from source code
-            source = dedent(source)  # avoid unexpected source indent in try block
+            source = dedent(self.source)  # avoid unexpected source indent in try block
             instance_vars = (pycode.extract_all_comments(source).instance_vars).get(
                 self.name, set()
             )
@@ -441,14 +442,6 @@ class Class(Doc):
                     public_objs.append(Class.Attribute(name, kind, obj))
 
         # TODO: Filter and sort own member
-        if hasattr(self.obj, "__slots__"):
-            public_names = tuple(self.obj.__slots__)
-        public_names = tuple(
-            name
-            for name in self.obj.__dict__.keys()
-            if (is_public(name) or self.is_whitelisted(name))
-            and not self.is_blacklisted(name)
-        )
 
         # Convert the public Python objects to documentation objects.
         for name, kind, obj in public_objs:

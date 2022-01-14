@@ -4,6 +4,22 @@ from enum import Enum
 from attrs import define, field
 
 
+class _SectionKind(Enum):
+    SINGULAR = 0
+    MULTIPLE = 1
+
+
+class _SectionType(Enum):
+    ARGS = 0
+    RETURNS = 1
+    ATTRIBUTES = 2
+    RAISES = 3
+    EXAMPLES = 4
+    REQUIRE = 5
+    VERSION = 6
+    TYPE_VERSION = 7
+
+
 @define(slots=True)
 class DocstringParam:
     """
@@ -38,8 +54,20 @@ class DocstringSection:
         content: try parse source if kind is MULTIPLE
     """
 
-    type: Enum
-    kind: Enum
+    ARGS = _SectionType.ARGS
+    RETURNS = _SectionType.RETURNS
+    ATTRIBUTES = _SectionType.ATTRIBUTES
+    RAISES = _SectionType.RAISES
+    EXAMPLES = _SectionType.EXAMPLES
+    REQUIRE = _SectionType.REQUIRE
+    VERSION = _SectionType.VERSION
+    TYPE_VERSION = _SectionType.TYPE_VERSION
+
+    SINGULAR = _SectionKind.SINGULAR
+    MULTIPLE = _SectionKind.MULTIPLE
+
+    type: _SectionType
+    kind: _SectionKind
     version: Optional[str] = None
     content: List[DocstringParam] = field(factory=list)
     source: str = ""

@@ -5,14 +5,14 @@ import abc
 import inspect
 import shutil
 from pathlib import Path
-from typing import Callable, Iterable, List, Optional, Tuple, NamedTuple, Union
+from typing import Callable, Iterable, List, Tuple, NamedTuple, Union
 
 from nb_autodoc import Module, Class, Function, Variable, LibraryAttr
 from nb_autodoc import schema, utils
 from nb_autodoc.builders.parser.google import Docstring, get_dsobj
 
 
-def default_path_factory(refname: str, ispkg: bool, /) -> Path:
+def default_path_factory(refname: str, ispkg: bool) -> Path:
     """Default path factory for markdown."""
     path = Path(*refname.split("."))
     if ispkg:
@@ -22,7 +22,7 @@ def default_path_factory(refname: str, ispkg: bool, /) -> Path:
     return filepath
 
 
-def default_uri_factory(refname: str, ispkg: bool, /) -> str:
+def default_uri_factory(refname: str, ispkg: bool) -> str:
     """Default uri factory for html."""
     uri = refname.replace(".", "/")
     to_strip = refname.split(".", 1)[0]
@@ -121,9 +121,9 @@ class Builder(abc.ABC):
     @staticmethod
     def get_docstring(dobj: Union[Variable, Function, Class, LibraryAttr]) -> Docstring:
         if isinstance(dobj, Variable):
-            return get_dsobj(dobj.docstring, "variable")
+            return get_dsobj(dobj.docstring, Docstring.VARIABLE)
         elif isinstance(dobj, Function):
-            dsobj = get_dsobj(dobj.docstring, "function")
+            dsobj = get_dsobj(dobj.docstring, Docstring.FUNCTION)
             signature = utils.get_signature(dobj.obj)
             dsobj = resolve_dsobj_from_signature(dsobj, signature)
             if dobj.overloads:
@@ -143,7 +143,7 @@ class Builder(abc.ABC):
                 dsobj.patch["overloads"] = myoverloads
             return dsobj
         elif isinstance(dobj, Class):
-            dsobj = get_dsobj(dobj.docstring, "class")
+            dsobj = get_dsobj(dobj.docstring, Docstring.CLASS)
             init_signature = utils.get_signature(dobj.obj)
             dsobj = resolve_dsobj_from_signature(dsobj, init_signature, no_returns=True)
             return dsobj
@@ -180,9 +180,6 @@ class Builder(abc.ABC):
         )
         if not self.dmodule.supermodule:
             shutil.rmtree(filepath.parent, ignore_errors=True)
-        # Prevent damage from unreliable filepath
-        if not filepath.is_relative_to(buildpath):
-            raise Exception(f"{filepath!r} is not under {buildpath!r}!")
         if self.dmodule.is_package:
             filepath.parent.mkdir(parents=True, exist_ok=True)
         if not self.dmodule.is_namespace:

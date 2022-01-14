@@ -175,7 +175,8 @@ class VariableCommentPicker(ast.NodeVisitor):
         """Handles Assign node and pick up a variable comment."""
         # Record if node formed in `self.<instance_var_name>` in `__init__`
         # TODO: add annotations marked in instance assignment
-        if self.current_class and (farg := self.get_self()):
+        farg = self.get_self()
+        if self.current_class and farg:
             for target in get_assign_targets(node):
                 if not isinstance(target, ast.Attribute):
                     continue
@@ -199,14 +200,6 @@ class VariableCommentPicker(ast.NodeVisitor):
 
         if indent_re.match(current_line[: node.col_offset]):
             # TODO: comment col_offset should be the same as node.col_offset
-
-            # check comments after assignment
-            current_line_ext = current_line[node.end_col_offset :]
-            current_line_after = self.get_line(node.end_lineno + 1)  # type: ignore
-            if comment_re.match(current_line_after):
-                comment = comment_re.sub(r"\1", current_line_after)
-            elif comment_re.match(current_line_ext):
-                comment = comment_re.sub(r"\1", current_line_ext)
 
             # check comments before assignment
             comment_lines = []

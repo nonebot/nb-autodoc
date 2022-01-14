@@ -3,50 +3,48 @@ Google style docstring parser.
 """
 import re
 import inspect
-from typing import Any, Dict, Literal, Optional, List, Tuple
+from typing import Any, Dict, Optional, List, Tuple
 from enum import Enum
 from textwrap import dedent
 
 from nb_autodoc.schema import DocstringParam, DocstringSection
 
 
+class _DocstringSlot(Enum):
+    VARIABLE = 1
+    FUNCTION = 2
+    CLASS = 3
+
+
 def get_dsobj(
     s: Optional[str],
-    typ: Optional[Literal["variable", "function", "class"]] = None,
+    typ: Optional[_DocstringSlot] = None,
 ) -> "Docstring":
     dsobj = Docstring(typ=typ)
     dsobj.parse(s or "")
     return dsobj
 
 
-class _SectionKind(Enum):
-    SINGULAR = 0
-    MULTIPLE = 1
-
-
-class _SectionType(Enum):
-    ARGS = 0
-    RETURNS = 1
-    ATTRIBUTES = 2
-    RAISES = 3
-    EXAMPLES = 4
-    REQUIRE = 5
-    VERSION = 6
-    TYPE_VERSION = 7
-
-
-_SINGULAR = _SectionKind.SINGULAR
-_MULTIPLE = _SectionKind.MULTIPLE
+_SINGULAR = DocstringSection.SINGULAR
+_MULTIPLE = DocstringSection.MULTIPLE
+_ARGS = DocstringSection.ARGS
+_RETURNS = DocstringSection.RETURNS
+_ATTRIBUTES = DocstringSection.ATTRIBUTES
+_RAISES = DocstringSection.RAISES
+_EXAMPLES = DocstringSection.EXAMPLES
+_REQUIRE = DocstringSection.REQUIRE
+_VERSION = DocstringSection.VERSION
+_TYPE_VERSION = DocstringSection.TYPE_VERSION
 
 _sections = {
-    _SectionType.ARGS: {"Arguments", "Args", "Parameters", "Params", "参数"},
-    _SectionType.RETURNS: {"Return", "Returns", "返回"},
-    _SectionType.ATTRIBUTES: {"Attributes", "属性"},
-    _SectionType.RAISES: {"Raises", "Exceptions", "Except", "异常"},
-    _SectionType.EXAMPLES: {"Example", "Examples", "示例", "用法"},
-    _SectionType.REQUIRE: {"Require", "要求"},
-    _SectionType.VERSION: {"Version", "版本"},
-    _SectionType.TYPE_VERSION: {"TypeVersion", "类型版本"},
+    _ARGS: {"Arguments", "Args", "Parameters", "Params", "参数"},
+    _RETURNS: {"Return", "Returns", "返回"},
+    _ATTRIBUTES: {"Attributes", "属性"},
+    _RAISES: {"Raises", "Exceptions", "Except", "异常"},
+    _EXAMPLES: {"Example", "Examples", "示例", "用法"},
+    _REQUIRE: {"Require", "要求"},
+    _VERSION: {"Version", "版本"},
+    _TYPE_VERSION: {"TypeVersion", "类型版本"},
 }
 
 
@@ -60,9 +58,10 @@ class Docstring:
     When match regex, we think section is multiple, else singular.
     """
 
-    SINGULAR = _SectionKind.SINGULAR
-    MULTIPLE = _SectionKind.MULTIPLE
-    SectionType = _SectionType
+    VARIABLE = _DocstringSlot.VARIABLE
+    FUNCTION = _DocstringSlot.FUNCTION
+    CLASS = _DocstringSlot.CLASS
+
     sections = _sections
     title_re = re.compile(
         "^("
@@ -74,17 +73,17 @@ class Docstring:
     def __init__(
         self,
         *,
-        typ: Optional[Literal["variable", "function", "class"]] = None,
+        typ: Optional[_DocstringSlot] = None,
     ) -> None:
         self.description: str = ""
-        self.args = DocstringSection(_SectionType.ARGS, _MULTIPLE)
-        self.returns = DocstringSection(_SectionType.RETURNS, _MULTIPLE)
-        self.attributes = DocstringSection(_SectionType.ATTRIBUTES, _MULTIPLE)
-        self.raises = DocstringSection(_SectionType.RAISES, _MULTIPLE)
-        self.examples = DocstringSection(_SectionType.EXAMPLES, _SINGULAR)
-        self.require = DocstringSection(_SectionType.REQUIRE, _SINGULAR)
-        self.version = DocstringSection(_SectionType.VERSION, _SINGULAR)
-        self.type_version = DocstringSection(_SectionType.TYPE_VERSION, _SINGULAR)
+        self.args = DocstringSection(_ARGS, _MULTIPLE)
+        self.returns = DocstringSection(_RETURNS, _MULTIPLE)
+        self.attributes = DocstringSection(_ATTRIBUTES, _MULTIPLE)
+        self.raises = DocstringSection(_RAISES, _MULTIPLE)
+        self.examples = DocstringSection(_EXAMPLES, _SINGULAR)
+        self.require = DocstringSection(_REQUIRE, _SINGULAR)
+        self.version = DocstringSection(_VERSION, _SINGULAR)
+        self.type_version = DocstringSection(_TYPE_VERSION, _SINGULAR)
         self.patch: Dict[str, Any] = {}
         section_keys = {s.name.lower() for s in _sections.keys()}
         if typ == "variable":
@@ -166,7 +165,7 @@ class Docstring:
                 ]
 
             anno_re = r"[\w\.\[\], ]+"
-            name_re = anno_re if section.type is _SectionType.RETURNS else r"[\w]+"
+            name_re = anno_re if section.type is _RETURNS else r"[\w]+"
             line_re = r"^(?! )({name})(?: *\(({anno})\))?(.*?):".format(  # noqa
                 name=name_re, anno=anno_re
             )

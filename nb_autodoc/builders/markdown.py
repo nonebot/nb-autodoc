@@ -4,7 +4,7 @@ from textwrap import indent as _indent
 from nb_autodoc import schema, Doc, Class, Function, Variable, LibraryAttr
 from nb_autodoc.builders import Builder, DocstringOverload
 from nb_autodoc.builders.helpers import linkify
-from nb_autodoc.builders.parser.google import Docstring
+from nb_autodoc.builders.parser.google import Docstring, DocstringSection
 
 
 def get_version(
@@ -57,10 +57,10 @@ class MarkdownBuilder(Builder):
         )
 
     @staticmethod
-    def indent(s: str, level: int = 1, /) -> str:
+    def indent(s: str, level: int = 1) -> str:
         return _indent(s, prefix=" " * level * 2)
 
-    def render_params(self, section: schema.DocstringSection, level: int = 1, /) -> str:
+    def render_params(self, section: schema.DocstringSection, level: int = 1) -> str:
         if not section.content:
             return ""
         text = "\n\n".join(
@@ -70,7 +70,7 @@ class MarkdownBuilder(Builder):
                     add_link=self.add_link,
                     context=self.dmodule.context,
                 )
-                if section.type is Docstring.SectionType.RETURNS
+                if section.type is DocstringSection.RETURNS
                 else f"`{p.name}`",
                 annotation=" ({})".format(
                     linkify(
@@ -109,14 +109,15 @@ class MarkdownBuilder(Builder):
                 builder.append(self.indent(dsobj.description))
             else:
                 builder.append(f"- **说明:** {dsobj.description}")
-        if section := dsobj.examples:
+        if dsobj.examples:
+            section = dsobj.examples
             builder.append("- **用法**")
             builder.append(self.indent(section.source))
         return "\n\n".join(builder)
 
     def render_Function(self, dobj: Function, dsobj: "Docstring") -> str:
         builder: List[str] = []
-        overloads: Optional[List[DocstringOverload]]
+        overloads: Optional[List[DocstringOverload]] = dsobj.patch.get("overloads")
         ftitle = "## _{}_ `{}`{}"
         if dobj.cls is not None:
             ftitle = "#" + ftitle
@@ -127,10 +128,11 @@ class MarkdownBuilder(Builder):
         if dsobj.description:
             builder.append("- **说明**")
             builder.append(self.indent(dsobj.description))
-        if section := dsobj.require:
+        if dsobj.require:
+            section = dsobj.require
             builder.append(f"- **要求**{get_version(section)}")
             builder.append(self.indent(section.source))
-        if overloads := dsobj.patch.get("overloads"):
+        if overloads:
             builder.append("- **重载**")
             for i, overload in enumerate(overloads):
                 builder.append(self.indent(f"**{i + 1}.** `{overload.signature}`"))
@@ -144,13 +146,16 @@ class MarkdownBuilder(Builder):
                 builder.append(self.render_params(dsobj.args))
             builder.append(f"- **返回**{get_version(dsobj.returns)}")
             builder.append(self.render_params(dsobj.returns))
-        if section := dsobj.raises:
+        if dsobj.raises:
+            section = dsobj.raises
             builder.append(f"- **异常**{get_version(section)}")
             builder.append(self.render_params(section) or self.indent(section.source))
-        if section := dsobj.examples:
+        if dsobj.examples:
+            section = dsobj.examples
             builder.append("- **用法**")
             builder.append(self.indent(section.source))
-        if section := dsobj.attributes:
+        if dsobj.attributes:
+            section = dsobj.attributes
             builder.append("- **属性**")
             builder.append(self.render_params(section))
         return "\n\n".join(builder)
@@ -166,17 +171,21 @@ class MarkdownBuilder(Builder):
         if dsobj.description:
             builder.append("- **说明**")
             builder.append(self.indent(dsobj.description))
-        if section := dsobj.require:
+        if dsobj.require:
+            section = dsobj.require
             builder.append(f"- **要求**{get_version(section)}")
             builder.append(self.indent(section.source))
-        if section := dsobj.args:
+        if dsobj.args:
+            section = dsobj.args
             if section.content:
                 builder.append(f"- **参数**{get_version(section)}")
                 builder.append(self.render_params(section))
-        if section := dsobj.examples:
+        if dsobj.examples:
+            section = dsobj.examples
             builder.append("- **用法**")
             builder.append(self.indent(section.source))
-        if section := dsobj.attributes:
+        if dsobj.attributes:
+            section = dsobj.attributes
             for dp in section.content:
                 builder.append(f"### _other-attr_ `{dp.name}`")
                 if dp.description:

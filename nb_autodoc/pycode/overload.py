@@ -6,6 +6,7 @@ from random import randint
 from inspect import Parameter, Signature
 
 from nb_autodoc.schema import OverloadFunctionDef
+from nb_autodoc.pycode.unparser import unparse
 
 
 class force_repr:
@@ -37,25 +38,13 @@ def signature_from_ast(node: ast.FunctionDef) -> Signature:
     defaults = args.defaults.copy()
     kwdefaults = args.kw_defaults
     non_default_count = len(args.args) - len(defaults)
-    for arg in args.posonlyargs:
-        params.append(
-            Parameter(
-                arg.arg,
-                kind=Parameter.POSITIONAL_ONLY,
-                annotation=(
-                    force_repr(ast.unparse(arg.annotation))
-                    if arg.annotation
-                    else Parameter.empty
-                ),
-            )
-        )
     for arg in args.args[:non_default_count]:
         params.append(
             Parameter(
                 arg.arg,
                 kind=Parameter.POSITIONAL_OR_KEYWORD,
                 annotation=(
-                    force_repr(ast.unparse(arg.annotation))
+                    force_repr(unparse(arg.annotation))
                     if arg.annotation
                     else Parameter.empty
                 ),
@@ -66,9 +55,9 @@ def signature_from_ast(node: ast.FunctionDef) -> Signature:
             Parameter(
                 arg.arg,
                 kind=Parameter.POSITIONAL_OR_KEYWORD,
-                default=ast.unparse(defaults[i]),
+                default=unparse(defaults[i]),
                 annotation=(
-                    force_repr(ast.unparse(arg.annotation))
+                    force_repr(unparse(arg.annotation))
                     if arg.annotation
                     else Parameter.empty
                 ),
@@ -80,7 +69,7 @@ def signature_from_ast(node: ast.FunctionDef) -> Signature:
                 args.vararg.arg,
                 kind=Parameter.VAR_POSITIONAL,
                 annotation=(
-                    force_repr(ast.unparse(args.vararg.annotation))
+                    force_repr(unparse(args.vararg.annotation))
                     if args.vararg.annotation
                     else Parameter.empty
                 ),
@@ -92,11 +81,9 @@ def signature_from_ast(node: ast.FunctionDef) -> Signature:
             Parameter(
                 arg.arg,
                 kind=Parameter.KEYWORD_ONLY,
-                default=(
-                    force_repr(ast.unparse(default)) if default else Parameter.empty
-                ),
+                default=(force_repr(unparse(default)) if default else Parameter.empty),
                 annotation=(
-                    force_repr(ast.unparse(arg.annotation))
+                    force_repr(unparse(arg.annotation))
                     if arg.annotation
                     else Parameter.empty
                 ),
@@ -108,15 +95,13 @@ def signature_from_ast(node: ast.FunctionDef) -> Signature:
                 args.kwarg.arg,
                 kind=Parameter.VAR_KEYWORD,
                 annotation=(
-                    force_repr(ast.unparse(args.kwarg.annotation))
+                    force_repr(unparse(args.kwarg.annotation))
                     if args.kwarg.annotation
                     else Parameter.empty
                 ),
             )
         )
-    return_anno = (
-        force_repr(ast.unparse(node.returns)) if node.returns else Parameter.empty
-    )
+    return_anno = force_repr(unparse(node.returns)) if node.returns else Parameter.empty
     return Signature(params, return_annotation=return_anno)
 
 
@@ -148,7 +133,7 @@ class OverloadPicker(ast.NodeVisitor):
     def is_overload(self, node: ast.FunctionDef) -> bool:
         overload_ids = [f"{i}.overload" for i in self.typing] + self.typing_overload
         for decorator in node.decorator_list:
-            if ast.unparse(decorator) in overload_ids:
+            if unparse(decorator) in overload_ids:
                 return True
         return False
 
@@ -157,7 +142,7 @@ class OverloadPicker(ast.NodeVisitor):
         node = deepcopy(node)
         newname = self.get_safety_function_name()
         node.name = newname
-        source = ast.unparse(node)
+        source = unparse(node)
         globals = self.globals.copy()
         exec(source, globals)
         return globals[newname]

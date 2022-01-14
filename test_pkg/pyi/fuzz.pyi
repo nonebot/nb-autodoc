@@ -1,4 +1,4 @@
-from typing import Literal, Set
+from typing import Callable, Set
 from contextvars import ContextVar
 
 from test_pkg.pyi.util import func_forimport, T_Checktyping
@@ -15,13 +15,13 @@ var3: T_Checktyping = ...
 
 #: connect--
 #: comment ahead
-comment_ahead: Literal["e"]
+comment_ahead: int
 
-comment_after: Literal["f"]
+comment_after: Set[int]
 #: comment after
 #: --connect
 
-comment_inline: Literal["g"]  #: comment inline
+comment_inline: Callable[[], int]  #: comment inline
 
 def func(arg: int) -> T_Checktyping: ...
 
@@ -40,5 +40,5 @@ class A:
         """pingelse override docstring"""
         ...
     @property
-    def dummyping(self) -> Literal["dummyping"]: ...
+    def dummyping(self) -> str: ...
     def __getattr__(self, name: str) -> str: ...
