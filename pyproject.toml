@@ -7,8 +7,9 @@ authors = [
 ]
 dependencies = [
     "attrs~=21.4",
+    "six>=1.16.0",
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.7"
 license = {text = "MIT"}
 readme = "README.md"
 keywords = ["nonebot", "autodoc"]
