@@ -16,9 +16,13 @@ from six.moves import cStringIO
 INFSTR = "1e" + repr(sys.float_info.max_10_exp + 1)
 
 
-def unparse(tree):
+def unparse(tree, anno_new_style: bool = False):
     v = cStringIO()
-    Unparser(tree, file=v)
+    Unparser(
+        tree,
+        file=v,
+        anno_new_style=anno_new_style
+    )
     return v.getvalue()
 
 
@@ -40,10 +44,11 @@ class Unparser:
     output source code for the abstract syntax; original formatting
     is disregarded."""
 
-    def __init__(self, tree, file=sys.stdout):
+    def __init__(self, tree, file=sys.stdout, anno_new_style: bool = False):
         """Unparser(tree, file=sys.stdout) -> None.
         Print the source for tree to file."""
         self.f = file
+        self.anno_new_style = anno_new_style
         self.future_imports = []
         self._indent = 0
         self.dispatch(tree)
@@ -796,7 +801,7 @@ class Unparser:
         self.write(")")
 
     def _Subscript(self, node: ast.Subscript):
-        if not isinstance(node.value, ast.Name):
+        if not self.anno_new_style or not isinstance(node.value, ast.Name):
             self.dispatch(node.value)
             self.write("[")
             self.dispatch(node.slice)

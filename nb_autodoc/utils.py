@@ -11,7 +11,7 @@ from nb_autodoc.pycode.unparser import unparse
 def convert_anno_new_style(s: str) -> str:
     "Converts type annotation to new styles."
     # noqa: change pattern of unparser is not good idea
-    return unparse(ast.parse(s).body[0]).strip()
+    return unparse(ast.parse(s).body[0], anno_new_style=True).strip()
 
 
 def formatannotation(annot: type, new_style: bool = True) -> str:
