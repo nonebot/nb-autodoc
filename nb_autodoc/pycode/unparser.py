@@ -829,7 +829,12 @@ class Unparser:
             self.write(" | None")
         elif name.id == "Callable":
             self.write("(")
-            interleave(lambda: self.write(", "), self.dispatch, slice_spec.elts[0].elts)
+            if isinstance(slice_spec.elts[0], ast.Ellipsis):
+                self.write("...")
+            else:
+                interleave(
+                    lambda: self.write(", "), self.dispatch, slice_spec.elts[0].elts
+                )
             self.write(") -> ")
             self.dispatch(slice_spec.elts[1])
         else:
