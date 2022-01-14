@@ -40,8 +40,13 @@ def resolve_dsobj_from_signature(
     dparams_dict = {dp.name: dp for dp in dsobj.args.content}
     extra_params = dparams_dict.keys() - signature.parameters.keys()
 
+    for dp in dsobj.args.content:
+        if dp.annotation:
+            dp.annotation = utils.convert_anno_new_style(dp.annotation)
+
     for p in signature.parameters.values():
         if p.name == "self" or p.name == "cls":
+            # BUG: maybe not these common name
             continue
         dp = dparams_dict.get(p.name) or schema.DocstringParam(
             name=p.name, annotation=utils.formatannotation(p.annotation)
