@@ -1,10 +1,50 @@
+import ast
 import re
 import enum
 import inspect
 from typing import Any, List, Optional
 from inspect import Signature, Parameter
 
-from nb_autodoc.pycode.annotransformer import formatannotation, convert_anno_new_style
+from nb_autodoc.pycode.unparser import unparse
+
+
+def convert_anno_new_style(s: str) -> str:
+    "Converts type annotation to new styles."
+    # noqa: change pattern of unparser is not good idea
+    return unparse(ast.parse(s).body[0]).strip()
+
+
+def formatannotation(annot: type, new_style: bool = True) -> str:
+    """
+    Format annotation.
+
+    Handle NewType, ForwardRef.
+
+    Args:
+        new_style: convert annotation to py3.10 new style
+    """
+    if annot is inspect.Parameter.empty:
+        return ""
+    elif annot is type(None) or annot is None:
+        return "None"
+    elif isinstance(annot, str):
+        # annot in a bare string, just return it
+        return annot
+    module = getattr(annot, "__module__", "")
+    if module == "typing" and getattr(annot, "__qualname__", "").startswith("NewType."):
+        return annot.__name__
+    elif module.startswith("nptyping."):
+        return repr(annot)
+    formatted = inspect.formatannotation(annot)
+    if new_style:
+        formatted = convert_anno_new_style(formatted)
+    # annot string in class subscript will construct a ForwardRef
+    formatted = re.sub(
+        r"\b(typing\.)?ForwardRef\((?P<quot>[\"\'])(?P<str>.*?)(?P=quot)\)",
+        r"\g<str>",
+        formatted,
+    )
+    return formatted
 
 
 def get_signature(obj: Any) -> Signature:

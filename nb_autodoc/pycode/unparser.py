@@ -795,11 +795,42 @@ class Unparser:
                 self.dispatch(t.kwargs)
         self.write(")")
 
-    def _Subscript(self, t):
-        self.dispatch(t.value)
-        self.write("[")
-        self.dispatch(t.slice)
-        self.write("]")
+    def _Subscript(self, node: ast.Subscript):
+        if not isinstance(node.value, ast.Name):
+            self.dispatch(node.value)
+            self.write("[")
+            self.dispatch(node.slice)
+            self.write("]")
+            return
+        name = node.value
+        elts = node.slice.value.elts  # type: ignore
+        if name.id in ("List", "Set", "Tuple", "Dict"):
+            self.write(name.id.lower())
+            self.write("[")
+            # node.slice in these items should be ast.Index
+            # not ast.ExtIndex or ast.Slice in py3.7 parser
+            if len(elts) == 1:
+                self.dispatch(elts[0])
+            else:
+                interleave(lambda: self.write(", "), self.dispatch, elts)
+            self.write("]")
+            return
+        elif name.id == "Union":
+            iter_elts = iter(elts)
+            first_elt = next(iter_elts)
+            self.dispatch(first_elt)
+            for elt in iter_elts:
+                self.write(" | ")
+                self.dispatch(elt)
+            return
+        elif name.id == "Optional":
+            self.dispatch(node.slice)
+            self.write(" | None")
+        elif name.id == "Callable":
+            self.write("(")
+            interleave(lambda: self.write(", "), self.dispatch, elts[0].elts)
+            self.write(") -> ")
+            self.dispatch(elts[1])
 
     def _Starred(self, t):
         self.write("*")
