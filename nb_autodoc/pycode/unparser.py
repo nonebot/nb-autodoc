@@ -10,6 +10,7 @@ import os
 import tokenize
 from six import StringIO
 from six.moves import cStringIO
+from typing import Any
 
 # Large float and imaginary literals get turned into infinities in the AST.
 # We unparse those infinities to INFSTR.
@@ -804,9 +805,11 @@ class Unparser:
             self.write("]")
             return
         name = node.value
-        # node.slice in type annotation should be ast.Index
-        # not ast.ExtIndex or ast.Slice in py3.7 parser
-        slice_spec = node.slice.value  # type: ignore
+        # in py3.9 node.slice is the element, but in py3.7 it is [ast.Index, ast.Slice, ast.ExtSlice]
+        if isinstance(node.slice, ast.Index):
+            slice_spec: Any = node.slice.value
+        else:
+            slice_spec = node.slice
         if name.id in ("List", "Set", "Tuple", "Dict"):
             self.write(name.id.lower())
             self.write("[")
