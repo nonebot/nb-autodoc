@@ -12,7 +12,7 @@ summary = "Python 2 and 3 compatibility utilities"
 
 [metadata]
 lock_version = "3.1"
-content_hash = "sha256:22864d2b51711397fc504b26c148f49584760af97c180bded8e3ca571129ab50"
+content_hash = "sha256:3b1b9dc13b19aef1c4859d1a20711b039f4131c7ce23a98d349a13fe447f1d7d"
 
 [metadata.files]
 "attrs 21.4.0" = [
