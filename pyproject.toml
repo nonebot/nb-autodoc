@@ -20,6 +20,9 @@ homepage = "https://github.com/nonebot/nb-autodoc"
 repository = "https://github.com/nonebot/nb-autodoc"
 documentation = "https://github.com/nonebot/nb-autodoc/blob/master/README.md"
 
+[project.scripts]
+nb-autodoc = 'nb_autodoc.__main__:cli_main'
+
 [tool.black]
 line-length = 88
 
