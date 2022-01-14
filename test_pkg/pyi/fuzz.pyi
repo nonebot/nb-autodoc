@@ -37,7 +37,11 @@ class A:
         """self.x docstring"""
     def ping(self, name: str) -> str: ...
     def pingelse(self, name: str = ...) -> str:
-        """pingelse override docstring"""
+        """pingelse override docstring
+
+        参数:
+            name (Union[test_pkg.api.Api, test_pkg.overload.A]): common desc
+        """
         ...
     @property
     def dummyping(self) -> str: ...

@@ -30,6 +30,9 @@ def get_version(
 
 class MarkdownBuilder(Builder):
     def text(self) -> str:
+        self.current_filepath = self.uri_factory(
+            self.dmodule.refname, self.dmodule.is_package
+        )
         builder: List[str] = []
         builder.append("---\n" "contentSidebar: true\n" "sidebarDepth: 0\n" "---")
         heading = "命名空间" if self.dmodule.is_namespace else "模块"
@@ -50,9 +53,21 @@ class MarkdownBuilder(Builder):
         return "\n\n".join(builder)
 
     def add_link(self, dobj: Doc) -> str:
+        filepath = self.uri_factory(dobj.module.refname, dobj.module.is_package).split(
+            "/"
+        )
+        current_filepath = self.current_filepath.split("/")
+        relatived_path: List[str] = []
+        if not filepath == current_filepath:
+            while filepath and current_filepath and filepath[0] == current_filepath[0]:
+                filepath.pop(0)
+                current_filepath.pop(0)
+            for _ in range(len(current_filepath) - 1):
+                relatived_path.append("..")
+            relatived_path.extend(filepath)
         return "[{}]({}#{})".format(
             dobj.qualname,
-            self.uri_factory(dobj.module.refname, dobj.module.is_package),
+            "/".join(relatived_path),
             dobj.heading_id,
         )
 
