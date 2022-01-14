@@ -18,11 +18,7 @@ INFSTR = "1e" + repr(sys.float_info.max_10_exp + 1)
 
 def unparse(tree, anno_new_style: bool = False):
     v = cStringIO()
-    Unparser(
-        tree,
-        file=v,
-        anno_new_style=anno_new_style
-    )
+    Unparser(tree, file=v, anno_new_style=anno_new_style)
     return v.getvalue()
 
 
@@ -808,20 +804,20 @@ class Unparser:
             self.write("]")
             return
         name = node.value
-        elts = node.slice.value.elts  # type: ignore
+        # node.slice in type annotation should be ast.Index
+        # not ast.ExtIndex or ast.Slice in py3.7 parser
+        slice_spec = node.slice.value  # type: ignore
         if name.id in ("List", "Set", "Tuple", "Dict"):
             self.write(name.id.lower())
             self.write("[")
-            # node.slice in these items should be ast.Index
-            # not ast.ExtIndex or ast.Slice in py3.7 parser
-            if len(elts) == 1:
-                self.dispatch(elts[0])
+            if not isinstance(slice_spec, list):
+                self.dispatch(slice_spec)
             else:
-                interleave(lambda: self.write(", "), self.dispatch, elts)
+                interleave(lambda: self.write(", "), self.dispatch, slice_spec)
             self.write("]")
             return
         elif name.id == "Union":
-            iter_elts = iter(elts)
+            iter_elts = iter(slice_spec.elts)
             first_elt = next(iter_elts)
             self.dispatch(first_elt)
             for elt in iter_elts:
@@ -833,9 +829,15 @@ class Unparser:
             self.write(" | None")
         elif name.id == "Callable":
             self.write("(")
-            interleave(lambda: self.write(", "), self.dispatch, elts[0].elts)
+            interleave(lambda: self.write(", "), self.dispatch, slice_spec.elts[0].elts)
             self.write(") -> ")
-            self.dispatch(elts[1])
+            self.dispatch(slice_spec.elts[1])
+        else:
+            # Other Name like typing.Type
+            self.dispatch(node.value)
+            self.write("[")
+            self.dispatch(node.slice)
+            self.write("]")
 
     def _Starred(self, t):
         self.write("*")
