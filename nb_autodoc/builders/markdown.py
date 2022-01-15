@@ -34,10 +34,10 @@ class MarkdownBuilder(Builder):
             self.dmodule.refname, self.dmodule.is_package
         )
         builder: List[str] = []
-        builder.append("---\n" "contentSidebar: true\n" "sidebarDepth: 0\n" "---")
-        heading = "命名空间" if self.dmodule.is_namespace else "模块"
         dsobj = self.get_module_docstring()
-        builder.append(f"# `{self.dmodule.refname}` {heading}{get_version(dsobj)}")
+        if dsobj.metadata:
+            builder.append(f"---\n{dsobj.metadata.source}\n---")
+        builder.append(f"# {self.dmodule.refname}{get_version(dsobj)}")
         if dsobj.description:
             builder.append(dsobj.description)
         for dobj, dsobj in self.iter_documentation_attrs():

@@ -1,3 +1,9 @@
+"""
+Meta:
+    sidebar: auto
+    option:
+        a: b
+"""
 from typing import (
     List,
     Tuple,

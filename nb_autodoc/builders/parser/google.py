@@ -11,6 +11,7 @@ from nb_autodoc.schema import DocstringParam, DocstringSection
 
 
 class _DocstringSlot(Enum):
+    MODULE = 0
     VARIABLE = 1
     FUNCTION = 2
     CLASS = 3
@@ -35,6 +36,7 @@ _EXAMPLES = DocstringSection.EXAMPLES
 _REQUIRE = DocstringSection.REQUIRE
 _VERSION = DocstringSection.VERSION
 _TYPE_VERSION = DocstringSection.TYPE_VERSION
+_METADATA = DocstringSection.METADATA
 
 _sections = {
     _ARGS: {"Arguments", "Args", "Parameters", "Params", "参数"},
@@ -45,6 +47,7 @@ _sections = {
     _REQUIRE: {"Require", "要求"},
     _VERSION: {"Version", "版本"},
     _TYPE_VERSION: {"TypeVersion", "类型版本"},
+    _METADATA: {"Meta", "MetaData", "meta", "metadata"},
 }
 
 
@@ -58,11 +61,13 @@ class Docstring:
     When match regex, we think section is multiple, else singular.
     """
 
+    MODULE = _DocstringSlot.MODULE
     VARIABLE = _DocstringSlot.VARIABLE
     FUNCTION = _DocstringSlot.FUNCTION
     CLASS = _DocstringSlot.CLASS
 
     sections = _sections
+    # TODO: slot attr and matcher for different docstring
     title_re = re.compile(
         "^("
         + "|".join({sec for _ in _sections.values() for sec in _})
@@ -84,36 +89,8 @@ class Docstring:
         self.require = DocstringSection(_REQUIRE, _SINGULAR)
         self.version = DocstringSection(_VERSION, _SINGULAR)
         self.type_version = DocstringSection(_TYPE_VERSION, _SINGULAR)
+        self.metadata = DocstringSection(_METADATA, _SINGULAR)
         self.patch: Dict[str, Any] = {}
-        section_keys = {s.name.lower() for s in _sections.keys()}
-        if typ == "variable":
-            for id in section_keys - {
-                "examples",
-                "require",
-                "version",
-                "type_version",
-            }:
-                delattr(self, id)
-        elif typ == "function":
-            for id in section_keys - {
-                "args",
-                "returns",
-                "attributes",
-                "raises",
-                "examples",
-                "require",
-                "version",
-            }:
-                delattr(self, id)
-        elif typ == "class":
-            for id in section_keys - {
-                "args",
-                "attributes",
-                "examples",
-                "require",
-                "version",
-            }:
-                delattr(self, id)
 
     def parse(self, docstring: str) -> None:
         docstring = inspect.cleandoc(docstring)
@@ -139,7 +116,7 @@ class Docstring:
             if identity is None:
                 continue
             text = dedent(docstring[seg]).strip()
-            section = getattr(self, identity.name.lower())
+            section: DocstringSection = getattr(self, identity.name.lower())
             section.version = matches[i].group(2)
             section.source = text
             self.generic_parse(section)

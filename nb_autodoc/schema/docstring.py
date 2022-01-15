@@ -18,6 +18,7 @@ class _SectionType(Enum):
     REQUIRE = 5
     VERSION = 6
     TYPE_VERSION = 7
+    METADATA = 8
 
 
 @define(slots=True)
@@ -62,6 +63,7 @@ class DocstringSection:
     REQUIRE = _SectionType.REQUIRE
     VERSION = _SectionType.VERSION
     TYPE_VERSION = _SectionType.TYPE_VERSION
+    METADATA = _SectionType.METADATA
 
     SINGULAR = _SectionKind.SINGULAR
     MULTIPLE = _SectionKind.MULTIPLE
