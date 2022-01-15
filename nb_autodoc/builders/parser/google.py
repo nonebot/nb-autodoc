@@ -47,7 +47,7 @@ _sections = {
     _REQUIRE: {"Require", "要求"},
     _VERSION: {"Version", "版本"},
     _TYPE_VERSION: {"TypeVersion", "类型版本"},
-    _METADATA: {"Meta", "MetaData", "meta", "metadata"},
+    _METADATA: {"Meta", "meta", "MetaData", "metadata", "FrontMatter", "frontmatter"},
 }
 
 
