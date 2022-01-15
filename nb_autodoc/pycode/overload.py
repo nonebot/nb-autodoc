@@ -1,5 +1,6 @@
 import ast
 import inspect
+import sys
 from typing import Any, Callable, List, Dict, Union, Optional
 from copy import deepcopy
 from random import randint
@@ -38,6 +39,19 @@ def signature_from_ast(node: ast.FunctionDef) -> Signature:
     defaults = args.defaults.copy()
     kwdefaults = args.kw_defaults
     non_default_count = len(args.args) - len(defaults)
+    if sys.version_info >= (3, 8):
+        for arg in args.posonlyargs:
+            params.append(
+                Parameter(
+                    arg.arg,
+                    kind=Parameter.POSITIONAL_ONLY,
+                    annotation=(
+                        force_repr(ast.unparse(arg.annotation))
+                        if arg.annotation
+                        else Parameter.empty
+                    ),
+                )
+            )
     for arg in args.args[:non_default_count]:
         params.append(
             Parameter(
