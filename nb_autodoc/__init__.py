@@ -188,7 +188,11 @@ class Module(Doc):
                 if (
                     (is_public(name) or self.is_whitelisted(name))
                     and not self.is_blacklisted(name)
-                    and (self.is_from_current_module(obj) or name in vcpicker.comments)
+                    and (
+                        self.is_from_current_module(obj)
+                        or name in vcpicker.comments
+                        or self.is_whitelisted(name)
+                    )
                 ):
                     public_objs[name] = inspect.unwrap(obj)
 
