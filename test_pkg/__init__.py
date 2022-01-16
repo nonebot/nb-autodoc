@@ -1,4 +1,6 @@
 """
+版本的替换测试 {version}`1.1.0+`，模块链接替换测试 {ref}`test_pkg.api.Api`
+
 Meta:
     sidebar: auto
     option:

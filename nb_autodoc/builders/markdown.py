@@ -1,4 +1,5 @@
-from typing import List, Optional, Union
+import re
+from typing import Callable, List, Optional, Union
 from textwrap import indent as _indent
 
 from nb_autodoc import schema, Doc, Class, Function, Variable, LibraryAttr
@@ -28,6 +29,10 @@ def get_version(
         return f'{prefix}<Badge text="{ver}"/>'
 
 
+def replace_description(s: str, repl: Callable[[re.Match], str]) -> str:
+    return re.sub(r"{(version|ref)}`(.*?)`", repl, s)
+
+
 class MarkdownBuilder(Builder):
     def text(self) -> str:
         self.current_filepath = self.uri_factory(
@@ -39,7 +44,9 @@ class MarkdownBuilder(Builder):
             builder.append(f"---\n{dsobj.metadata.source}\n---")
         builder.append(f"# {self.dmodule.refname}{get_version(dsobj)}")
         if dsobj.description:
-            builder.append(dsobj.description)
+            builder.append(
+                replace_description(dsobj.description, self._replace_description)
+            )
         for dobj, dsobj in self.iter_documentation_attrs():
             if (
                 isinstance(dobj, Variable)
@@ -71,6 +78,18 @@ class MarkdownBuilder(Builder):
             dobj.heading_id,
         )
 
+    def _replace_description(self, match: re.Match) -> str:
+        id, content = match.group(1), match.group(2)
+        if id == "version":
+            return get_version(content)
+        elif id == "ref":
+            dobj = self.dmodule.context.get(content)
+            if dobj is not None:
+                return self.add_link(dobj)
+            else:
+                return match.group()
+        return match.group()
+
     @staticmethod
     def indent(s: str, level: int = 1) -> str:
         return _indent(s, prefix=" " * level * 2)
@@ -97,8 +116,13 @@ class MarkdownBuilder(Builder):
                 if p.annotation
                 else "",
                 version=get_version(p),
-                desc=(p.description or "") and f": {p.description}",  # noqa
-                long_desc="\n\n" + self.indent(p.long_description)
+                desc=f": {replace_description(p.description, self._replace_description)}"
+                if p.description
+                else "",
+                long_desc="\n\n"
+                + self.indent(
+                    replace_description(p.long_description, self._replace_description)
+                )
                 if p.long_description
                 else "",
             )
@@ -121,13 +145,25 @@ class MarkdownBuilder(Builder):
         if dsobj.description:
             if "\n" in dsobj.description:
                 builder.append("- **说明**")
-                builder.append(self.indent(dsobj.description))
+                builder.append(
+                    self.indent(
+                        replace_description(
+                            dsobj.description, self._replace_description
+                        )
+                    )
+                )
             else:
-                builder.append(f"- **说明:** {dsobj.description}")
+                builder.append(
+                    f"- **说明:** {replace_description(dsobj.description, self._replace_description)}"
+                )
         if dsobj.examples:
             section = dsobj.examples
             builder.append("- **用法**")
-            builder.append(self.indent(section.source))
+            builder.append(
+                self.indent(
+                    replace_description(section.source, self._replace_description)
+                )
+            )
         return "\n\n".join(builder)
 
     def render_Function(self, dobj: Function, dsobj: "Docstring") -> str:
@@ -142,11 +178,19 @@ class MarkdownBuilder(Builder):
         )
         if dsobj.description:
             builder.append("- **说明**")
-            builder.append(self.indent(dsobj.description))
+            builder.append(
+                self.indent(
+                    replace_description(dsobj.description, self._replace_description)
+                )
+            )
         if dsobj.require:
             section = dsobj.require
             builder.append(f"- **要求**{get_version(section)}")
-            builder.append(self.indent(section.source))
+            builder.append(
+                self.indent(
+                    replace_description(section.source, self._replace_description)
+                )
+            )
         if overloads:
             builder.append("- **重载**")
             for i, overload in enumerate(overloads):
@@ -164,11 +208,20 @@ class MarkdownBuilder(Builder):
         if dsobj.raises:
             section = dsobj.raises
             builder.append(f"- **异常**{get_version(section)}")
-            builder.append(self.render_params(section) or self.indent(section.source))
+            builder.append(
+                self.render_params(section)
+                or self.indent(
+                    replace_description(section.source, self._replace_description)
+                )
+            )
         if dsobj.examples:
             section = dsobj.examples
             builder.append("- **用法**")
-            builder.append(self.indent(section.source))
+            builder.append(
+                self.indent(
+                    replace_description(section.source, self._replace_description)
+                )
+            )
         if dsobj.attributes:
             section = dsobj.attributes
             builder.append("- **属性**")
@@ -185,11 +238,19 @@ class MarkdownBuilder(Builder):
         )
         if dsobj.description:
             builder.append("- **说明**")
-            builder.append(self.indent(dsobj.description))
+            builder.append(
+                self.indent(
+                    replace_description(dsobj.description, self._replace_description)
+                )
+            )
         if dsobj.require:
             section = dsobj.require
             builder.append(f"- **要求**{get_version(section)}")
-            builder.append(self.indent(section.source))
+            builder.append(
+                self.indent(
+                    replace_description(section.source, self._replace_description)
+                )
+            )
         if dsobj.args:
             section = dsobj.args
             if section.content:
@@ -198,15 +259,25 @@ class MarkdownBuilder(Builder):
         if dsobj.examples:
             section = dsobj.examples
             builder.append("- **用法**")
-            builder.append(self.indent(section.source))
+            builder.append(
+                self.indent(
+                    replace_description(section.source, self._replace_description)
+                )
+            )
         if dsobj.attributes:
             section = dsobj.attributes
             for dp in section.content:
                 builder.append(f"### _other-attr_ `{dp.name}`")
                 if dp.description:
-                    builder.append(dp.description)
+                    builder.append(
+                        replace_description(dp.description, self._replace_description)
+                    )
                 if dp.long_description:
-                    builder.append(dp.long_description)
+                    builder.append(
+                        replace_description(
+                            dp.long_description, self._replace_description
+                        )
+                    )
         return "\n\n".join(builder)
 
     def render_LibraryAttr(self, dobj: LibraryAttr, dsobj: "Docstring") -> str:
