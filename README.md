@@ -10,6 +10,102 @@
 
 此外，目前的 nb-autodoc 还基于 ast 模块实现了对 stub file 的处理和重载函数的解析。
 
+## Cheat Sheet
+
+文档样板
+
+### Module
+
+```
+"""
+description.
+
+FrontMatter:
+    sidebar: auto
+    option:
+        (anything nested)
+"""
+```
+
+**注意:** FrontMatter 需要位于 description 的后面
+
+### Class
+
+```
+"""
+参数:
+    name: desc
+    kwargs: other desc
+
+属性:
+    attr1: desc
+"""
+```
+
+`__init__` 无需任何文档，将参数部分写于类的 docstring 便会自动生成
+
+属性一般用于描述三方库的基类属性
+
+### Function
+
+```
+"""
+参数:
+    name: desc, case in ['case1', 'case2']
+        - `case1`: desc
+        - `case2`: desc
+    name2 (Union[pkg.foo.Foo, str]): desc
+
+返回:
+    Optional[pkg.foo.Foo]: 描述
+
+用法:
+    ```python
+    print('hello world!')
+    ```
+    任何描述
+"""
+```
+
+参数的类型注释会自动生成，如果需要覆写，请对模块内部成员使用全名便于添加 url link。
+
+参数块之间内允许长描述，长描述的部分会自动缩进并输出。
+
+返回里可以写任何内容，但是当内容符合正则 `^(?! )([\w\.\[\], ]+)(?: *\(([\w\.\[\], ]+)\))?(.*?):` 时，会被认为是可解析并对其做一些处理（对 annotation 添加 url link 之类的），否则直接输出。
+
+### Variable
+
+这部分没啥特别的
+
+### 版本写法
+
+```
+版本: 1.1.0+
+
+参数 (1.1.0+):
+    name (annotation) {version}`1.1.0+`: desc
+```
+
+特别地，Variable 额外添加了类型版本的识别
+
+```
+类型版本: 1.1.0+
+```
+
+### 描述块拓展语法
+
+- version
+
+  ```
+  {version}`1.1.0+`
+  ```
+
+- ref
+
+  ```
+  {ref}`pkg.foo.Foo`
+  ```
+
 ## Schedule
 
 1. reduce code redundancy
@@ -24,8 +120,8 @@
 
 - 1.0
 
-    - [ ] 使用 AST 解析整个模块和子模块和命名空间，解除对 import_module 的完全依赖。此处仅在单文件层面操作，并且会获取字符串层面的所有 docstring 和类型注解。最后在保持文档和源码一致的基础上增加功能。
+  - [ ] 使用 AST 解析整个模块和子模块和命名空间，解除对 import_module 的完全依赖。此处仅在单文件层面操作，并且会获取字符串层面的所有 docstring 和类型注解。最后在保持文档和源码一致的基础上增加功能。
 
-    - [ ] 使用 AST 解析 `if TYPE_CHECKING` 的所有 import 和 importfrom (performance relative import) 并加入到每个模块的 attributes dict，用于实现 `get_type_hints`，理论上可以正确签名所有 callable 对象。
+  - [ ] 使用 AST 解析 `if TYPE_CHECKING` 的所有 import 和 importfrom (performance relative import) 并加入到每个模块的 attributes dict，用于实现 `get_type_hints`，理论上可以正确签名所有 callable 对象。
 
-    - [ ] 更好的 pyi 解析逻辑。更好的 overload 解析逻辑。
+  - [ ] 更好的 pyi 解析逻辑。更好的 overload 解析逻辑。
