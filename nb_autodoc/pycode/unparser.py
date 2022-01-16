@@ -796,10 +796,7 @@ class Unparser:
 
     def _Subscript(self, node: ast.Subscript):
         if not self.anno_new_style or not isinstance(node.value, ast.Name):
-            self.dispatch(node.value)
-            self.write("[")
-            self.dispatch(node.slice)
-            self.write("]")
+            self.__Subscript_writer(node)
             return
         name = node.value
         # in py3.9 node.slice is the element (Name, Attribute, Slice, Tuple, etc.)
@@ -816,7 +813,6 @@ class Unparser:
             else:
                 interleave(lambda: self.write(", "), self.dispatch, slice_spec)
             self.write("]")
-            return
         elif name.id == "Union":
             iter_elts = iter(slice_spec.elts)
             first_elt = next(iter_elts)
@@ -824,26 +820,48 @@ class Unparser:
             for elt in iter_elts:
                 self.write(" | ")
                 self.dispatch(elt)
-            return
         elif name.id == "Optional":
             self.dispatch(node.slice)
             self.write(" | None")
         elif name.id == "Callable":
-            self.write("(")
-            if isinstance(slice_spec.elts[0], ast.Ellipsis):
-                self.write("...")
+            if sys.version_info < (3, 8):
+                if isinstance(slice_spec.elts[0], ast.Ellipsis):
+                    self.write("(*Any, **Any)")
+                else:
+                    self._Tuple(slice_spec.elts[0])
             else:
-                interleave(
-                    lambda: self.write(", "), self.dispatch, slice_spec.elts[0].elts
-                )
-            self.write(") -> ")
+                if (
+                    isinstance(slice_spec.elts[0], ast.Constant)
+                    and slice_spec.elts[0].value is Ellipsis
+                ):
+                    self.write("(*Any, **Any)")
+                else:
+                    self._Tuple(slice_spec.elts[0])
+            self.write(" -> ")
             self.dispatch(slice_spec.elts[1])
         else:
             # Other Name like typing.Type
-            self.dispatch(node.value)
-            self.write("[")
-            self.dispatch(node.slice)
-            self.write("]")
+            self.__Subscript_writer(node)
+            return
+
+    def __Subscript_writer(self, node: ast.Subscript):
+        self.dispatch(node.value)
+        self.write("[")
+        if sys.version_info < (3, 9):
+            if isinstance(node.slice, ast.Index) and isinstance(
+                node.slice.value, ast.Tuple
+            ):
+                interleave(
+                    lambda: self.write(", "), self.dispatch, node.slice.value.elts
+                )
+            else:
+                self.dispatch(node.slice)
+        else:
+            if isinstance(node.slice, ast.Tuple):
+                interleave(lambda: self.write(", "), self.dispatch, node.slice.elts)
+            else:
+                self.dispatch(node.slice)
+        self.write("]")
 
     def _Starred(self, t):
         self.write("*")
