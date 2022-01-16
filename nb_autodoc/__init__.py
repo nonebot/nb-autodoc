@@ -196,7 +196,11 @@ class Module(Doc):
         for name, obj in public_objs.items():
             if obj is None:
                 self.doc[name] = Variable(
-                    name, None, self, docstring=vcpicker.comments.get(name)
+                    name,
+                    None,
+                    self,
+                    docstring=vcpicker.comments.get(name),
+                    type_annotation=annotations.get(name),
                 )
                 continue
             if self.is_from_user_library(obj):
@@ -218,10 +222,19 @@ class Module(Doc):
                 )
             elif name in vcpicker.comments:
                 self.doc[name] = Variable(
-                    name, obj, self, docstring=vcpicker.comments[name]
+                    name,
+                    obj,
+                    self,
+                    docstring=vcpicker.comments[name],
+                    type_annotation=annotations.get(name),
                 )
             else:
-                self.doc[name] = Variable(name, obj, self)
+                self.doc[name] = Variable(
+                    name,
+                    obj,
+                    self,
+                    type_annotation=annotations.get(name),
+                )
 
         # Find overload function from source code
         # Find stub file for a package
@@ -408,7 +421,7 @@ class Class(Doc):
     instance_vars: Set[str]
 
     def __init__(self, name: str, obj: Any, module: "Module") -> None:
-        docstring = inspect.getdoc(obj)
+        docstring = inspect.cleandoc(getattr(obj, "__doc__", "") or "")
         super().__init__(name, obj, docstring, module)
         self.doc = {}
 
@@ -521,7 +534,7 @@ class Function(Doc):
         overloads: List[schema.OverloadFunctionDef] = None,
         method_type: str = "method",
     ) -> None:
-        docstring = inspect.getdoc(obj)
+        docstring = inspect.cleandoc(obj.__doc__ or "")
         super().__init__(name, obj, docstring, module)
         self.cls = cls
         self.overloads = overloads or []
@@ -579,7 +592,7 @@ class Variable(Doc):
         type_annotation: Optional[type] = None,
     ) -> None:
         if isinstance(obj, property):
-            docstring = inspect.getdoc(obj)
+            docstring = inspect.cleandoc(obj.__doc__ or "")
         super().__init__(name, obj, docstring, module)
         self.cls = cls
         self._type_annotation = type_annotation
