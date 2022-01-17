@@ -6,6 +6,7 @@ from __future__ import print_function, unicode_literals
 import six
 import sys
 import ast
+from typing import Any
 from six import StringIO
 from six.moves import cStringIO
 
@@ -801,18 +802,18 @@ class Unparser:
         name = node.value
         # in py3.9 node.slice is the element (Name, Attribute, Slice, Tuple, etc.)
         # in lower version is ast.Index, ast.Slice or ast.ExtSlice
-        if sys.version_info >= (3, 9):
-            slice_spec = node.slice
+        slice_spec: Any  # maybe Name, Tuple, Call, Slice
+        if sys.version_info < (3, 9):
+            if not isinstance(node.slice, ast.Index):
+                self.__Subscript_writer(node)
+                return
+            slice_spec = node.slice.value
         else:
-            slice_spec = node.slice.value  # type: ignore
+            slice_spec = node.slice
         if name.id in ("List", "Set", "Tuple", "Dict"):
-            self.write(name.id.lower())
-            self.write("[")
-            if not isinstance(slice_spec, list):
-                self.dispatch(slice_spec)
-            else:
-                interleave(lambda: self.write(", "), self.dispatch, slice_spec)
-            self.write("]")
+            name.id = name.id.lower()
+            self.__Subscript_writer(node)
+            return
         elif name.id == "Union":
             iter_elts = iter(slice_spec.elts)
             first_elt = next(iter_elts)
