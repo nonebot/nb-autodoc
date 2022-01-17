@@ -185,16 +185,17 @@ class Module(Doc):
                 public_objs[name] = inspect.unwrap(obj)
         else:
             for name, obj in self.obj.__dict__.items():
+                if inspect.ismodule(obj):
+                    continue
+                if self.is_whitelisted(name):
+                    public_objs[name] = obj
+                    continue
                 if (
-                    (is_public(name) or self.is_whitelisted(name))
+                    is_public(name)
                     and not self.is_blacklisted(name)
-                    and (
-                        self.is_from_current_module(obj)
-                        or name in vcpicker.comments
-                        or self.is_whitelisted(name)
-                    )
+                    and (self.is_from_current_module(obj) or name in vcpicker.comments)
                 ):
-                    public_objs[name] = inspect.unwrap(obj)
+                    public_objs[name] = obj
 
         # Start construct of public objects
         for name, obj in public_objs.items():
@@ -224,19 +225,12 @@ class Module(Doc):
                     obj,
                     self,
                 )
-            elif name in vcpicker.comments:
-                self.doc[name] = Variable(
-                    name,
-                    obj,
-                    self,
-                    docstring=vcpicker.comments[name],
-                    type_annotation=annotations.get(name),
-                )
             else:
                 self.doc[name] = Variable(
                     name,
                     obj,
                     self,
+                    docstring=vcpicker.comments.get(name),
                     type_annotation=annotations.get(name),
                 )
 
