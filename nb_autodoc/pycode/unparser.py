@@ -837,7 +837,11 @@ class Unparser:
                 ):
                     self.write("(*Any, **Any)")
                 else:
-                    self._Tuple(slice_spec.elts[0])
+                    self.write("(")
+                    interleave(
+                        lambda: self.write(", "), self.dispatch, slice_spec.elts[0].elts
+                    )
+                    self.write(')')
             self.write(" -> ")
             self.dispatch(slice_spec.elts[1])
         else:
