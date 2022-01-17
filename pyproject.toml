@@ -15,7 +15,7 @@ license = {text = "MIT"}
 readme = "README.md"
 keywords = ["nonebot", "autodoc"]
 packages = [
-    { include = "nb_autodoc" },
+    { include = "nb_autodoc" }
 ]
 
 [project.urls]
@@ -30,6 +30,7 @@ nb-autodoc = 'nb_autodoc.__main__:cli_main'
 line-length = 88
 
 [tool.pdm]
+excludes = ["test_pkg"]
 
 [build-system]
 requires = ["pdm-pep517"]
