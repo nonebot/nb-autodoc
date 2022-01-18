@@ -102,7 +102,7 @@ class MarkdownBuilder(Builder):
         text = "\n\n".join(
             "- {name}{annotation}{version}{desc}{long_desc}".format(
                 name=linkify(
-                    p.name,
+                    p.name.replace("*", r"\*"),
                     add_link=self.add_link,
                     context=self.dmodule.context,
                 )

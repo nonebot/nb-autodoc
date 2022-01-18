@@ -841,7 +841,7 @@ class Unparser:
                     interleave(
                         lambda: self.write(", "), self.dispatch, slice_spec.elts[0].elts
                     )
-                    self.write(')')
+                    self.write(")")
             self.write(" -> ")
             self.dispatch(slice_spec.elts[1])
         else:

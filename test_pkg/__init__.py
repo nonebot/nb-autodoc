@@ -92,7 +92,7 @@ class Foo:
         ...
 
     @classmethod
-    def iamclass(cls) -> None:
+    def iamclass(cls) -> Callable[..., int]:
         """
         i am class~
         """
