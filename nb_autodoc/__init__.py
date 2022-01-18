@@ -425,6 +425,11 @@ class Class(Doc):
         self.doc = {}
 
         annotations: Dict[str, Any] = getattr(self.obj, "__annotations__", {})
+        annotations_only: Set[str] = set()
+        for name in annotations:
+            if not hasattr(self.obj, name):
+                annotations_only.add(name)
+
         if hasattr(self.obj, "__slots__"):
             instance_vars = set(getattr(self.obj, "__slots__", ()))
         elif self.source:
@@ -433,9 +438,9 @@ class Class(Doc):
             instance_vars = (pycode.extract_all_comments(source).instance_vars).get(
                 self.name, set()
             )
-            instance_vars |= annotations.keys()
+            instance_vars |= annotations_only
         else:
-            instance_vars = set(annotations.keys())
+            instance_vars = set(annotations_only)
         self.instance_vars = instance_vars
         var_comments = {
             k[len(self.qualname) + 1 :]: v
