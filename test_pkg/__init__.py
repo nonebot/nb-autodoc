@@ -1,5 +1,13 @@
 """
-版本的替换测试 {version}`1.1.0+`，模块链接替换测试 {ref}`test_pkg.api.Api`
+版本的替换测试 {version}`1.1.0+`
+
+模块链接替换测试 {ref}`test_pkg.api.Api`
+{ref}`test_pkg.api.Api`
+{ref}``sx` <not.replace>`
+{ref}`xx.xx <test_pkg.api.Api>` some text {ref}`xx.xx <test_pkg.api.Api>`
+{ref}``text` <xx> <xx.xx> <test_pkg.api.Api>` some text {ref}`ss`ticked` <test_pkg.api.Api>`
+{ref}`test_pkg.api.Api` some text {ref}`ss`ticked` <test_pkg.api.Api>`
+`{ref}`xx.xx <test_pkg.api.Api>`` so <ss> ss {ss}me {ref}`xx.xx` text {ref}`xx.xx <test_pkg.api.Api>`
 
 Meta:
     sidebar: auto

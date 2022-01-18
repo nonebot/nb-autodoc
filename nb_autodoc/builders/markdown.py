@@ -30,7 +30,11 @@ def get_version(
 
 
 def replace_description(s: str, repl: Callable[[re.Match], str]) -> str:
-    return re.sub(r"{(version|ref)}`(.*?)`", repl, s)
+    return re.sub(
+        r"{(?P<name>\w+?)}`(?:(?P<text>[^{}]+?) <)?(?P<content>[\w\.\+\-]+)(?(text)>)`",
+        repl,
+        s,
+    )
 
 
 class MarkdownBuilder(Builder):
@@ -59,7 +63,7 @@ class MarkdownBuilder(Builder):
             )
         return "\n\n".join(builder)
 
-    def add_link(self, dobj: Doc) -> str:
+    def add_link(self, dobj: Doc, *, repr_text: str = None) -> str:
         filepath = self.uri_factory(dobj.module.refname, dobj.module.is_package).split(
             "/"
         )
@@ -73,21 +77,19 @@ class MarkdownBuilder(Builder):
                 relatived_path.append("..")
             relatived_path.extend(filepath)
         return "[{}]({}#{})".format(
-            dobj.qualname,
+            repr_text or dobj.qualname,
             "/".join(relatived_path),
             dobj.heading_id,
         )
 
     def _replace_description(self, match: re.Match) -> str:
-        id, content = match.group(1), match.group(2)
-        if id == "version":
-            return get_version(content)
-        elif id == "ref":
+        name, text, content = match.groups()
+        if name == "version":
+            return get_version(content, prefix="")
+        elif name == "ref":
             dobj = self.dmodule.context.get(content)
             if dobj is not None:
-                return self.add_link(dobj)
-            else:
-                return match.group()
+                return self.add_link(dobj, repr_text=text)
         return match.group()
 
     @staticmethod
