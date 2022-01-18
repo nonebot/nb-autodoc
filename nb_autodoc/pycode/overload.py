@@ -9,6 +9,9 @@ from inspect import Parameter, Signature
 from nb_autodoc.schema import OverloadFunctionDef
 from nb_autodoc.pycode.unparser import unparse
 
+if sys.version_info >= (3, 8):
+    unparse = ast.unparse  # type: ignore
+
 
 class force_repr:
     __slots__ = ("value",)
