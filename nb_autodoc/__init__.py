@@ -1,4 +1,5 @@
 import inspect
+import sys
 from typing import (
     Any,
     Callable,
@@ -609,15 +610,20 @@ class Variable(Doc):
 
     @property
     def type_annotation(self) -> str:
+        if self._type_annotation is not None:
+            return formatannotation(self._type_annotation)
         if isinstance(self.obj, property):
+            if sys.version_info <= (3, 7) and isinstance(self.cls, NamedTuple):
+                # Before py3.7, NamedTuple member is property and abstract
+                return formatannotation(
+                    inspect.signature(self.cls.obj).parameters[self.name].annotation
+                )
             return formatannotation(
                 inspect.signature(self.obj.fget or self.obj.__get__).return_annotation
             )
         elif getattr(self.obj, "__module__", None) == "typing":
             return formatannotation(self.obj)
-        if self._type_annotation is None:
-            return ""
-        return formatannotation(self._type_annotation)
+        return ""
 
     @property
     def qualname(self) -> str:
