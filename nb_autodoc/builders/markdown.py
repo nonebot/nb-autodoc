@@ -287,6 +287,5 @@ class MarkdownBuilder(Builder):
     def render_LibraryAttr(self, dobj: LibraryAttr, dsobj: "Docstring") -> str:
         builder: List[str] = []
         builder.append(f"## _{dobj.kind}_ `{dobj.name}`")
-        builder.append("- **说明**")
-        builder.append(self.indent(dobj.docstring) if dobj.docstring else "暂无文档")
+        builder.append(dobj.docstring if dobj.docstring else "暂无文档")
         return "\n\n".join(builder)

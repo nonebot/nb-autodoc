@@ -159,12 +159,15 @@ class Builder(abc.ABC):
         """Yield all documentation object in order."""
         cls_dobj: Union[Function, Variable]
         variables: List[Variable] = []
-        other_attrs: List[Union[Class, Function, LibraryAttr]] = []
+        other_attrs: List[Union[Class, Function]] = []
+        library_attrs: List[LibraryAttr] = []
         for dobj in self.dmodule.doc.values():
             if isinstance(dobj, Module):
                 continue
             if isinstance(dobj, Variable):
                 variables.append(dobj)
+            elif isinstance(dobj, LibraryAttr):
+                library_attrs.append(dobj)
             else:
                 other_attrs.append(dobj)
         for dobj in variables:
@@ -172,10 +175,13 @@ class Builder(abc.ABC):
         for dobj in other_attrs:
             yield dobj, self.get_docstring(dobj)
             if isinstance(dobj, Class):
+                # TODO: better performance
                 for cls_dobj in dobj.variables():
                     yield cls_dobj, self.get_docstring(cls_dobj)
                 for cls_dobj in dobj.functions():
                     yield cls_dobj, self.get_docstring(cls_dobj)
+        for dobj in library_attrs:
+            yield dobj, self.get_docstring(dobj)
 
     def get_module_docstring(self) -> Docstring:
         return get_dsobj(self.dmodule.docstring)

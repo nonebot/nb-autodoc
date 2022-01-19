@@ -630,6 +630,9 @@ class Variable(Doc):
 
 
 class LibraryAttr(Doc):
+    def __init__(self, name: str, obj: Any, docstring: str, module: "Module") -> None:
+        super().__init__(name, obj, dedent(docstring).strip(), module)
+
     @property
     def kind(self) -> str:
         return "library-attr"
