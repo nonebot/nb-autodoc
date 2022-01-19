@@ -171,32 +171,18 @@ class Module(Doc):
 
         # Find public members
         public_objs: Dict[str, Any] = {}
-        if hasattr(self.obj, "__all__"):
-            for name in getattr(self.obj, "__all__", {}):
-                try:
-                    obj = getattr(self.obj, name)
-                except AttributeError:
-                    print(
-                        f"Module {self.module!r} doesn't contain identifier `{name}` "
-                        "exported in `__all__`"
-                    )
-                    continue
-                if self.is_blacklisted(name):
-                    continue
-                public_objs[name] = inspect.unwrap(obj)
-        else:
-            for name, obj in self.obj.__dict__.items():
-                if inspect.ismodule(obj):
-                    continue
-                if self.is_whitelisted(name):
-                    public_objs[name] = obj
-                    continue
-                if (
-                    is_public(name)
-                    and not self.is_blacklisted(name)
-                    and (self.is_from_current_module(obj) or name in vcpicker.comments)
-                ):
-                    public_objs[name] = obj
+        for name, obj in self.obj.__dict__.items():
+            if inspect.ismodule(obj):
+                continue
+            if self.is_whitelisted(name):
+                public_objs[name] = obj
+                continue
+            if (
+                is_public(name)
+                and not self.is_blacklisted(name)
+                and (self.is_from_current_module(obj) or name in vcpicker.comments)
+            ):
+                public_objs[name] = obj
 
         # Start construct of public objects
         for name, obj in public_objs.items():
@@ -219,6 +205,10 @@ class Module(Doc):
                 self.doc[name] = LibraryAttr(name, obj, docstring, self)
                 continue
             if is_function(obj):
+                docstring = vcpicker.comments.get(name)
+                if docstring:
+                    # Lambda assign in Module
+                    obj.__doc__ = docstring
                 self.doc[name] = Function(name, obj, self)
             elif inspect.isclass(obj):
                 self.doc[name] = Class(
