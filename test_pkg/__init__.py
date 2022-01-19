@@ -70,7 +70,8 @@ class Foo:
 
         Returns:
             simply description for returns.
-                maybe complex
+                - case1: case1desc
+                - case2: case2desc
         """
         ...
 

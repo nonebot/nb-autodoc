@@ -4,8 +4,9 @@ Documentation builder.
 import abc
 import inspect
 import shutil
-from pathlib import Path
 from typing import Callable, Iterable, List, Tuple, NamedTuple, Union
+from pathlib import Path
+from textwrap import dedent
 
 from nb_autodoc import Module, Class, Function, Variable, LibraryAttr
 from nb_autodoc import schema, utils
@@ -64,12 +65,14 @@ def resolve_dsobj_from_signature(
     if not no_returns:
         if not dsobj.returns.content:
             return_anno = signature.return_annotation
+            desc_parts = (dsobj.returns.source + "\n").split("\n", 1)
             dsobj.returns.content.append(
                 schema.DocstringParam(
                     utils.formatannotation(return_anno)
                     if not return_anno is inspect.Signature.empty
                     else "Unknown",
-                    description=dsobj.returns.source,
+                    description=desc_parts[0].strip(),
+                    long_description=dedent(desc_parts[1]).strip(),
                 )
             )
         else:
