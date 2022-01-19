@@ -159,20 +159,25 @@ class Builder(abc.ABC):
         self,
     ) -> Iterable[Tuple[Union[Variable, Function, Class, LibraryAttr], Docstring]]:
         """Yield all documentation object in order."""
-        dobj: Union[Variable, Function, Class, LibraryAttr]
         cls_dobj: Union[Function, Variable]
-        for dobj in self.dmodule.variables():
+        variables: List[Variable] = []
+        other_attrs: List[Union[Class, Function, LibraryAttr]] = []
+        for dobj in self.dmodule.doc.values():
+            if isinstance(dobj, Module):
+                continue
+            if isinstance(dobj, Variable):
+                variables.append(dobj)
+            else:
+                other_attrs.append(dobj)
+        for dobj in variables:
             yield dobj, self.get_docstring(dobj)
-        for dobj in self.dmodule.functions():
+        for dobj in other_attrs:
             yield dobj, self.get_docstring(dobj)
-        for dobj in self.dmodule.classes():
-            yield dobj, self.get_docstring(dobj)
-            for cls_dobj in dobj.variables():
-                yield cls_dobj, self.get_docstring(cls_dobj)
-            for cls_dobj in dobj.functions():
-                yield cls_dobj, self.get_docstring(cls_dobj)
-        for dobj in self.dmodule.libraryattrs():
-            yield dobj, self.get_docstring(dobj)
+            if isinstance(dobj, Class):
+                for cls_dobj in dobj.variables():
+                    yield cls_dobj, self.get_docstring(cls_dobj)
+                for cls_dobj in dobj.functions():
+                    yield cls_dobj, self.get_docstring(cls_dobj)
 
     def get_module_docstring(self) -> Docstring:
         return get_dsobj(self.dmodule.docstring)
