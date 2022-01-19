@@ -106,6 +106,23 @@ FrontMatter:
   {ref}`pkg.foo.Foo`
   ```
 
+## 黑白名单机制
+
+模块上定义 `__autodoc__` 变量来控制成员输出。类型是一个字典。键是成员的名称，值是 True 或者 False。
+
+如:
+
+```
+__autodoc__ = {
+    "MyClass": True,
+    "MyClass.attr": False
+}
+```
+
+当值为字符串时，会覆盖对应对象的 docstring，这个特性一般用于对三方库的描述。
+
+**注意:** 不建议将来自其他模块的成员设为 True 强制输出。（引发链接问题和 stub file 解析问题）
+
 ## Schedule
 
 1. reduce code redundancy
