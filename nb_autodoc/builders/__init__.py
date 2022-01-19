@@ -24,13 +24,8 @@ def default_path_factory(refname: str, ispkg: bool) -> Path:
 
 def default_uri_factory(refname: str, ispkg: bool) -> str:
     """Default uri factory for html."""
-    uri = refname.replace(".", "/")
-    to_strip = refname.split(".", 1)[0]
-    if ispkg:
-        uri += "/index.md"
-    else:
-        uri += ".md"
-    return uri.lstrip(to_strip + "/")
+    path = default_path_factory(refname, ispkg)
+    return str(path).split("/", 1)[1]
 
 
 def resolve_dsobj_from_signature(

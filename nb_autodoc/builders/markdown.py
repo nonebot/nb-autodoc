@@ -75,7 +75,7 @@ class MarkdownBuilder(Builder):
                 current_filepath.pop(0)
             for _ in range(len(current_filepath) - 1):
                 relatived_path.append("..")
-            if relatived_path and not relatived_path[0] == "..":
+            if not relatived_path:
                 relatived_path.append(".")
             relatived_path.extend(filepath)
         return "[{}]({}#{})".format(
