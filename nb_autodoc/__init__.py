@@ -89,7 +89,10 @@ class Doc:
     @property
     def qualname(self) -> str:
         """Qualified name of current object."""
-        return getattr(self.obj, "__qualname__", self.name)
+        cls: Optional[Class] = getattr(self, 'cls', None)
+        if cls is None:
+            return self.name
+        return cls.name + '.' + self.name
 
     @property
     def heading_id(self) -> str:
@@ -207,10 +210,14 @@ class Module(Doc):
             if is_function(obj):
                 docstring = vcpicker.comments.get(name)
                 if docstring:
-                    # Lambda assign in Module
+                    # dynamic function
                     obj.__doc__ = docstring
                 self.doc[name] = Function(name, obj, self)
             elif inspect.isclass(obj):
+                docstring = vcpicker.comments.get(name)
+                if docstring:
+                    # dynamic class
+                    obj.__doc__ = docstring
                 self.doc[name] = Class(
                     name,
                     obj,
