@@ -34,7 +34,7 @@ def resolve_dsobj_from_signature(
 ) -> Docstring:
     params: List[schema.DocstringParam] = []
     dparams_dict = {dp.name: dp for dp in dsobj.args.content}
-    extra_params = dparams_dict.keys() - signature.parameters.keys()
+    extra_params = tuple(k for k in dparams_dict if k not in signature.parameters)
 
     for dp in dsobj.args.content:
         if dp.annotation:

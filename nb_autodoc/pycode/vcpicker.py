@@ -226,6 +226,8 @@ class VariableCommentPicker(ast.NodeVisitor):
 
     def visit_Expr(self, node: ast.Expr) -> None:
         """Handles Expr node and pick up a comment if string."""
+        if self.current_class and node is self.current_class.body[0]:
+            return
         if isinstance(self.previous, (ast.Assign, ast.AnnAssign)) and isinstance(
             node.value, ast.Str
         ):
