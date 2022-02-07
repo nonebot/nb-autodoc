@@ -127,6 +127,8 @@ class VariableCommentPicker(ast.NodeVisitor):
         self.current_function: Optional[ast.FunctionDef] = None
         self.comments: Dict[str, str] = {}
         self.instance_vars: Dict[str, Set[str]] = {}
+        self.nodoc_classes: Set[str] = set()
+        # patch, refactor in v1.0
         self.previous: Optional[ast.AST] = None
         self.visited: List[str] = []
         super().__init__()
@@ -256,6 +258,12 @@ class VariableCommentPicker(ast.NodeVisitor):
         """Handles ClassDef node and set context."""
         # ignore class inner class
         if self.current_class is None:
+            first_child = node.body[0]
+            if not (
+                isinstance(first_child, ast.Expr)
+                and isinstance(first_child.value, ast.Str)
+            ):
+                self.nodoc_classes.add(node.name)
             self.context.append(node.name)
             self.current_class = node
             for child in node.body:

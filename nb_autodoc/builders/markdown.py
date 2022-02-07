@@ -58,6 +58,9 @@ class MarkdownBuilder(Builder):
                 and not dobj.type_annotation
             ):
                 continue
+            if isinstance(dobj, Class) and hasattr(dobj.obj, "__members__"):
+                builder.append(self.render_Enum(dobj, dsobj))
+                continue
             builder.append(
                 getattr(self, "render_" + dobj.__class__.__name__)(dobj, dsobj)
             )
@@ -230,6 +233,37 @@ class MarkdownBuilder(Builder):
             section = dsobj.attributes
             builder.append("- **属性**")
             builder.append(self.render_params(section))
+        return "\n\n".join(builder)
+
+    def render_Enum(self, dobj: Class, dsobj: "Docstring") -> str:
+        builder: List[str] = []
+        builder.append(
+            "## _enum_ `{}`{}".format(dobj.name, get_version(dsobj))
+            + f" {{#{dobj.heading_id}}}"
+        )
+        if dsobj.description:
+            builder.append("- **说明**")
+            builder.append(
+                self.indent(
+                    replace_description(dsobj.description, self._replace_description)
+                )
+            )
+        members = getattr(dobj.obj, "__members__")
+        if members:
+            builder.append("- **枚举成员**")
+            builder.append(
+                self.indent(
+                    "\n\n".join(
+                        "- `{}`{}".format(
+                            name,
+                            f": {dobj.var_comments.get(name)}"
+                            if name in dobj.var_comments
+                            else "",
+                        )
+                        for name in members.keys()
+                    )
+                )
+            )
         return "\n\n".join(builder)
 
     def render_Class(self, dobj: Class, dsobj: "Docstring") -> str:

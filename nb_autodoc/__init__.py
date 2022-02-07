@@ -89,10 +89,10 @@ class Doc:
     @property
     def qualname(self) -> str:
         """Qualified name of current object."""
-        cls: Optional[Class] = getattr(self, 'cls', None)
+        cls: Optional[Class] = getattr(self, "cls", None)
         if cls is None:
             return self.name
-        return cls.name + '.' + self.name
+        return cls.name + "." + self.name
 
     @property
     def heading_id(self) -> str:
@@ -107,6 +107,7 @@ class Module(Doc):
         "skipped_submodules",
         "var_comments",
         "overloads",
+        "vcpicker",
     )
     obj: ModuleType
     doc: Dict[str, Union["Module", "Class", "Function", "Variable", "LibraryAttr"]]
@@ -170,6 +171,7 @@ class Module(Doc):
         vcpicker = pycode.extract_all_comments(self.source)
         ofpicker = pycode.extract_all_overloads(self.source, globals=self.obj.__dict__)
         self.var_comments = vcpicker.comments
+        self.vcpicker = vcpicker
         self.overloads = ofpicker.overloads
 
         # Find public members
@@ -411,7 +413,7 @@ class Module(Doc):
 
 
 class Class(Doc):
-    __slots__ = ("doc", "instance_vars")
+    __slots__ = ("doc", "instance_vars", "var_comments")
     obj: type
     doc: Dict[str, Union["Function", "Variable"]]
     instance_vars: Set[str]
@@ -419,6 +421,8 @@ class Class(Doc):
     def __init__(self, name: str, obj: Any, module: "Module") -> None:
         docstring = inspect.cleandoc(getattr(obj, "__doc__", "") or "")
         super().__init__(name, obj, docstring, module)
+        if self.name in self.module.vcpicker.nodoc_classes:
+            self.docstring = None
         self.doc = {}
 
         annotations: Dict[str, Any] = getattr(self.obj, "__annotations__", {})
@@ -444,6 +448,10 @@ class Class(Doc):
             for k, v in self.module.var_comments.items()
             if k.startswith(self.qualname + ".")
         }
+        self.var_comments = var_comments
+
+        if hasattr(self.obj, "__members__"):
+            return
 
         public_objs: List[Class.Attribute] = []
         for name, kind, cls, obj in inspect.classify_class_attrs(self.obj):
