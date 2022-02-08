@@ -520,6 +520,8 @@ class Class(Doc):
 
     @property
     def kind(self) -> str:
+        if hasattr(self.obj, "__members__"):
+            return "enum"
         if inspect.isabstract(self.obj):
             return "abstract class"
         return "class"

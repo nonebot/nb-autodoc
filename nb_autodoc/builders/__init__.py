@@ -104,6 +104,7 @@ class Builder(abc.ABC):
         output_dir: str,
         path_factory: Callable[[str, bool], Path] = default_path_factory,
         uri_factory: Callable[[str, bool], str] = default_uri_factory,
+        slugify: Callable[..., str] = None
     ) -> None:
         """
         Args:
@@ -120,6 +121,7 @@ class Builder(abc.ABC):
         self.output_dir: str = output_dir
         self.path_factory: Callable[[str, bool], Path] = path_factory
         self.uri_factory: Callable[[str, bool], str] = uri_factory
+        self.slugify = slugify
 
     @staticmethod
     def get_docstring(dobj: Union[Variable, Function, Class, LibraryAttr]) -> Docstring:
@@ -206,6 +208,7 @@ class Builder(abc.ABC):
                 output_dir=self.output_dir,
                 path_factory=self.path_factory,
                 uri_factory=self.uri_factory,
+                slugify=self.slugify,
             ).write()
 
     @abc.abstractmethod

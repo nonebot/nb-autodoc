@@ -25,3 +25,13 @@ def linkify(
     annotation = re.sub(r"[A-Za-z0-9_\.]+", _add_link, annotation)
 
     return annotation
+
+
+def vuepress_slugify(s: str) -> str:
+    """Slugify implementation duplicated from vuepress."""
+    s = re.sub(r"[\u0300-\u036F\u0000-\u001f]", "", s)
+    s = re.sub(r"[\s~`!@#$%^&*()\-_+=[\]{}|\\;:\"'“”‘’–—<>,.?/]+", "-", s)
+    s = re.sub(r"-{2,}", "-", s)
+    s = re.sub(r"^-+|-+$", "", s)
+    s = re.sub(r"^(\d)", r"_\g<1>", s)
+    return s.lower()

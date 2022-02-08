@@ -29,6 +29,16 @@ def get_version(
         return f'{prefix}<Badge text="{ver}"/>'
 
 
+def get_title(dobj: Doc) -> str:
+    body = dobj.name
+    if isinstance(dobj, Class):
+        if not dobj.kind == "enum":
+            body += dobj.params()
+    elif isinstance(dobj, Function):
+        body += dobj.params()
+    return f"_{dobj.kind}_ `{body}`"
+
+
 def replace_description(s: str, repl: Callable[[re.Match], str]) -> str:
     return re.sub(
         r"{(?P<name>\w+?)}`(?:(?P<text>[^{}]+?) <)?(?P<content>[\w\.\+\-]+)(?(text)>)`",
@@ -84,7 +94,7 @@ class MarkdownBuilder(Builder):
         return "[{}]({}#{})".format(
             repr_text or dobj.qualname,
             "/".join(relatived_path),
-            dobj.heading_id,
+            self.slugify(get_title(dobj)) if self.slugify else dobj.heading_id,
         )
 
     def _replace_description(self, match: re.Match) -> str:
@@ -139,12 +149,12 @@ class MarkdownBuilder(Builder):
 
     def render_Variable(self, dobj: Variable, dsobj: "Docstring") -> str:
         builder: List[str] = []
-        ftitle = "## _{}_ `{}`{}"
+        ftitle = "## {}{}"
         if dobj.cls is not None:
             ftitle = "#" + ftitle
         builder.append(
-            ftitle.format(dobj.kind, dobj.name, get_version(dsobj))
-            + f" {{#{dobj.heading_id}}}"
+            ftitle.format(get_title(dobj), get_version(dsobj))
+            + (f" {{#{dobj.heading_id}}}" if not self.slugify else "")
         )
         builder.append(
             f"- **类型:** {dobj.type_annotation}{get_version(dsobj.type_version.source)}"
@@ -176,12 +186,12 @@ class MarkdownBuilder(Builder):
     def render_Function(self, dobj: Function, dsobj: "Docstring") -> str:
         builder: List[str] = []
         overloads: Optional[List[DocstringOverload]] = dsobj.patch.get("overloads")
-        ftitle = "## _{}_ `{}`{}"
+        ftitle = "## {}{}"
         if dobj.cls is not None:
             ftitle = "#" + ftitle
         builder.append(
-            ftitle.format(dobj.kind, dobj.name + dobj.params(), get_version(dsobj))
-            + f" {{#{dobj.heading_id}}}"
+            ftitle.format(get_title(dobj), get_version(dsobj))
+            + (f" {{#{dobj.heading_id}}}" if not self.slugify else "")
         )
         if dsobj.description:
             builder.append("- **说明**")
@@ -238,8 +248,8 @@ class MarkdownBuilder(Builder):
     def render_Enum(self, dobj: Class, dsobj: "Docstring") -> str:
         builder: List[str] = []
         builder.append(
-            "## _enum_ `{}`{}".format(dobj.name, get_version(dsobj))
-            + f" {{#{dobj.heading_id}}}"
+            "## {}{}".format(get_title(dobj), get_version(dsobj))
+            + (f" {{#{dobj.heading_id}}}" if not self.slugify else "")
         )
         if dsobj.description:
             builder.append("- **说明**")
@@ -269,10 +279,8 @@ class MarkdownBuilder(Builder):
     def render_Class(self, dobj: Class, dsobj: "Docstring") -> str:
         builder: List[str] = []
         builder.append(
-            "## _{}_ `{}`{}".format(
-                dobj.kind, dobj.name + dobj.params(), get_version(dsobj)
-            )
-            + f" {{#{dobj.heading_id}}}"
+            "## {}{}".format(get_title(dobj), get_version(dsobj))
+            + (f" {{#{dobj.heading_id}}}" if not self.slugify else "")
         )
         if dsobj.description:
             builder.append("- **说明**")
@@ -320,6 +328,6 @@ class MarkdownBuilder(Builder):
 
     def render_LibraryAttr(self, dobj: LibraryAttr, dsobj: "Docstring") -> str:
         builder: List[str] = []
-        builder.append(f"## _{dobj.kind}_ `{dobj.name}`")
+        builder.append(f"## {get_title(dobj)}")
         builder.append(dobj.docstring if dobj.docstring else "暂无文档")
         return "\n\n".join(builder)
