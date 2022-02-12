@@ -266,7 +266,7 @@ class MarkdownBuilder(Builder):
                     "\n\n".join(
                         "- `{}`{}".format(
                             name,
-                            f": {dobj.var_comments.get(name)}"
+                            f": {replace_description(dobj.var_comments[name], self._replace_description)}"
                             if name in dobj.var_comments
                             else "",
                         )
