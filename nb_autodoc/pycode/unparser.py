@@ -838,9 +838,14 @@ class Unparser:
                     self.write("(*Any, **Any)")
                 else:
                     self.write("(")
-                    interleave(
-                        lambda: self.write(", "), self.dispatch, slice_spec.elts[0].elts
-                    )
+                    if isinstance(slice_spec.elts[0], ast.List):
+                        interleave(
+                            lambda: self.write(", "),
+                            self.dispatch,
+                            slice_spec.elts[0].elts,
+                        )
+                    else:
+                        self.dispatch(slice_spec.elts[0])
                     self.write(")")
             self.write(" -> ")
             self.dispatch(slice_spec.elts[1])
