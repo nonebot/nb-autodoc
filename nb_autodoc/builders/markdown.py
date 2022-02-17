@@ -1,3 +1,4 @@
+import os
 import re
 from typing import Callable, List, Optional, Union
 from textwrap import indent as _indent
@@ -78,9 +79,9 @@ class MarkdownBuilder(Builder):
 
     def add_link(self, dobj: Doc, *, repr_text: str = None) -> str:
         filepath = self.uri_factory(dobj.module.refname, dobj.module.is_package).split(
-            "/"
+            os.sep
         )
-        current_filepath = self.current_filepath.split("/")
+        current_filepath = self.current_filepath.split(os.sep)
         relatived_path: List[str] = []
         if not filepath == current_filepath:
             while filepath and current_filepath and filepath[0] == current_filepath[0]:
