@@ -3,6 +3,7 @@ Documentation builder.
 """
 import abc
 import inspect
+import os
 import shutil
 from typing import Callable, Iterable, List, Tuple, NamedTuple, Union
 from pathlib import Path
@@ -26,7 +27,7 @@ def default_path_factory(refname: str, ispkg: bool) -> Path:
 def default_uri_factory(refname: str, ispkg: bool) -> str:
     """Default uri factory for html."""
     path = default_path_factory(refname, ispkg)
-    return str(path).split("/", 1)[1]
+    return str(path).split(os.sep, 1)[1]
 
 
 def resolve_dsobj_from_signature(
