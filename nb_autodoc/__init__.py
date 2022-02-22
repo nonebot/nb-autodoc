@@ -285,7 +285,6 @@ class Module(Doc):
                         # Frozen signature before change code object
                         obj.__signature__ = inspect.signature(obj)
                         # Magic trick the dummy code object point to the real code
-                        obj.__code__ = self.doc[name].obj.__code__  # type: ignore
                         if name not in overloads:
                             if not obj.__doc__:
                                 obj.__doc__ = self.doc[name].docstring
@@ -474,6 +473,9 @@ class Class(Doc):
             elif inspect.isclass(obj):
                 pass
             else:
+                # obj is instance descriptor created by __slots__, remove if not comment
+                if not isinstance(obj, property) and name not in self.var_comments:
+                    continue
                 self.doc[name] = Variable(
                     name,
                     obj,
@@ -624,6 +626,10 @@ class Variable(Doc):
     def type_annotation(self) -> str:
         if self._type_annotation is not None:
             return formatannotation(self._type_annotation)
+        try:
+            return self.module.vcpicker.annotations[self.qualname]
+        except KeyError:
+            pass
         if isinstance(self.obj, property):
             if sys.version_info <= (3, 7) and isinstance(self.cls, NamedTuple):
                 # Before py3.7, NamedTuple member is property and abstract

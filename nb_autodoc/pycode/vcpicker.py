@@ -30,9 +30,15 @@ Example:
 """
 import re
 import ast
+import sys
 import inspect
 import itertools
 from typing import Iterable, Iterator, List, Dict, Set, Union, Optional, cast
+
+from .unparser import unparse
+
+if sys.version_info >= (3, 8):
+    unparse = ast.unparse  # type: ignore
 
 
 comment_re = re.compile(r"^\s*#: ?(.*)$")
@@ -126,6 +132,7 @@ class VariableCommentPicker(ast.NodeVisitor):
         self.current_class: Optional[ast.ClassDef] = None
         self.current_function: Optional[ast.FunctionDef] = None
         self.comments: Dict[str, str] = {}
+        self.annotations: Dict[str, str] = {}
         self.instance_vars: Dict[str, Set[str]] = {}
         self.nodoc_classes: Set[str] = set()
         # patch, refactor in v1.0
@@ -155,6 +162,14 @@ class VariableCommentPicker(ast.NodeVisitor):
                 name = ".".join((basename, name))
             self.comments[name] = comment
 
+    def add_variable_annotation(self, name: str, annotation: str) -> None:
+        qualname = self.get_qualname_for(name)
+        if qualname:
+            basename = ".".join(qualname[:-1])
+            if basename:
+                name = ".".join((basename, name))
+            self.annotations[name] = annotation
+
     def get_self(self) -> Optional[ast.arg]:
         """Returns the name of the first argument if in a function."""
         if self.current_function and self.current_function.args.args:
@@ -173,10 +188,9 @@ class VariableCommentPicker(ast.NodeVisitor):
         super().visit(node)
         self.previous = node
 
-    def visit_Assign(self, node: Union[ast.Assign, ast.AnnAssign]) -> None:
+    def visit_Assign(self, node: ast.Assign) -> None:
         """Handles Assign node and pick up a variable comment."""
         # Record if node formed in `self.<instance_var_name>` in `__init__`
-        # TODO: add annotations marked in instance assignment
         farg = self.get_self()
         if self.current_class and farg:
             for target in get_assign_targets(node):
@@ -224,6 +238,13 @@ class VariableCommentPicker(ast.NodeVisitor):
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         """Handles AnnAssign node and pick up a variable comment."""
+        # other annotations already in __annotations__, just pick class.__init__
+        farg = self.get_self()
+        if self.current_class and farg:
+            # when simple is 1, target must be ast.Name
+            target = cast(ast.Name, node.target)
+            varname = get_target_names(target, self=farg)[0]
+            self.add_variable_annotation(varname, unparse(node.annotation))
         self.visit_Assign(node)  # type: ignore
 
     def visit_Expr(self, node: ast.Expr) -> None:

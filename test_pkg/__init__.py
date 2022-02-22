@@ -38,14 +38,14 @@ class Foo:
     main class for test_pkg
 
     Attributes:
-        attr_ins: the instance variable
-        attr_class: the class variable which not support documented
+        attr_class: the class variable text documented in other-attr
     """
 
     attr_class: int
 
     def __init__(self) -> None:
         self.attr_ins: int = 100
+        """the instance variable"""
 
     def publicfunc(
         self,
