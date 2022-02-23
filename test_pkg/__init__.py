@@ -32,6 +32,23 @@ if TYPE_CHECKING:
     from test_pkg.api import Api2
 
 
+var: int = 1
+"""Context[int]: short description.
+
+ahead is origin google style docstring for override.
+
+用法:
+    xxx
+"""
+
+
+var2: int = 1
+"""Context[int] {kind}`AnyVar` {version}`1.1.0+`
+
+ahead is complex support for type annotation (optional) and object mark.
+"""
+
+
 class Foo:
     """Foo summary
 
@@ -56,8 +73,9 @@ class Foo:
         *,
         arg3: Type["Api2"]
     ) -> Api:
-        """
-        description for publicfunc
+        """{version}`1.2.0+`
+
+        description for publicfunc, version should be 1.2.0+
 
         Version: 1.1.0+
 

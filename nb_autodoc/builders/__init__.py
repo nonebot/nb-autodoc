@@ -127,7 +127,10 @@ class Builder(abc.ABC):
     @staticmethod
     def get_docstring(dobj: Union[Variable, Function, Class, LibraryAttr]) -> Docstring:
         if isinstance(dobj, Variable):
-            return get_dsobj(dobj.docstring, Docstring.VARIABLE)
+            dsobj = get_dsobj(dobj.docstring, Docstring.VARIABLE)
+            if dsobj.var_anno:
+                dsobj.var_anno = utils.convert_anno_new_style(dsobj.var_anno)
+            return dsobj
         elif isinstance(dobj, Function):
             dsobj = get_dsobj(dobj.docstring, Docstring.FUNCTION)
             signature = utils.get_signature(dobj.obj)

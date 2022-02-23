@@ -20,6 +20,9 @@ def get_version(
         ver = obj.version
     elif isinstance(obj, Docstring):
         ver = obj.version.source
+        for id, content in obj.roles:
+            if id == "version":
+                ver = content
     else:
         ver = obj
     if not ver:
@@ -158,7 +161,7 @@ class MarkdownBuilder(Builder):
             + (f" {{#{dobj.heading_id}}}" if not self.slugify else "")
         )
         builder.append(
-            f"- **类型:** {dobj.type_annotation}{get_version(dsobj.type_version.source)}"
+            f"- **类型:** {dsobj.var_anno if dsobj.var_anno else dobj.type_annotation}{get_version(dsobj.type_version.source)}"
         )
         if dsobj.description:
             if "\n" in dsobj.description:

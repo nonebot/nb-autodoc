@@ -1,4 +1,5 @@
 import inspect
+import re
 import sys
 from typing import (
     Any,
@@ -39,6 +40,13 @@ def is_public(name: str) -> bool:
 
 def filter_type(typ: Type[T], values: Iterable["Doc"]) -> List[T]:
     return [i for i in values if isinstance(i, typ)]
+
+
+def find_kind(s: str) -> Optional[str]:
+    match = re.search(r"{kind}`(.*?)`", s)
+    if match:
+        return match.group(1)
+    return None
 
 
 class Context(UserDict):
@@ -423,6 +431,7 @@ class Module(Doc):
 class Class(Doc):
     __slots__ = ("doc", "instance_vars", "var_comments")
     obj: type
+    docstring: str
     doc: Dict[str, Union["Function", "Variable"]]
     instance_vars: Set[str]
 
@@ -430,7 +439,7 @@ class Class(Doc):
         docstring = inspect.cleandoc(getattr(obj, "__doc__", "") or "")
         super().__init__(name, obj, docstring, module)
         if self.name in self.module.vcpicker.nodoc_classes:
-            self.docstring = None
+            self.docstring = ""
         self.doc = {}
 
         annotations: Dict[str, Any] = getattr(self.obj, "__annotations__", {})
@@ -531,6 +540,10 @@ class Class(Doc):
 
     @property
     def kind(self) -> str:
+        if self.docstring:
+            fromdoc = find_kind(self.docstring.split("\n", 1)[0])
+            if fromdoc:
+                return fromdoc
         if hasattr(self.obj, "__members__"):
             return "enum"
         if inspect.isabstract(self.obj):
@@ -572,6 +585,10 @@ class Function(Doc):
 
     @property
     def kind(self) -> str:
+        if self.docstring:
+            fromdoc = find_kind(self.docstring.split("\n", 1)[0])
+            if fromdoc:
+                return fromdoc
         builder = []
         if getattr(self.obj, "__isabstractmethod__", False):
             builder.append("abstract")
@@ -621,6 +638,10 @@ class Variable(Doc):
 
     @property
     def kind(self) -> str:
+        if self.docstring:
+            fromdoc = find_kind(self.docstring.split("\n", 1)[0])
+            if fromdoc:
+                return fromdoc
         if isinstance(self.obj, property):
             if getattr(self.obj, "__isabstractmethod__", False):
                 return "abstract property"

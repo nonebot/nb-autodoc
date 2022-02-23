@@ -90,6 +90,8 @@ class Docstring:
         self.version = DocstringSection(_VERSION, _SINGULAR)
         self.type_version = DocstringSection(_TYPE_VERSION, _SINGULAR)
         self.metadata = DocstringSection(_METADATA, _SINGULAR)
+        self.var_anno: Optional[str] = None
+        self.roles: List[DocstringParam.Role] = []
         self.patch: Dict[str, Any] = {}
 
     def parse(self, docstring: str) -> None:
@@ -97,11 +99,26 @@ class Docstring:
         if not docstring:
             return
         matches = list(self.title_re.finditer(docstring))
-        if not matches:
+        if matches:
+            self.description = docstring[: matches[0].start()].strip()
+        else:
             self.description = docstring.strip()
+        # extract metadata
+        firstline = self.description.split("\n", 1)[0]
+        match_orig = re.match(r"^([\w\.\[\],\s]+):", firstline)
+        if match_orig:
+            self.description = self.description[match_orig.end() :].lstrip()
+            self.var_anno = match_orig.group(1).strip()
+        role_matches = list(re.finditer(r"{([\w]+)}`(.*?)`", firstline))
+        if role_matches:
+            self.description = self.description[role_matches[-1].end() :].lstrip()
+            self.var_anno = firstline[: role_matches[0].start()].strip()
+        for match in role_matches:
+            self.roles.append(DocstringParam.Role(match.group(1), match.group(2)))
+        if not matches:
             return
-        self.description = docstring[: matches[0].start()].strip()
-        splits: List[Tuple[str, slice]] = []  # raw text sections
+        # parse sections
+        splits: List[Tuple[str, slice]] = []
         for i in range(len(matches) - 1):
             splits.append(
                 (matches[i].group(1), slice(matches[i].end(), matches[i + 1].start()))
