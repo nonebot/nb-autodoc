@@ -210,11 +210,20 @@ class Module(Doc):
                 self.doc[name] = LibraryAttr(name, obj, docstring, self)
                 continue
             if is_function(obj):
-                docstring = vcpicker.comments.get(name)
-                if docstring:
-                    # dynamic function
-                    obj.__doc__ = docstring
-                self.doc[name] = Function(name, obj, self)
+                if obj.__name__ == "<lambda>":
+                    self.doc[name] = Variable(
+                        name,
+                        obj,
+                        self,
+                        docstring=vcpicker.comments.get(name),
+                        type_annotation=annotations.get(name),
+                    )
+                else:
+                    docstring = vcpicker.comments.get(name)
+                    if docstring:
+                        # dynamic function
+                        obj.__doc__ = docstring
+                    self.doc[name] = Function(name, obj, self)
             elif inspect.isclass(obj):
                 docstring = vcpicker.comments.get(name)
                 if docstring:
@@ -626,8 +635,11 @@ class Variable(Doc):
     def type_annotation(self) -> str:
         if self._type_annotation is not None:
             return formatannotation(self._type_annotation)
+        # class.__init__ assignment
         try:
-            return self.module.vcpicker.annotations[self.qualname]
+            return utils.convert_anno_new_style(
+                self.module.vcpicker.annotations[self.qualname]
+            )
         except KeyError:
             pass
         if isinstance(self.obj, property):

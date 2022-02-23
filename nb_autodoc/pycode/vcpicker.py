@@ -244,7 +244,9 @@ class VariableCommentPicker(ast.NodeVisitor):
             # when simple is 1, target must be ast.Name
             target = cast(ast.Name, node.target)
             varname = get_target_names(target, self=farg)[0]
-            self.add_variable_annotation(varname, unparse(node.annotation))
+            self.add_variable_annotation(
+                varname, unparse(node.annotation).replace('"', "").replace("'", "")
+            )
         self.visit_Assign(node)  # type: ignore
 
     def visit_Expr(self, node: ast.Expr) -> None:
