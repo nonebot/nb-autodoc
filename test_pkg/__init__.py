@@ -1,4 +1,8 @@
 """
+快捷导入: 不匹配不会被认为是 Annotation
+
+- `xx` -> {ref}`xx.xx`
+
 版本的替换测试 {version}`1.1.0+`
 
 模块链接替换测试 {ref}`test_pkg.api.Api`
@@ -46,6 +50,14 @@ var2: int = 1
 """Context[int] {kind}`AnyVar` {version}`1.1.0+`
 
 ahead is complex support for type annotation (optional) and object mark.
+before first Role is anno.
+"""
+
+
+var3: int = 1
+"""{anno}`Context[int]` {kind}`AnyVar` {version}`1.1.0+`
+
+anno could also write in a Role, but its priority is lowest.
 """
 
 

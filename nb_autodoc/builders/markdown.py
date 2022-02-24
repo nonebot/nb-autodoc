@@ -160,8 +160,13 @@ class MarkdownBuilder(Builder):
             ftitle.format(get_title(dobj), get_version(dsobj))
             + (f" {{#{dobj.heading_id}}}" if not self.slugify else "")
         )
+        var_anno = dsobj.var_anno
+        if not var_anno:
+            for role in dsobj.roles:
+                if role.id == "anno":
+                    var_anno = role.content
         builder.append(
-            f"- **类型:** {dsobj.var_anno if dsobj.var_anno else dobj.type_annotation}{get_version(dsobj.type_version.source)}"
+            f"- **类型:** {var_anno if var_anno else dobj.type_annotation}{get_version(dsobj.type_version.source)}"
         )
         if dsobj.description:
             if "\n" in dsobj.description:

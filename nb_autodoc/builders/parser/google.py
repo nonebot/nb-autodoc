@@ -105,14 +105,18 @@ class Docstring:
             self.description = docstring.strip()
         # extract metadata
         firstline = self.description.split("\n", 1)[0]
-        match_orig = re.match(r"^([\w\.\[\],\s]+):", firstline)
+        match_orig = re.match(
+            r"^([\w\.\[\],\s]+):(?: *)?(?! )(.+)", firstline, flags=re.ASCII
+        )
         if match_orig:
-            self.description = self.description[match_orig.end() :].lstrip()
             self.var_anno = match_orig.group(1).strip()
+            self.description = self.description[match_orig.regs[2][0] :]
         role_matches = list(re.finditer(r"{([\w]+)}`(.*?)`", firstline))
         if role_matches:
             self.description = self.description[role_matches[-1].end() :].lstrip()
-            self.var_anno = firstline[: role_matches[0].start()].strip()
+            var_anno = firstline[: role_matches[0].start()].strip()
+            if var_anno:
+                self.var_anno = var_anno
         for match in role_matches:
             self.roles.append(DocstringParam.Role(match.group(1), match.group(2)))
         if not matches:
