@@ -161,7 +161,14 @@ class MarkdownBuilder(Builder):
             + (f" {{#{dobj.heading_id}}}" if not self.slugify else "")
         )
         builder.append(
-            f"- **类型:** {dsobj.var_anno if dsobj.var_anno else dobj.type_annotation}{get_version(dsobj.type_version.source)}"
+            "- **类型:** {}{}".format(
+                linkify(
+                    dsobj.var_anno if dsobj.var_anno else dobj.type_annotation,
+                    add_link=self.add_link,
+                    context=self.dmodule.context,
+                ),
+                get_version(dsobj.type_version.source),
+            )
         )
         if dsobj.description:
             if "\n" in dsobj.description:
