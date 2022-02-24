@@ -130,6 +130,11 @@ class Builder(abc.ABC):
             dsobj = get_dsobj(dobj.docstring, Docstring.VARIABLE)
             if dsobj.var_anno:
                 dsobj.var_anno = utils.convert_anno_new_style(dsobj.var_anno)
+            else:
+                # try find var anno in Roles
+                for role in dsobj.roles:
+                    if role.id == "anno":
+                        dsobj.var_anno = utils.convert_anno_new_style(role.content)
             return dsobj
         elif isinstance(dobj, Function):
             dsobj = get_dsobj(dobj.docstring, Docstring.FUNCTION)

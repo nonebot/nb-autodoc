@@ -55,7 +55,7 @@ before first Role is anno.
 
 
 var3: int = 1
-"""{anno}`Context[int]` {kind}`AnyVar` {version}`1.1.0+`
+"""{anno}`Optional[Context[int]]` {kind}`AnyVar` {version}`1.1.0+`
 
 anno could also write in a Role, but its priority is lowest.
 """
