@@ -111,14 +111,25 @@ class Docstring:
         if match_orig:
             self.var_anno = match_orig.group(1).strip()
             self.description = self.description[match_orig.regs[2][0] :]
-        role_matches = list(re.finditer(r"{([\w]+)}`(.*?)`", firstline))
-        if role_matches:
-            self.description = self.description[role_matches[-1].end() :].lstrip()
-            var_anno = firstline[: role_matches[0].start()].strip()
-            if var_anno:
-                self.var_anno = var_anno
-        for match in role_matches:
-            self.roles.append(DocstringParam.Role(match.group(1), match.group(2)))
+
+        def find_first_role(s: str) -> Optional[Tuple[DocstringParam.Role, int]]:
+            match = re.match(r"^\s*\{(anno|kind|version)\}`(.+?)`", s)
+            if match:
+                return (
+                    DocstringParam.Role(match.group(1), match.group(2)),
+                    match.end(),
+                )
+            return None
+
+        role_chunk = find_first_role(firstline)
+        pos = 0
+        while role_chunk:
+            self.roles.append(role_chunk[0])
+            pos += role_chunk[1]
+            role_chunk = find_first_role(firstline[role_chunk[1] :])
+        if pos:
+            self.description = self.description[pos:].lstrip()
+
         if not matches:
             return
         # parse sections
