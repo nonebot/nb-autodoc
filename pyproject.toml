@@ -14,9 +14,6 @@ requires-python = ">=3.7"
 license = {text = "MIT"}
 readme = "README.md"
 keywords = ["nonebot", "autodoc"]
-packages = [
-    { include = "nb_autodoc" }
-]
 
 [project.urls]
 homepage = "https://github.com/nonebot/nb-autodoc"
@@ -29,8 +26,15 @@ nb-autodoc = 'nb_autodoc.__main__:cli_main'
 [tool.black]
 line-length = 88
 
+[tool.isort]
+profile = "black"
+
 [tool.pdm]
+packages = [
+    { include = "nb_autodoc" }
+]
 excludes = ["test_pkg"]
+editable-backend = "editables"
 
 [build-system]
 requires = ["pdm-pep517"]
