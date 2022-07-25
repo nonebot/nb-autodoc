@@ -1,19 +1,18 @@
 [project]
 name = "nb-autodoc"
-version = "0.1.0"
+version = "0.2.0"
 description = "API doc generator for NoneBot."
-authors = [
-    {name = "iyume", email = "iyumelive@gmail.com"},
-]
-dependencies = [
-    "attrs~=21.4",
-    "six>=1.6.1",
-    "click>=8.0.3",
-]
+authors = [{ name = "iyume", email = "iyumelive@gmail.com" }]
 requires-python = ">=3.7"
-license = {text = "MIT"}
+license = { text = "MIT" }
 readme = "README.md"
 keywords = ["nonebot", "autodoc"]
+dependencies = [
+    "attrs==21.*",
+    "click==8.*",
+]
+
+[project.optional-dependencies]
 
 [project.urls]
 homepage = "https://github.com/nonebot/nb-autodoc"
@@ -21,7 +20,7 @@ repository = "https://github.com/nonebot/nb-autodoc"
 documentation = "https://github.com/nonebot/nb-autodoc/blob/master/README.md"
 
 [project.scripts]
-nb-autodoc = 'nb_autodoc.__main__:cli_main'
+nb-autodoc = "nb_autodoc.__main__:cli_main"
 
 [tool.black]
 line-length = 88
@@ -30,11 +29,15 @@ line-length = 88
 profile = "black"
 
 [tool.pdm]
-packages = [
-    { include = "nb_autodoc" }
-]
+packages = [{ include = "nb_autodoc" }]
 excludes = ["test_pkg"]
-editable-backend = "editables"
+# editable-backend = "editables"  # break vscode interpreter searching
+
+[tool.pdm.dev-dependencies]
+dev = [
+    "isort>=5.10.1",
+    "black>=22.6.0",
+]
 
 [build-system]
 requires = ["pdm-pep517"]

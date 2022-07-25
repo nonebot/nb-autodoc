@@ -1,2 +1,0 @@
-from nb_autodoc.pycode.vcpicker import extract_all_comments, VariableCommentPicker
-from nb_autodoc.pycode.overload import extract_all_overloads, OverloadPicker
