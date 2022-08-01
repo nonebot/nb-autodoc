@@ -43,6 +43,11 @@ class root(Document):
 _identifier = str
 
 
+class Module(root):
+    name: str
+    doc: Docstring
+
+
 class Variable(root):
     name: _identifier
     kind: str
@@ -73,21 +78,25 @@ class docstring(Document):
     end_col: int
 
 
+class Role(docstring):
+    name: _identifier
+    text: str
+    content: str
+
+
 class Docstring(docstring):
     descr: str
     long_descr: str
     sections: list[section]
+    roles: list[Role]
 
 
-class Argument(docstring):
+class ColonArg(docstring):
     name: str  # maybe not identifier, in `Returns` is anno
     annotation: str | None
+    roles: list[Role]
     descr: str
     long_descr: str
-
-
-class Text(docstring):
-    s: str
 
 
 class section(docstring):
@@ -95,26 +104,33 @@ class section(docstring):
 
 
 class Args(section):
-    args: list[Argument]
-    vararg: Argument
-    kwarg: Argument
-
-
-class Returns(section):
-    value: Text | Argument
+    args: list[ColonArg]
+    vararg: ColonArg
+    kwarg: ColonArg
 
 
 class Attributes(section):
-    args: list[Argument]
-
-
-class Raises(section):
-    args: list[Argument]
+    args: list[ColonArg]
 
 
 class Examples(section):
-    value: Text
+    value: str
+
+
+# class KeywordArgs(section): ...
+
+
+class Raises(section):
+    args: list[ColonArg]
+
+
+class Returns(section):
+    value: str | ColonArg
 
 
 class Require(section):
-    value: Text
+    value: str
+
+
+class Yields(section):
+    value: str | ColonArg
