@@ -8,15 +8,27 @@ class DocumentMeta(type):
     def __init__(
         cls, name: str, bases: tuple[type, ...], namespace: dict[str, Any]
     ) -> None:
-        """Validate class namespace before class creation."""
-        return super().__init__(name, bases, namespace)
+        super().__init__(name, bases, namespace)
+        annotations = getattr(cls, "__annotations__", {})
+        # create _fields implicitly
+        cls._fields: tuple[str, ...] = (
+            tuple()
+            if not cls.__name__[0].isupper() or cls.__base__ is object
+            else tuple(annotations.keys())
+        )
 
     def __call__(cls, *args: Any, **kwargs: Any) -> Any:
-        """Special dataclass implementation.
-
-        This share the call for instance creation.
-        """
-        self = super().__call__()
+        """Special dataclass implementation by hook instance creation."""
+        self: type = super().__call__()
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+        if len(args) > len(cls._fields):
+            raise TypeError(
+                f"{cls.__name__} constructor takes at most "
+                f"{len(cls._fields)} positional arguments"
+            )
+        for i, v in enumerate(args):
+            setattr(self, cls._fields[i], v)
         return self
 
 
@@ -29,7 +41,8 @@ class MappingMixin(Mapping):
 class Document(metaclass=DocumentMeta):
     _fields: ClassVar[tuple[str, ...]]
 
-    __init__: Callable[..., None] = lambda self, *args, **kwargs: None
+    # only type hint because parameters were never passed in
+    __init__: Callable[..., None]
 
 
 class Page(Document):
@@ -80,7 +93,7 @@ class docstring(Document):
 
 class Role(docstring):
     name: _identifier
-    text: str
+    text: str | None
     content: str
 
 
@@ -134,3 +147,6 @@ class Require(section):
 
 class Yields(section):
     value: str | ColonArg
+
+
+Docstring("s1", "s2", [])
