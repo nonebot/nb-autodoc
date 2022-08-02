@@ -18,7 +18,7 @@ class DocumentMeta(type):
         )
 
     def __call__(cls, *args: Any, **kwargs: Any) -> Any:
-        """Special dataclass implementation by hook instance creation."""
+        """Special dataclass implementation by hooking instance creation."""
         self: type = super().__call__()
         for k, v in kwargs.items():
             setattr(self, k, v)
@@ -32,7 +32,7 @@ class DocumentMeta(type):
         return self
 
 
-class MappingMixin(Mapping):
+class MappingMixin(Mapping[str, Any]):
     # not implemented yet
     def __init__(self) -> None:
         raise NotImplementedError
@@ -98,10 +98,11 @@ class Role(docstring):
 
 
 class Docstring(docstring):
+    roles: list[Role]
+    annotation: str | None  # only variable should be contained
     descr: str
     long_descr: str
     sections: list[section]
-    roles: list[Role]
 
 
 class ColonArg(docstring):
