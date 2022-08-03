@@ -75,12 +75,25 @@ def docstrings():
     return docstrings
 
 
+def listrun(f, docstrings):
+    results = []
+    for d in docstrings:
+        results.append(f(d))
+    return results
+
+
 def test_cleandoc(docstrings: List[str]) -> None:
     for docstring in docstrings:
         test_docstring = cleandoc(docstring)
         target_docstring = inspect.cleandoc(docstring)
-        # duplicated
-        # explanation = "\n".join(
-        #     ndiff(test_docstring.splitlines(), target_docstring.splitlines())
-        # )
         assert test_docstring == target_docstring
+
+
+@pytest.mark.benchmark(group="cleandoc")
+def test_cleandoc_m(benchmark, docstrings: List[str]) -> None:
+    benchmark.pedantic(listrun, (cleandoc, docstrings), iterations=10000)
+
+
+@pytest.mark.benchmark(group="cleandoc")
+def test_inspect_cleandoc_m(benchmark, docstrings: List[str]) -> None:
+    benchmark.pedantic(listrun, (inspect.cleandoc, docstrings), iterations=10000)

@@ -21,15 +21,16 @@ def detect_indent(s: Union[str, List[str]], ignore_blank_line: bool = True) -> i
 
 
 def cleandoc(s: str) -> str:
-    """Improved `inspect.cleandoc`."""
-    s = s.strip().expandtabs()
-    s = _space_only_re.sub("", s)
-    chunk = s.split("\n", 1)
-    if len(chunk) == 1:
-        return chunk[0]
-    firstline, body = chunk
-    margin = detect_indent(body, ignore_blank_line=False)
-    bodylines = body.splitlines()
-    for i in range(len(bodylines)):
-        bodylines[i] = bodylines[i][margin:]
-    return firstline + "\n" + "\n".join(bodylines)
+    """Enhanced version of `inspect.cleandoc`.
+
+    * Fix `inspect.cleandoc` do not remove blank only lines.
+    * Slightly better performance (powered by pytest-benchmark).
+    """
+    lines = s.strip().expandtabs().splitlines()
+    margin = len(lines[-1]) - len(lines[-1].lstrip())
+    for i in range(1, len(lines)):
+        if lines[i]:
+            margin = min(margin, len(lines[i]) - len(lines[i].lstrip()))
+    for i in range(1, len(lines)):
+        lines[i] = lines[i][margin:]
+    return "\n".join(lines)
