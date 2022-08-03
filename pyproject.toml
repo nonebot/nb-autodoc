@@ -1,7 +1,7 @@
 [project]
 name = "nb-autodoc"
 version = "0.2.0"
-description = "API Documentation Generator for NoneBot."
+description = "Powerful API Documentation Generator."
 authors = [{ name = "iyume", email = "iyumelive@gmail.com" }]
 requires-python = ">=3.7"
 license = { text = "MIT" }
