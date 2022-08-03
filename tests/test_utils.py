@@ -1,11 +1,12 @@
 import ast
 import inspect
+import textwrap
 from pathlib import Path
 from typing import List, Union, cast
 
 import pytest
 
-from nb_autodoc.utils import cleandoc
+from nb_autodoc.utils import cleandoc, dedent
 
 
 def _is_str_node(node: ast.Expr) -> bool:
@@ -75,6 +76,17 @@ def docstrings():
     return docstrings
 
 
+@pytest.fixture
+def docstrings_no_firstline(docstrings: List[str]) -> List[str]:
+    results = []
+    for docstring in docstrings:
+        chunk = docstring.split("\n", 1)
+        if len(chunk) == 1:
+            continue
+        results.append(chunk[1])
+    return results
+
+
 def listrun(f, docstrings):
     results = []
     for d in docstrings:
@@ -82,18 +94,35 @@ def listrun(f, docstrings):
     return results
 
 
-def test_cleandoc(docstrings: List[str]) -> None:
+@pytest.mark.benchmark(group="utils.dedent")
+def test_dedent(benchmark, docstrings_no_firstline: List[str]) -> None:
+    benchmark.pedantic(
+        listrun, (dedent, docstrings_no_firstline), iterations=10, rounds=1000
+    )
+    for text in docstrings_no_firstline:
+        test_text = dedent(text)[1]
+        target_text = textwrap.dedent(text)
+        assert test_text == target_text
+
+
+@pytest.mark.benchmark(group="utils.dedent")
+def test_textwrap_dedent(benchmark, docstrings_no_firstline: List[str]) -> None:
+    benchmark.pedantic(
+        listrun, (textwrap.dedent, docstrings_no_firstline), iterations=10, rounds=1000
+    )
+
+
+@pytest.mark.benchmark(group="utils.cleandoc")
+def test_cleandoc(benchmark, docstrings: List[str]) -> None:
+    benchmark.pedantic(listrun, (cleandoc, docstrings), iterations=10, rounds=1000)
     for docstring in docstrings:
         test_docstring = cleandoc(docstring)
         target_docstring = inspect.cleandoc(docstring)
         assert test_docstring == target_docstring
 
 
-@pytest.mark.benchmark(group="cleandoc")
-def test_cleandoc_m(benchmark, docstrings: List[str]) -> None:
-    benchmark.pedantic(listrun, (cleandoc, docstrings), iterations=10000)
-
-
-@pytest.mark.benchmark(group="cleandoc")
-def test_inspect_cleandoc_m(benchmark, docstrings: List[str]) -> None:
-    benchmark.pedantic(listrun, (inspect.cleandoc, docstrings), iterations=10000)
+@pytest.mark.benchmark(group="utils.cleandoc")
+def test_inspect_cleandoc(benchmark, docstrings: List[str]) -> None:
+    benchmark.pedantic(
+        listrun, (inspect.cleandoc, docstrings), iterations=10, rounds=1000
+    )
