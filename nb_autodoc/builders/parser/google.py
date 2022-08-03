@@ -3,20 +3,13 @@
 import re
 from functools import wraps
 from typing import Callable, List, Optional, TypeVar, cast
-from typing_extensions import Concatenate, ParamSpec, Protocol
+from typing_extensions import Concatenate, ParamSpec
 
 from nb_autodoc.builders.nodes import Args, Docstring, Role, docstring
 
 TP = TypeVar("TP", bound="Parser")
 P = ParamSpec("P")
 RT = TypeVar("RT")
-
-
-class PosWritable(Protocol):
-    lineno: int
-    col: int
-    end_lineno: int
-    end_col: int
 
 
 def record_pos(
@@ -33,8 +26,8 @@ def record_pos(
         col = self.col
         obj = func(self, *args, **kwargs)
         _obj = cast("Optional[docstring]", obj)
-        # ref for type hint, bound not work for mypy
-        # also, generic operation is invalid in python
+        # Ref for type hint, bound T not work for mypy
+        # Also, generic operation is invalid in python
         end_lineno = self.lineno
         end_col = self.col
         if _obj is not None:
@@ -52,7 +45,7 @@ class Parser:
     _arg_vararg_re = re.compile(r"(?:\*)([a-zA-Z_]\w*)")
     _arg_kwarg_re = re.compile(r"(?:\*\*)")
     _role_re = re.compile(r"{(\w+)}`(.+?)`")
-    _anno_char = r"\w\.\s\[\],"
+    _anno_char = r"\w\. \[\],"  # \t not allow in annotation
 
     def __init__(self, docstring: str) -> None:
         self.lines = docstring.splitlines()
@@ -64,9 +57,16 @@ class Parser:
         return self.lines[self.lineno][self.col :]
 
     def _consume_spaces(self) -> None:
-        match = re.match(r"^\s*", self.line)
+        match = re.match(r"^ *", self.line)
         if match:
             self.col += match.end()
+
+    def _consume_linebreak(self) -> None:
+        if self.line:
+            return
+        self.col = 0
+        while not self.line:
+            self.lineno += 1
 
     @record_pos
     def _consume_role(self) -> Optional[Role]:
@@ -88,7 +88,7 @@ class Parser:
 
     def parse(self) -> Docstring:
         roles = self._consume_roles()
-        self._consume_spaces()  # unneeded check
+        self._consume_spaces()  # Unneeded check
         return Docstring(roles=roles)
 
 
