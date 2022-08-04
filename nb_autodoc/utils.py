@@ -1,8 +1,4 @@
-import re
 from typing import Tuple
-
-_whitespace_re = re.compile(r"^([ \t]+)(?:\S)", re.MULTILINE)
-_no_whitespace_re = re.compile(r"^\S", re.MULTILINE)
 
 
 def dedent(s: str) -> Tuple[int, str]:
@@ -10,14 +6,17 @@ def dedent(s: str) -> Tuple[int, str]:
 
     * Pretty better preformance (powered by pytest-benchmark).
     """
-    # TODO: Remove re should get better performance
-    if _no_whitespace_re.findall(s):
+    lines = s.split("\n")  # splitlines will ignore the last newline
+    margin = float("inf")
+    for line in lines:
+        if line:
+            margin = min(margin, len(line) - len(line.lstrip()))
+    # margin is only inf in case string empty
+    if isinstance(margin, float):
         return 0, s
-    indents = [len(i) for i in _whitespace_re.findall(s)]
-    margin = min(indents)
-    # re.sub seems not working on re.M flag, which inline flag done
-    s = re.sub("(?m)^" + " " * margin, "", s)
-    return margin, s
+    for i in range(len(lines)):
+        lines[i] = lines[i][margin:]
+    return margin, "\n".join(lines)
 
 
 def cleandoc(s: str, strict: bool = False) -> str:
