@@ -118,16 +118,19 @@ class section(docstring):
 
 
 class Args(section):
+    name: str
     args: list[ColonArg]
     vararg: ColonArg
     kwarg: ColonArg
 
 
 class Attributes(section):
+    name: str
     args: list[ColonArg]
 
 
 class Examples(section):
+    name: str
     value: str
 
 
@@ -135,19 +138,22 @@ class Examples(section):
 
 
 class Raises(section):
+    name: str
     args: list[ColonArg]
 
 
 class Returns(section):
+    name: str
+    version: str | None
     value: str | ColonArg
 
 
 class Require(section):
+    name: str
+    version: str | None
     value: str
 
 
 class Yields(section):
+    name: str
     value: str | ColonArg
-
-
-Docstring("s1", "s2", [])
