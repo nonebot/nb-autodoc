@@ -1,14 +1,17 @@
 """Google Style Docstring Parser.
 """
 import re
-from functools import wraps
+import warnings
+from functools import lru_cache, wraps
 from typing import TYPE_CHECKING, Callable, List, Optional, TypeVar, cast
 from typing_extensions import Concatenate, ParamSpec
 
 from nb_autodoc.builders.nodes import (
     Args,
+    ColonArg,
     Docstring,
     InlineValue,
+    Returns,
     Role,
     docstring,
     section,
@@ -51,15 +54,15 @@ def record_pos(
 
 
 class Parser:
-    # re not support ambitious lookbehind width
-    _arg_vararg_re = re.compile(r"(?:\*)([a-zA-Z_]\w*)")
-    _arg_kwarg_re = re.compile(r"(?:\*\*)")
     _role_re = re.compile(r"{(\w+)}`(.+?)`", re.A)
     _firstline_re = re.compile(r"([a-zA-Z_][\w\. \[\],]*)(?<! ):(.+)", re.A)
     _section_marker_re = re.compile(r"(\w+) *(?:\(([0-9\.\+\-]+)\))? *:")
+    _identifier_re = re.compile(r"[^\W0-9]\w*")
+    _pair_anno_re = re.compile(r"\(([a-zA-Z_][\w\. \[\],]*)\)", re.A)
 
     # Annotation pattern is not precious, and it is difficult to support precious match.
-    # CJK identifier name is impossible to support!
+    # CJK identifier name in annotation is impossible to support!
+    # CJK identifier name is OK in a section ColonArg.
 
     _sections = {
         "Arguments": "args",
@@ -104,16 +107,15 @@ class Parser:
     def line(self) -> str:
         return self.lines[self.lineno][self.col :]
 
-    def _spec_next_section(self) -> Optional[int]:
-        lineno = None
-        for i in range(self.lineno, len(self.lines)):
-            if self._section_marker_re.match(self.lines[i]):
-                lineno = i
+    @lru_cache(1)
+    def _find_first_marker(self) -> Optional[int]:
+        partition_lineno = None
+        for i in range(len(self.lines)):
+            match = self._section_marker_re.match(self.lines[i])
+            if match:
+                partition_lineno = i
                 break
-        return lineno
-
-    def _spec_next_argcolon(self) -> int:
-        ...
+        return partition_lineno
 
     def _consume_spaces(self) -> None:
         spaces = len(self.line) - len(self.line.lstrip())
@@ -126,12 +128,14 @@ class Parser:
         while not self.line and self.lineno + 1 < len(self.lines):
             self.lineno += 1
 
-    def _consume_indent(self) -> None:
+    def _consume_indent(self, num: int = 1) -> None:
+        """Ensure the indent is correct."""
         if self.indent is None:
-            return
+            raise ParserError("try to consume indent without indent specified.")
         spaces = len(self.line) - len(self.line.lstrip())
-        if spaces != self.indent:
-            raise
+        if spaces != self.indent * num:
+            raise ParserError("docstring section indent is inconsistent.")
+        self.col += self.indent * num
 
     @record_pos
     def _consume_role(self) -> Optional[Role]:
@@ -152,6 +156,33 @@ class Parser:
         return roles
 
     @record_pos
+    def _consume_colonarg(self) -> ColonArg:
+        annotation = None
+        descr = ""
+        long_descr = ""
+        self._consume_indent()
+        match = self._identifier_re.match(self.line)
+        if not match:
+            raise ParserError
+        name = match.group()
+        self.col += match.end()
+        self._consume_spaces()
+        match = self._pair_anno_re.match(self.line)
+        if match:
+            annotation = match.group(1)
+            self.col += len(match.group())
+        roles = self._consume_roles()
+        if self.line and self.line[0]:
+            ...
+        return ColonArg(
+            name=name,
+            annotation=annotation,
+            roles=roles,
+            descr=descr,
+            long_desc=long_descr,
+        )
+
+    @record_pos
     def _section_manager(self, match: re.Match[str]) -> section:
         name, version = match.groups()
         if name in self._inline_sections:
@@ -160,19 +191,32 @@ class Parser:
             self._consume_linebreaks()
             return InlineValue(name=name, value=value)
         self.lineno += 1
+        self._consume_linebreaks()
         try:
             consumer = getattr(self, "_consume_" + self._sections[name])
-        except AttributeError:
+        except KeyError:
             raise ParserError(f"{name} is not a valid section marker.")
+        # Detect docstring indent in first non-inline section
+        indent = len(self.line) - len(self.line.lstrip())
+        if self.indent is None:
+            self.indent = indent
         obj = consumer()
         obj.name = name
         if "version" in obj._fields:
             obj.version = version
         return obj
 
-    @record_pos
     def _consume_args(self) -> Args:
-        ...
+        args = []
+        vararg = None
+        kwarg = None
+        while self.line and self.line.startswith(" "):
+            self._consume_colonarg()
+            self.col = 0
+        return Args(args=args, vararg=vararg, kwarg=kwarg)
+
+    def _consume_returns(self) -> Returns:
+        return Returns()
 
     def parse(self) -> Docstring:
         roles = []
@@ -180,12 +224,7 @@ class Parser:
         descr = ""
         long_descr = ""
         match = None
-        partition_lineno = None
-        for i in range(len(self.lines)):
-            match = self._section_marker_re.match(self.lines[i])
-            if match:
-                partition_lineno = i
-                break
+        partition_lineno = self._find_first_marker()
         descr_chunk = self.lines[:partition_lineno]
         if descr_chunk:
             roles = self._consume_roles()
@@ -200,12 +239,15 @@ class Parser:
         self.col = 0
         self.lineno = partition_lineno if partition_lineno is not None else 0
         sections = []
-        while self.lineno + 1 <= len(self.lines):
+        while self.lineno + 1 < len(self.lines):
             match = self._section_marker_re.match(self.line)
             if match:
                 section = self._section_manager(match)
                 sections.append(section)
-            else:  # skip one line
+            else:  # Skip one line
+                # This branch should not execute
+                # Possibly caused by mixing uncognized and detended things between two sections
+                warnings.warn("the line has not been fully consumed.")
                 self.lineno += 1
                 self.col = 0
             self._consume_spaces()
@@ -228,11 +270,16 @@ a = Parser(
 
 long long long description.
 
+Version: 1.1.0+
+
 Args (1.1.0+):
-    ...
+    a (Union[str, int]) {v}`1.1.0+`  : desc
 
 Returns:
-    ...""",
-    {"strict_mode": True, "docstring_section_indent": 4},
+
+    ...
+
+""",
+    {"strict_mode": True, "docstring_section_indent": None},
 ).parse()
 ...
