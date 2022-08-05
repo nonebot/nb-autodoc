@@ -29,6 +29,7 @@ line-length = 88
 [tool.isort]
 profile = "black"
 extra_standard_library = ["typing_extensions"]
+skip_gitignore = true
 
 [tool.pdm]
 packages = [{ include = "nb_autodoc" }]
