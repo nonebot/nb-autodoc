@@ -125,8 +125,8 @@ class InlineValue(section):
 class Args(section):
     name: str
     args: list[ColonArg]
-    vararg: ColonArg
-    kwarg: ColonArg
+    vararg: ColonArg | None
+    kwarg: ColonArg | None
 
 
 class Attributes(section):
