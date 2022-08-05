@@ -117,6 +117,11 @@ class section(docstring):
     ...
 
 
+class InlineValue(section):
+    name: str
+    value: str
+
+
 class Args(section):
     name: str
     args: list[ColonArg]
@@ -135,6 +140,11 @@ class Examples(section):
 
 
 # class KeywordArgs(section): ...
+
+
+class FrontMatter(section):
+    name: str
+    value: str
 
 
 class Raises(section):
