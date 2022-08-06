@@ -1,12 +1,16 @@
 import ast
 import inspect
 import textwrap
+from functools import partial
 from pathlib import Path
-from typing import List, Union, cast
+from typing import Callable, List, TypeVar, Union, cast
 
 import pytest
 
 from nb_autodoc.utils import cleandoc, dedent
+
+T = TypeVar("T")
+TT = TypeVar("TT")
 
 
 def _is_str_node(node: ast.Expr) -> bool:
@@ -77,7 +81,7 @@ def docstrings():
 
 
 @pytest.fixture
-def docstrings_no_firstline(docstrings: List[str]) -> List[str]:
+def indented_texts(docstrings: List[str]):
     results = []
     for docstring in docstrings:
         chunk = docstring.split("\n", 1)
@@ -87,34 +91,29 @@ def docstrings_no_firstline(docstrings: List[str]) -> List[str]:
     return results
 
 
-def listrun(f, docstrings):
-    results = []
-    for d in docstrings:
-        results.append(f(d))
-    return results
+def partial_map(f: Callable[[T], TT], lst: List[T]) -> Callable[[], List[TT]]:
+    return partial(list, map(f, lst))  # type: ignore  # mypy
 
 
 @pytest.mark.benchmark(group="utils.dedent")
-def test_dedent(benchmark, docstrings_no_firstline: List[str]) -> None:
-    benchmark.pedantic(
-        listrun, (dedent, docstrings_no_firstline), iterations=10, rounds=1000
-    )
-    for text in docstrings_no_firstline:
-        test_text = dedent(text)[1]
+def test_dedent(benchmark, indented_texts: List[str]):
+    benchmark.pedantic(partial_map(dedent, indented_texts), iterations=10, rounds=1000)
+    for text in indented_texts:  # for string diff
+        test_text = dedent(text)
         target_text = textwrap.dedent(text)
         assert test_text == target_text
 
 
 @pytest.mark.benchmark(group="utils.dedent")
-def test_textwrap_dedent(benchmark, docstrings_no_firstline: List[str]) -> None:
+def test_textwrap_dedent(benchmark, indented_texts: List[str]):
     benchmark.pedantic(
-        listrun, (textwrap.dedent, docstrings_no_firstline), iterations=10, rounds=1000
+        partial_map(textwrap.dedent, indented_texts), iterations=10, rounds=1000
     )
 
 
 @pytest.mark.benchmark(group="utils.cleandoc")
-def test_cleandoc(benchmark, docstrings: List[str]) -> None:
-    benchmark.pedantic(listrun, (cleandoc, docstrings), iterations=10, rounds=1000)
+def test_cleandoc(benchmark, docstrings: List[str]):
+    benchmark.pedantic(partial_map(cleandoc, docstrings), iterations=10, rounds=1000)
     for docstring in docstrings:
         test_docstring = cleandoc(docstring)
         target_docstring = inspect.cleandoc(docstring)
@@ -122,7 +121,7 @@ def test_cleandoc(benchmark, docstrings: List[str]) -> None:
 
 
 @pytest.mark.benchmark(group="utils.cleandoc")
-def test_inspect_cleandoc(benchmark, docstrings: List[str]) -> None:
+def test_inspect_cleandoc(benchmark, docstrings: List[str]):
     benchmark.pedantic(
-        listrun, (inspect.cleandoc, docstrings), iterations=10, rounds=1000
+        partial_map(inspect.cleandoc, docstrings), iterations=10, rounds=1000
     )

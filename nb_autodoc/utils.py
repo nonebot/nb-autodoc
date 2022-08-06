@@ -1,7 +1,4 @@
-from typing import Tuple
-
-
-def dedent(s: str) -> Tuple[int, str]:
+def dedent(s: str) -> str:
     """Enhanced version of `textwrap.dedent`.
 
     * Pretty better preformance (powered by pytest-benchmark).
@@ -13,10 +10,10 @@ def dedent(s: str) -> Tuple[int, str]:
             margin = min(margin, len(line) - len(line.lstrip()))
     # margin is only inf in case string empty
     if isinstance(margin, float):
-        return 0, s
+        return s
     for i in range(len(lines)):
         lines[i] = lines[i][margin:]
-    return margin, "\n".join(lines)
+    return "\n".join(lines)
 
 
 def cleandoc(s: str, strict: bool = False) -> str:
