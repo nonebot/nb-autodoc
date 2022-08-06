@@ -73,14 +73,14 @@ def traverse_docstring(module_file: Union[Path, str]) -> List[str]:
     return docstrings
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def docstrings():
     file = Path(__file__).resolve().parent / "data" / "example_google_docstring.py"
     docstrings = traverse_docstring(file)
     return docstrings
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def indented_texts(docstrings: List[str]):
     results = []
     for docstring in docstrings:
