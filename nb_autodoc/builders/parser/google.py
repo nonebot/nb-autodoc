@@ -6,7 +6,7 @@ from functools import lru_cache, wraps
 from typing import TYPE_CHECKING, Callable, List, Optional, TypeVar, cast
 from typing_extensions import Concatenate, ParamSpec
 
-from nb_autodoc.builders.nodes import (
+from nb_autodoc.nodes import (
     Args,
     ColonArg,
     Docstring,
