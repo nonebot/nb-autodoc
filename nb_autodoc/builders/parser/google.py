@@ -59,6 +59,8 @@ class Parser:
     _section_marker_re = re.compile(r"(\w+) *(?:\(([0-9\.\+\-]+)\))? *:")
     _identifier_re = re.compile(r"[^\W0-9]\w*")
     _pair_anno_re = re.compile(r"\(([a-zA-Z_][\w\. \[\],]*)\)", re.A)
+    _vararg_re = re.compile(r" *\*[^\W0-9]")
+    _kwarg_re = re.compile(r" *\*\*[^\W0-9]")
 
     # Annotation pattern is not precious, and it is difficult to support precious match.
     # CJK identifier name in annotation is impossible to support!
@@ -156,11 +158,10 @@ class Parser:
         return roles
 
     @record_pos
-    def _consume_colonarg(self) -> ColonArg:
+    def _consume_colonarg(self, partial_indent: bool = True) -> ColonArg:
         annotation = None
-        descr = ""
-        long_descr = ""
-        self._consume_indent()
+        if partial_indent:
+            self._consume_indent()
         match = self._identifier_re.match(self.line)
         if not match:
             raise ParserError
@@ -172,8 +173,25 @@ class Parser:
             annotation = match.group(1)
             self.col += len(match.group())
         roles = self._consume_roles()
-        if self.line and self.line[0]:
-            ...
+        if not self.line or self.line[0] != ":":
+            raise ParserError("no colon found.")
+        self.col += 1
+        descr = self.line.strip()
+        descr_chunk = []
+        self.col = 0
+        self.lineno += 1
+        breaked = False
+        for i in range(self.lineno, len(self.lines)):
+            line = self.lines[i]
+            if line and (len(line) - len(line.lstrip()) <= cast(int, self.indent)):
+                breaked = True
+                break
+            descr_chunk.append(line)
+        if breaked:
+            self.lineno += len(descr_chunk)
+        else:
+            self.lineno = len(self.lines) - 1  # move to ending
+        long_descr = dedent("\n".join(descr_chunk))[1].strip()
         return ColonArg(
             name=name,
             annotation=annotation,
@@ -211,8 +229,15 @@ class Parser:
         vararg = None
         kwarg = None
         while self.line and self.line.startswith(" "):
-            self._consume_colonarg()
-            self.col = 0
+            self._consume_indent()
+            if self.line.startswith("**"):
+                self.col += 2
+                kwarg = self._consume_colonarg(partial_indent=False)
+            elif self.line.startswith("*"):
+                self.col += 1
+                vararg = self._consume_colonarg(partial_indent=False)
+            else:
+                args.append(self._consume_colonarg(partial_indent=False))
         return Args(args=args, vararg=vararg, kwarg=kwarg)
 
     def _consume_returns(self) -> Returns:
@@ -274,10 +299,16 @@ Version: 1.1.0+
 
 Args (1.1.0+):
     a (Union[str, int]) {v}`1.1.0+`  : desc
+    b: desc
+        long long
+        long long desc.
 
-Returns:
+    c: desc
+    *d: desc
+    **e (Union[str, int]) {v}`1.1.0+` : desc
 
-    ...
+        long and long
+        long long desc.
 
 """,
     {"strict_mode": True, "docstring_section_indent": None},
