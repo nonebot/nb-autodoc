@@ -101,6 +101,7 @@ class Parser:
 
     def __init__(self, docstring: str, config: "Config") -> None:
         self.lines = docstring.splitlines()
+        self.lines.append("")  # ending of docstring
         self.lineno = 0
         self.col = 0
         self.indent = config["docstring_section_indent"]
@@ -157,6 +158,29 @@ class Parser:
             roles.append(role)
         return roles
 
+    def _consume_colonarg_descr(self, obj: ColonArg) -> None:
+        descr = self.line.strip()
+        self.col = 0
+        if self.lineno == len(self.lines) - 1:
+            obj.descr = descr
+            return
+        self.lineno += 1
+        descr_chunk = []
+        breaked = False
+        for i in range(self.lineno, len(self.lines)):
+            line = self.lines[i]
+            if line and (len(line) - len(line.lstrip()) <= cast(int, self.indent)):
+                breaked = True
+                break
+            descr_chunk.append(line)
+        if breaked:
+            self.lineno += len(descr_chunk)
+        else:
+            self.lineno = len(self.lines) - 1  # move to ending
+        long_descr = dedent("\n".join(descr_chunk)).strip()
+        obj.descr = descr
+        obj.long_descr = long_descr
+
     @record_pos
     def _consume_colonarg(self, partial_indent: bool = True) -> ColonArg:
         annotation = None
@@ -176,29 +200,9 @@ class Parser:
         if not self.line or self.line[0] != ":":
             raise ParserError("no colon found.")
         self.col += 1
-        descr = self.line.strip()
-        descr_chunk = []
-        self.col = 0
-        self.lineno += 1
-        breaked = False
-        for i in range(self.lineno, len(self.lines)):
-            line = self.lines[i]
-            if line and (len(line) - len(line.lstrip()) <= cast(int, self.indent)):
-                breaked = True
-                break
-            descr_chunk.append(line)
-        if breaked:
-            self.lineno += len(descr_chunk)
-        else:
-            self.lineno = len(self.lines) - 1  # move to ending
-        long_descr = dedent("\n".join(descr_chunk))[1].strip()
-        return ColonArg(
-            name=name,
-            annotation=annotation,
-            roles=roles,
-            descr=descr,
-            long_desc=long_descr,
-        )
+        obj = ColonArg(name=name, annotation=annotation, roles=roles)
+        self._consume_colonarg_descr(obj)
+        return obj
 
     @record_pos
     def _section_manager(self, match: re.Match[str]) -> section:
@@ -241,7 +245,8 @@ class Parser:
         return Args(args=args, vararg=vararg, kwarg=kwarg)
 
     def _consume_returns(self) -> Returns:
-        return Returns()
+        value = ""
+        return Returns(value=value)
 
     def parse(self) -> Docstring:
         roles = []
@@ -264,7 +269,7 @@ class Parser:
         self.col = 0
         self.lineno = partition_lineno if partition_lineno is not None else 0
         sections = []
-        while self.lineno + 1 < len(self.lines):
+        while self.lineno <= len(self.lines) - 1:
             match = self._section_marker_re.match(self.line)
             if match:
                 section = self._section_manager(match)
@@ -273,9 +278,10 @@ class Parser:
                 # This branch should not execute
                 # Possibly caused by mixing uncognized and detended things between two sections
                 warnings.warn("the line has not been fully consumed.")
+                if self.lineno == len(self.lines) - 1:
+                    break
                 self.lineno += 1
                 self.col = 0
-            self._consume_spaces()
             self._consume_linebreaks()
         return Docstring(
             roles=roles,
@@ -309,6 +315,9 @@ Args (1.1.0+):
 
         long and long
         long long desc.
+
+Returns:
+    ...
 
 """,
     {"strict_mode": True, "docstring_section_indent": None},
