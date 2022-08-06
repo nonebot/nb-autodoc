@@ -58,6 +58,7 @@ class Parser:
     _firstline_re = re.compile(r"([a-zA-Z_][\w\. \[\],]*)(?<! ):(.+)", re.A)
     _section_marker_re = re.compile(r"(\w+) *(?:\(([0-9\.\+\-]+)\))? *:")
     _identifier_re = re.compile(r"[^\W0-9]\w*")
+    _anno_re = re.compile(r"[a-zA-Z_][\w\. \[\],]*(?<! )", re.A)
     _pair_anno_re = re.compile(r"\(([a-zA-Z_][\w\. \[\],]*)\)", re.A)
     _vararg_re = re.compile(r" *\*[^\W0-9]")
     _kwarg_re = re.compile(r" *\*\*[^\W0-9]")
@@ -104,11 +105,17 @@ class Parser:
         self.lines.append("")  # ending of docstring
         self.lineno = 0
         self.col = 0
-        self.indent = config["docstring_section_indent"]
+        self._indent = config["docstring_section_indent"]
 
     @property
     def line(self) -> str:
         return self.lines[self.lineno][self.col :]
+
+    @property
+    def indent(self) -> int:
+        if self._indent is None:
+            raise ParserError("indent is not specified.")
+        return self._indent
 
     @lru_cache(1)
     def _find_first_marker(self) -> Optional[int]:
@@ -133,11 +140,9 @@ class Parser:
 
     def _consume_indent(self, num: int = 1) -> None:
         """Ensure the indent is correct."""
-        if self.indent is None:
-            raise ParserError("try to consume indent without indent specified.")
         spaces = len(self.line) - len(self.line.lstrip())
         if spaces != self.indent * num:
-            raise ParserError("docstring section indent is inconsistent.")
+            raise ParserError("try to consume indent that is inconsistent.")
         self.col += self.indent * num
 
     @record_pos
@@ -158,18 +163,20 @@ class Parser:
             roles.append(role)
         return roles
 
-    def _consume_colonarg_descr(self, obj: ColonArg) -> None:
-        descr = self.line.strip()
-        self.col = 0
-        if self.lineno == len(self.lines) - 1:
-            obj.descr = descr
-            return
-        self.lineno += 1
+    def _consume_colonarg_descr(
+        self, obj: Optional[ColonArg], least_indent: int, include_short: bool = True
+    ) -> List[str]:
+        if include_short:
+            descr = self.line.strip()
+            if obj is not None:
+                obj.descr = descr
+            self.col = 0
+            self.lineno += 1
         descr_chunk = []
         breaked = False
         for i in range(self.lineno, len(self.lines)):
             line = self.lines[i]
-            if line and (len(line) - len(line.lstrip()) <= cast(int, self.indent)):
+            if line and len(line) - len(line.lstrip()) < least_indent:
                 breaked = True
                 break
             descr_chunk.append(line)
@@ -178,8 +185,9 @@ class Parser:
         else:
             self.lineno = len(self.lines) - 1  # move to ending
         long_descr = dedent("\n".join(descr_chunk)).strip()
-        obj.descr = descr
-        obj.long_descr = long_descr
+        if obj is not None:
+            obj.long_descr = long_descr
+        return descr_chunk
 
     @record_pos
     def _consume_colonarg(self, partial_indent: bool = True) -> ColonArg:
@@ -201,7 +209,7 @@ class Parser:
             raise ParserError("no colon found.")
         self.col += 1
         obj = ColonArg(name=name, annotation=annotation, roles=roles)
-        self._consume_colonarg_descr(obj)
+        self._consume_colonarg_descr(obj, self.indent + 1)
         return obj
 
     @record_pos
@@ -220,8 +228,8 @@ class Parser:
             raise ParserError(f"{name} is not a valid section marker.")
         # Detect docstring indent in first non-inline section
         indent = len(self.line) - len(self.line.lstrip())
-        if self.indent is None:
-            self.indent = indent
+        if self._indent is None:
+            self._indent = indent
         obj = consumer()
         obj.name = name
         if "version" in obj._fields:
@@ -245,7 +253,21 @@ class Parser:
         return Args(args=args, vararg=vararg, kwarg=kwarg)
 
     def _consume_returns(self) -> Returns:
-        value = ""
+        value = ""  # type: str | ColonArg
+        self._consume_indent()
+        before, colon, after = self.line.partition(":")
+        match = self._anno_re.match(before)
+        if colon and match:
+            value = ColonArg(name=match.group(), descr=after.strip())
+            self.lineno += 1
+            self.col = 0
+        if isinstance(value, ColonArg):
+            self._consume_colonarg_descr(value, self.indent, include_short=False)
+        else:
+            descr_chunk = self._consume_colonarg_descr(
+                None, self.indent, include_short=False
+            )
+            value = "\n".join(descr_chunk).strip()
         return Returns(value=value)
 
     def parse(self) -> Docstring:
@@ -269,7 +291,7 @@ class Parser:
         self.col = 0
         self.lineno = partition_lineno if partition_lineno is not None else 0
         sections = []
-        while self.lineno <= len(self.lines) - 1:
+        while self.lineno <= len(self.lines) - 2:  # ending is empty string
             match = self._section_marker_re.match(self.line)
             if match:
                 section = self._section_manager(match)
@@ -278,8 +300,6 @@ class Parser:
                 # This branch should not execute
                 # Possibly caused by mixing uncognized and detended things between two sections
                 warnings.warn("the line has not been fully consumed.")
-                if self.lineno == len(self.lines) - 1:
-                    break
                 self.lineno += 1
                 self.col = 0
             self._consume_linebreaks()
@@ -304,6 +324,7 @@ long long long description.
 Version: 1.1.0+
 
 Args (1.1.0+):
+
     a (Union[str, int]) {v}`1.1.0+`  : desc
     b: desc
         long long
