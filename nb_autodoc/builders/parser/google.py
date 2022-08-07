@@ -15,6 +15,7 @@ from nb_autodoc.nodes import (
     FrontMatter,
     InlineValue,
     Raises,
+    Require,
     Returns,
     Role,
     docstring,
@@ -169,7 +170,7 @@ class Parser:
             roles.append(role)
         return roles
 
-    def _consume_colonarg_descr(
+    def _consume_descr(
         self, obj: Optional[ColonArg], least_indent: int, include_short: bool = True
     ) -> List[str]:
         if include_short:
@@ -216,7 +217,7 @@ class Parser:
             raise ParserError("no colon found.")
         self.col += 1
         obj = ColonArg(name=name, annotation=annotation, roles=roles)
-        self._consume_colonarg_descr(obj, self.indent + 1)
+        self._consume_descr(obj, self.indent + 1)
         return obj
 
     @record_pos
@@ -267,16 +268,12 @@ class Parser:
         return Attributes(args=args)
 
     def _consume_examples(self) -> Examples:
-        descr_chunk = self._consume_colonarg_descr(
-            None, self.indent, include_short=False
-        )
+        descr_chunk = self._consume_descr(None, self.indent, include_short=False)
         value = dedent("\n".join(descr_chunk)).strip()
         return Examples(value=value)
 
     def _consume_frontmatter(self) -> FrontMatter:
-        descr_chunk = self._consume_colonarg_descr(
-            None, self.indent, include_short=False
-        )
+        descr_chunk = self._consume_descr(None, self.indent, include_short=False)
         value = dedent("\n".join(descr_chunk)).strip()
         return FrontMatter(value=value)
 
@@ -295,7 +292,7 @@ class Parser:
                 raise ParserError("no colon found.")
             self.col += 1
             obj = ColonArg(name=name, roles=roles)
-            self._consume_colonarg_descr(obj, self.indent + 1)
+            self._consume_descr(obj, self.indent + 1)
             args.append(obj)
         return Raises(args=args)
 
@@ -313,14 +310,18 @@ class Parser:
             value = ColonArg(name=match.group(), descr=after.strip())
             self.lineno += 1
         self.col = 0
+        # In each case, Returns's long description indent is 4
         if isinstance(value, ColonArg):
-            self._consume_colonarg_descr(value, self.indent, include_short=False)
+            self._consume_descr(value, self.indent, include_short=False)
         else:
-            descr_chunk = self._consume_colonarg_descr(
-                None, self.indent, include_short=False
-            )
+            descr_chunk = self._consume_descr(None, self.indent, include_short=False)
             value = dedent("\n".join(descr_chunk)).strip()
         return Returns(value=value)
+
+    def _consume_require(self) -> Require:
+        descr_chunk = self._consume_descr(None, self.indent, include_short=False)
+        value = dedent("\n".join(descr_chunk)).strip()
+        return Require(value=value)
 
     def parse(self) -> Docstring:
         roles = []
