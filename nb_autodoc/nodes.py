@@ -144,7 +144,7 @@ class Examples(section):
 
 class FrontMatter(section):
     name: str
-    value: str
+    value: str  # maybe dict
 
 
 class Raises(section):

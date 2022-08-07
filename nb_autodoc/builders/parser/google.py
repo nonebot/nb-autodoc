@@ -12,6 +12,7 @@ from nb_autodoc.nodes import (
     ColonArg,
     Docstring,
     Examples,
+    FrontMatter,
     InlineValue,
     Returns,
     Role,
@@ -267,6 +268,13 @@ class Parser:
         )
         value = dedent("\n".join(descr_chunk)).strip()
         return Examples(value=value)
+
+    def _consume_frontmatter(self) -> FrontMatter:
+        descr_chunk = self._consume_colonarg_descr(
+            None, self.indent, include_short=False
+        )
+        value = dedent("\n".join(descr_chunk)).strip()
+        return FrontMatter(value=value)
 
     def _consume_returns(self) -> Returns:
         value = ""  # type: str | ColonArg
