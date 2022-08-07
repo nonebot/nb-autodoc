@@ -97,7 +97,7 @@ def partial_map(f: Callable[[T], TT], lst: List[T]) -> Callable[[], List[TT]]:
 
 @pytest.mark.benchmark(group="utils.dedent")
 def test_dedent(benchmark, indented_texts: List[str]):
-    benchmark.pedantic(partial_map(dedent, indented_texts), iterations=10, rounds=1000)
+    benchmark.pedantic(partial_map(dedent, indented_texts), iterations=10, rounds=100)
     for text in indented_texts:  # for string diff
         test_text = dedent(text)
         target_text = textwrap.dedent(text)
@@ -107,13 +107,13 @@ def test_dedent(benchmark, indented_texts: List[str]):
 @pytest.mark.benchmark(group="utils.dedent")
 def test_textwrap_dedent(benchmark, indented_texts: List[str]):
     benchmark.pedantic(
-        partial_map(textwrap.dedent, indented_texts), iterations=10, rounds=1000
+        partial_map(textwrap.dedent, indented_texts), iterations=10, rounds=100
     )
 
 
 @pytest.mark.benchmark(group="utils.cleandoc")
 def test_cleandoc(benchmark, docstrings: List[str]):
-    benchmark.pedantic(partial_map(cleandoc, docstrings), iterations=10, rounds=1000)
+    benchmark.pedantic(partial_map(cleandoc, docstrings), iterations=10, rounds=100)
     for docstring in docstrings:
         test_docstring = cleandoc(docstring)
         target_docstring = inspect.cleandoc(docstring)
@@ -123,5 +123,5 @@ def test_cleandoc(benchmark, docstrings: List[str]):
 @pytest.mark.benchmark(group="utils.cleandoc")
 def test_inspect_cleandoc(benchmark, docstrings: List[str]):
     benchmark.pedantic(
-        partial_map(inspect.cleandoc, docstrings), iterations=10, rounds=1000
+        partial_map(inspect.cleandoc, docstrings), iterations=10, rounds=100
     )
