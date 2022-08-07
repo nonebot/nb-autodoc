@@ -8,6 +8,7 @@ from typing_extensions import Concatenate, ParamSpec
 
 from nb_autodoc.nodes import (
     Args,
+    Attributes,
     ColonArg,
     Docstring,
     InlineValue,
@@ -240,6 +241,7 @@ class Parser:
         args = []
         vararg = None
         kwarg = None
+        # linebreak has been consumed
         while self.line and self.line.startswith(" "):
             self._consume_indent()
             if self.line.startswith("**"):
@@ -252,11 +254,17 @@ class Parser:
                 args.append(self._consume_colonarg(partial_indent=False))
         return Args(args=args, vararg=vararg, kwarg=kwarg)
 
+    def _consume_attributes(self) -> Attributes:
+        args = []
+        while self.line and self.line.startswith(" "):
+            args.append(self._consume_colonarg())
+        return Attributes(args=args)
+
     def _consume_returns(self) -> Returns:
         value = ""  # type: str | ColonArg
         self._consume_indent()
         before, colon, after = self.line.partition(":")
-        match = self._anno_re.match(before)
+        match = self._anno_re.fullmatch(before)  # match?
         if colon and match:
             value = ColonArg(name=match.group(), descr=after.strip())
             self.lineno += 1
@@ -323,19 +331,15 @@ long long long description.
 
 Version: 1.1.0+
 
-Args (1.1.0+):
+Attributes (1.1.0+):
 
     a (Union[str, int]) {v}`1.1.0+`  : desc
     b: desc
+
         long long
         long long desc.
 
     c: desc
-    *d: desc
-    **e (Union[str, int]) {v}`1.1.0+` : desc
-
-        long and long
-        long long desc.
 
 Returns:
     ...
