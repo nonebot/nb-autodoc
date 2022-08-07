@@ -14,6 +14,7 @@ from nb_autodoc.nodes import (
     Examples,
     FrontMatter,
     InlineValue,
+    Raises,
     Returns,
     Role,
     docstring,
@@ -65,10 +66,12 @@ class Parser:
     _pair_anno_re = re.compile(r"\(([a-zA-Z_][\w\. \[\],]*)\)", re.A)
     _vararg_re = re.compile(r" *\*[^\W0-9]")
     _kwarg_re = re.compile(r" *\*\*[^\W0-9]")
+    _attr_re = re.compile(r"[^\W0-9][\w\.]*", re.A)
 
     # Annotation pattern is not precious, and it is difficult to support precious match.
     # CJK identifier name in annotation is impossible to support!
     # CJK identifier name is OK in a section ColonArg.
+    # CJK attribute name is not OK in section (Raises, etc.).
 
     _sections = {
         "Arguments": "args",
@@ -193,9 +196,10 @@ class Parser:
         return descr_chunk
 
     @record_pos
-    def _consume_colonarg(self, partial_indent: bool = True) -> ColonArg:
+    def _consume_colonarg(self, partial_indent: bool = False) -> ColonArg:
+        """Consume ColonArg until next ColonArg or detented line."""
         annotation = None
-        if partial_indent:
+        if not partial_indent:
             self._consume_indent()
         match = self._identifier_re.match(self.line)
         if not match:
@@ -248,12 +252,12 @@ class Parser:
             self._consume_indent()
             if self.line.startswith("**"):
                 self.col += 2
-                kwarg = self._consume_colonarg(partial_indent=False)
+                kwarg = self._consume_colonarg(partial_indent=True)
             elif self.line.startswith("*"):
                 self.col += 1
-                vararg = self._consume_colonarg(partial_indent=False)
+                vararg = self._consume_colonarg(partial_indent=True)
             else:
-                args.append(self._consume_colonarg(partial_indent=False))
+                args.append(self._consume_colonarg(partial_indent=True))
         return Args(args=args, vararg=vararg, kwarg=kwarg)
 
     def _consume_attributes(self) -> Attributes:
@@ -275,6 +279,25 @@ class Parser:
         )
         value = dedent("\n".join(descr_chunk)).strip()
         return FrontMatter(value=value)
+
+    def _consume_raises(self) -> Raises:
+        args = []
+        while self.line and self.line.startswith(" "):
+            self._consume_indent()
+            match = self._attr_re.match(self.line)
+            if not match:
+                raise ParserError
+            name = match.group()
+            self.col += match.end()
+            self._consume_spaces()
+            roles = self._consume_roles()
+            if not self.line or self.line[0] != ":":
+                raise ParserError("no colon found.")
+            self.col += 1
+            obj = ColonArg(name=name, roles=roles)
+            self._consume_colonarg_descr(obj, self.indent + 1)
+            args.append(obj)
+        return Raises(args=args)
 
     def _consume_returns(self) -> Returns:
         value = ""  # type: str | ColonArg
@@ -362,12 +385,14 @@ Attributes (1.1.0+):
 
     c: desc
 
-Examples:
-    desc.
+Raises:
 
-    long long
+    AA.Error: desc
 
-    long desc.
+    B.Error {v}`1.1.0+`  : desc
+        long long
+
+        long desc.
 
 """,
     {"strict_mode": True, "docstring_section_indent": None},
