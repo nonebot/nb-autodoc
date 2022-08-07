@@ -367,35 +367,3 @@ class Parser:
 
 class ParserError(Exception):
     ...
-
-
-a = Parser(
-    """{v1}`1.1.0+` {v2}`1.2.0+` Union[int, str]: description.
-
-long long long description.
-
-Version: 1.1.0+
-
-Attributes (1.1.0+):
-
-    a (Union[str, int]) {v}`1.1.0+`  : desc
-    b: desc
-
-        long long
-        long long desc.
-
-    c: desc
-
-Raises:
-
-    AA.Error: desc
-
-    B.Error {v}`1.1.0+`  : desc
-        long long
-
-        long desc.
-
-""",
-    {"strict_mode": True, "docstring_section_indent": None},
-).parse()
-...
