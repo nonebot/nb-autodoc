@@ -131,7 +131,7 @@ class Args(section):
 
 class Attributes(section):
     name: str
-    args: list[ColonArg]
+    args: list[ColonArg]  # identifier
 
 
 class Examples(section):
@@ -149,7 +149,7 @@ class FrontMatter(section):
 
 class Raises(section):
     name: str
-    args: list[ColonArg]
+    args: list[ColonArg]  # identifier or attribute
 
 
 class Returns(section):
