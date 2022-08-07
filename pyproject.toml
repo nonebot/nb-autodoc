@@ -1,9 +1,9 @@
 [project]
 name = "nb-autodoc"
-version = "0.2.0"
 description = "Powerful API Documentation Generator."
 authors = [{ name = "iyume", email = "iyumelive@gmail.com" }]
 requires-python = ">=3.7"
+dynamic = ["version"]
 license = { text = "MIT" }
 readme = "README.md"
 keywords = ["nonebot", "autodoc"]
@@ -32,8 +32,10 @@ extra_standard_library = ["typing_extensions"]
 skip_gitignore = true
 
 [tool.pdm]
-packages = [{ include = "nb_autodoc" }]
-excludes = ["test_pkg"]
+version = { source = "file", path = "nb_autodoc/__init__.py" }
+
+[tool.pdm.build]
+# includes = ["nb_autodoc"]
 # editable-backend = "editables"  # break vscode interpreter searching
 
 [tool.pdm.dev-dependencies]
