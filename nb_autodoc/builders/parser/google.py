@@ -11,6 +11,7 @@ from nb_autodoc.nodes import (
     Attributes,
     ColonArg,
     Docstring,
+    Examples,
     InlineValue,
     Returns,
     Role,
@@ -260,22 +261,34 @@ class Parser:
             args.append(self._consume_colonarg())
         return Attributes(args=args)
 
+    def _consume_examples(self) -> Examples:
+        descr_chunk = self._consume_colonarg_descr(
+            None, self.indent, include_short=False
+        )
+        value = dedent("\n".join(descr_chunk)).strip()
+        return Examples(value=value)
+
     def _consume_returns(self) -> Returns:
         value = ""  # type: str | ColonArg
-        self._consume_indent()
-        before, colon, after = self.line.partition(":")
-        match = self._anno_re.fullmatch(before)  # match?
+        self._consume_indent()  # ensure correct indent
+        line = self.line
+        before, colon, after = line.partition(":")
+        match = self._anno_re.match(before)
         if colon and match:
+            if not line[len(match.group()) : len(before)].isspace():
+                raise ParserError(
+                    f'unrecognized things between "{match.group()}" and ":".'
+                )
             value = ColonArg(name=match.group(), descr=after.strip())
             self.lineno += 1
-            self.col = 0
+        self.col = 0
         if isinstance(value, ColonArg):
             self._consume_colonarg_descr(value, self.indent, include_short=False)
         else:
             descr_chunk = self._consume_colonarg_descr(
                 None, self.indent, include_short=False
             )
-            value = "\n".join(descr_chunk).strip()
+            value = dedent("\n".join(descr_chunk)).strip()
         return Returns(value=value)
 
     def parse(self) -> Docstring:
@@ -341,8 +354,12 @@ Attributes (1.1.0+):
 
     c: desc
 
-Returns:
-    ...
+Examples:
+    desc.
+
+    long long
+
+    long desc.
 
 """,
     {"strict_mode": True, "docstring_section_indent": None},
