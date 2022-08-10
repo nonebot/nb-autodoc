@@ -77,6 +77,10 @@ class _Unparser(ast.NodeVisitor):
         self.write(end)
 
 
+def convert_annot(s: str) -> str:
+    return AnnotUnparser().visit(ast.parse(s, mode="eval").body)
+
+
 class AnnotUnparser(_Unparser):
     """Special unparser for annotation with py3.9+ new style.
 
