@@ -24,7 +24,7 @@ nb-autodoc = "nb_autodoc.__main__:main"
 
 [tool.black]
 line-length = 88
-# target-version = ["py37"]
+target-version = ["py37"]
 
 [tool.isort]
 profile = "black"
