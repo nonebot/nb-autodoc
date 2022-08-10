@@ -1,22 +1,63 @@
 """Python Code Analyzer by parsing and analyzing AST.
 """
-
-
 import ast
 import sys
 from contextlib import contextmanager
-from typing import Any, Callable, Generator, Iterable, List, TypeVar
+from importlib import import_module
+from importlib.util import resolve_name
+from pathlib import Path
+from typing import Any, Callable, Dict, Generator, Iterable, List, TypeVar, Union
 
 T = TypeVar("T")
 
 
 class Analyzer:
-    def __init__(self, code: str) -> None:
-        ...
+    def __init__(self, path: Union[Path, str], package: str) -> None:
+        self.code = open(path, "r").read()
+        self.package = package
+        self.module = ast.parse(self.code)
+        self.type_checking_imports: Dict[str, Any] = {}
+        self.analyze()
+
+    def analyze(self) -> None:
+        for stmt in self.module.body:
+            if (
+                isinstance(stmt, ast.If)
+                and isinstance(stmt.test, ast.Name)
+                and stmt.test.id == "TYPE_CHECKING"
+            ):
+                # Name is not resolved, only literal check
+                self.analyze_if_type_checking(stmt)
+                break
+
+    def analyze_if_type_checking(self, stmt: ast.If) -> None:
+        for node in stmt.body:
+            # Avoid exec and use import_module
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    setname = alias.asname or alias.name
+                    self.type_checking_imports[setname] = import_module(alias.name)
+            elif isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    if alias.name == "*":
+                        break
+                    setname = alias.asname or alias.name
+                    from_module_name = resolve_name(
+                        "." * node.level + (node.module or ""), self.package
+                    )
+                    module = import_module(from_module_name)
+                    if alias.name in module.__dict__:
+                        self.type_checking_imports[setname] = module.__dict__[
+                            alias.name
+                        ]
+                    else:
+                        self.type_checking_imports[setname] = import_module(
+                            "." + alias.name, from_module_name
+                        )
 
 
 # Though python compat node in previous version
-# It's not good to fixup and return correct node
+# It's not good idea to fixup and return correct node
 def is_constant_node(node: ast.AST) -> bool:
     if sys.version_info >= (3, 8):
         return isinstance(node, ast.Constant)
@@ -47,7 +88,7 @@ def interleave(
 
 
 class _Unparser(ast.NodeVisitor):
-    """Utilities like `ast._Unparser` in `python>=3.9`.
+    """Utilities like `ast._Unparser` in py3.9+.
 
     Subclassing this class and implement the unparse method.
     """
@@ -78,7 +119,12 @@ class _Unparser(ast.NodeVisitor):
 
 
 def convert_annot(s: str) -> str:
-    return AnnotUnparser().visit(ast.parse(s, mode="eval").body)
+    """Convert type annotation to new style."""
+    try:
+        node = ast.parse(s, mode="eval").body
+    except SyntaxError:  # probably already new style
+        return s
+    return AnnotUnparser().visit(node)
 
 
 class AnnotUnparser(_Unparser):

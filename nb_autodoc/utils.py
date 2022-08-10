@@ -19,7 +19,7 @@ def dedent(s: str) -> str:
 def cleandoc(s: str, strict: bool = False) -> str:
     """Enhanced version of `inspect.cleandoc`.
 
-    * Fix `inspect.cleandoc` do not remove blank only lines (strict mode).
+    * Fix `inspect.cleandoc` do not remove space only lines (strict mode).
     * Slightly better performance (powered by pytest-benchmark).
     """
     lines = s.strip().expandtabs().splitlines()
