@@ -4,17 +4,35 @@ import ast
 import sys
 from contextlib import contextmanager
 from importlib import import_module
-from importlib.util import resolve_name
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, resolve_name, spec_from_loader
 from pathlib import Path
-from typing import Any, Callable, Dict, Generator, Iterable, List, TypeVar, Union
+from types import ModuleType
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generator,
+    Iterable,
+    List,
+    Optional,
+    TypeVar,
+    Union,
+)
 
 T = TypeVar("T")
 
 
 class Analyzer:
-    def __init__(self, path: Union[Path, str], package: str) -> None:
+    def __init__(
+        self,
+        path: Union[Path, str],
+        package: str,
+        globals: Optional[Dict[str, Any]] = None,
+    ) -> None:
         self.code = open(path, "r").read()
         self.package = package
+        self._globals = globals if globals is not None else {}
         self.module = ast.parse(self.code)
         self.type_checking_imports: Dict[str, Any] = {}
         self.analyze()
@@ -27,33 +45,54 @@ class Analyzer:
                 and stmt.test.id == "TYPE_CHECKING"
             ):
                 # Name is not resolved, only literal check
-                self.analyze_if_type_checking(stmt)
+                self.type_checking_imports = eval_import_stmts(stmt.body, self.package)
                 break
 
-    def analyze_if_type_checking(self, stmt: ast.If) -> None:
-        for node in stmt.body:
-            # Avoid exec and use import_module
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    setname = alias.asname or alias.name
-                    self.type_checking_imports[setname] = import_module(alias.name)
-            elif isinstance(node, ast.ImportFrom):
-                for alias in node.names:
-                    if alias.name == "*":
-                        break
-                    setname = alias.asname or alias.name
-                    from_module_name = resolve_name(
-                        "." * node.level + (node.module or ""), self.package
+
+def eval_import_stmts(
+    stmts: List[ast.stmt], package: Optional[str] = None
+) -> Dict[str, Any]:
+    """Evaluate `ast.Import` and `ast.ImportFrom` using importlib."""
+    imported = {}
+    for node in stmts:
+        # Avoid exec and use import_module
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                setname = alias.asname or alias.name
+                imported[setname] = import_module(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name == "*":
+                    break
+                setname = alias.asname or alias.name
+                from_module_name = resolve_name(
+                    "." * node.level + (node.module or ""), package
+                )
+                module = import_module(from_module_name)
+                if alias.name in module.__dict__:
+                    imported[setname] = module.__dict__[alias.name]
+                else:
+                    imported[setname] = import_module(
+                        "." + alias.name, from_module_name
                     )
-                    module = import_module(from_module_name)
-                    if alias.name in module.__dict__:
-                        self.type_checking_imports[setname] = module.__dict__[
-                            alias.name
-                        ]
-                    else:
-                        self.type_checking_imports[setname] = import_module(
-                            "." + alias.name, from_module_name
-                        )
+    return imported
+
+
+def create_module_from_sourcefile(fullname: str, path: str) -> ModuleType:
+    """Create module from source file, this is useful for executing ".pyi" file.
+
+    `importlib` supports suffixes like ".so" (extension_suffixes),
+    ".py" (source_suffixes), ".pyc" (bytecode_suffixes).
+    These extensions are recorded in `importlib._bootstrap_external`.
+    """
+    loader = SourceFileLoader(fullname, path)
+    # spec_from_file_location without loader argument will skip invalid file extension
+    spec = spec_from_loader(fullname, loader)
+    if spec is None:  # only for type hints
+        raise ImportError("no spec found")
+    module = module_from_spec(spec)
+    loader.exec_module(module)
+    return module
 
 
 # Though python compat node in previous version
