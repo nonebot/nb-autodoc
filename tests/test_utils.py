@@ -92,7 +92,7 @@ def indented_texts(docstrings: List[str]):
 
 
 def partial_map(f: Callable[[T], TT], lst: List[T]) -> Callable[[], List[TT]]:
-    return partial(list, map(f, lst))  # type: ignore  # mypy
+    return partial(list, map(f, lst))
 
 
 @pytest.mark.benchmark(group="utils.dedent")

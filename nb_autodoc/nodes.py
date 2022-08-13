@@ -29,6 +29,9 @@ class DocumentMeta(type):
             )
         for i, v in enumerate(args):
             setattr(self, cls._fields[i], v)
+        for name in cls._fields:
+            if not hasattr(cls, name):
+                setattr(cls, name, None)
         return self
 
 
@@ -58,28 +61,28 @@ _identifier = str
 
 class Module(root):
     name: str
-    doc: Docstring
+    doc: Docstring | None
 
 
 class Variable(root):
     name: _identifier
     kind: str
     annotation: str  # "untyped" if not exists
-    doc: Docstring
+    doc: Docstring | None
 
 
 class Function(root):
     name: _identifier
     kind: str
     p_signature: str  # type-removed parameter signature
-    doc: Docstring
+    doc: Docstring | None
 
 
 class Class(root):
     name: _identifier
     kind: str
     p_signature: str
-    doc: Docstring
+    doc: Docstring | None
     body: list[root]
 
 

@@ -9,15 +9,16 @@ from .data import example_google_docstring as egd
 
 def test_Analyzer():
     analyzer = Analyzer(
-        Path(__file__).parent / "data" / "stuff1.py", package="tests.data"
+        "tests.data.stuff1", "tests.data", Path(__file__).parent / "data" / "stuff1.py"
     )
-    assert analyzer.type_checking_imports == {
+    target = {
         "re": re,
         "MyPath": pathlib.Path,
         "MyPurePath": pathlib.PurePath,
         "egd": egd,
         "ec": egd.ExampleClass,
     }
+    assert {k: analyzer.globalns[k] for k in target} == target
 
 
 def test_convert_annot():
