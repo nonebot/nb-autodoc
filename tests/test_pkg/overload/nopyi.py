@@ -1,7 +1,7 @@
-from typing import Union, overload
 from contextvars import ContextVar
+from typing import Union, overload
 
-from test_pkg.overload.typing import T_Type
+from .typing import T_Type
 
 
 @overload

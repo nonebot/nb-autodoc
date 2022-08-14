@@ -3,6 +3,8 @@
 
 - `xx` -> {ref}`xx.xx`
 
+模块全部使用相对引入，便于测试
+
 版本的替换测试 {version}`1.1.0+`
 
 模块链接替换测试 {ref}`test_pkg.api.Api`
@@ -19,21 +21,21 @@ Meta:
         a: b
 """
 from typing import (
-    List,
-    Tuple,
-    Set,
-    Dict,
-    Union,
-    Callable,
-    Optional,
-    Type,
     TYPE_CHECKING,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    Type,
+    Union,
 )
 
-from test_pkg.api import Api
+from .api import Api
 
 if TYPE_CHECKING:
-    from test_pkg.api import Api2
+    from .api import Api2
 
 
 var: int = 1
@@ -83,7 +85,7 @@ class Foo:
         new_style1: Union[List[int], Tuple[int], Set[int], Dict[str, int]],
         new_style2: Union[Callable[[], Optional[str]], str, None],
         *,
-        arg3: Type["Api2"]
+        arg3: Type["Api2"],
     ) -> Api:
         """{version}`1.2.0+`
 

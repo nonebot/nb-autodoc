@@ -1,7 +1,7 @@
-from typing import Callable, Set
 from contextvars import ContextVar
+from typing import Callable, Set
 
-from test_pkg.pyi.util import func_forimport, T_Checktyping
+from .util import T_Checktyping, func_forimport
 
 # ERROR: from .util import func_forimport
 

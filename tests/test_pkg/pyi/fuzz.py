@@ -1,7 +1,6 @@
 from contextvars import ContextVar
 
-from test_pkg.pyi.util import func_forimport, T_Checktyping
-
+from .util import T_Checktyping, func_forimport
 
 var = ContextVar("var", default=4)
 """context var without anno"""

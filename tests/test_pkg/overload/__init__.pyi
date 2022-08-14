@@ -1,7 +1,7 @@
-from typing import overload
 from contextvars import ContextVar
+from typing import overload
 
-from test_pkg.overload.typing import T_Type
+from .typing import T_Type
 
 @overload
 def func(arg: ContextVar[int]) -> T_Type:
