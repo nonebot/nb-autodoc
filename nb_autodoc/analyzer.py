@@ -1,4 +1,13 @@
 """Python Code Analyzer by parsing and analyzing AST.
+
+Stub file:
+
+    Stub files are written in normal Python 3 syntax, but generally leaving out
+    runtime logic like variable initializers, function bodies, and default arguments.
+
+    So expected stub files are safe and executable. In the code analysis procedure,
+    stub file do the same stuff as source file.
+
 """
 import ast
 import sys
@@ -16,6 +25,7 @@ from typing import (
     Iterable,
     List,
     Optional,
+    Set,
     TypeVar,
     Union,
 )
@@ -24,17 +34,35 @@ T = TypeVar("T")
 
 
 class Analyzer:
+    """Combination of definition finder, variable comment picker and overload picker.
+
+    Args:
+        fullname: module name
+        package: package name, like fullname, useful when analyzing or performing import
+        path: file path to analyze
+        globalns: module's dictionary, evaluate from file if None
+    """
+
     def __init__(
         self,
+        fullname: str,
+        package: Optional[str],
         path: Union[Path, str],
-        package: str,
-        globals: Optional[Dict[str, Any]] = None,
+        *,
+        globalns: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.code = open(path, "r").read()
         self.package = package
-        self._globals = globals if globals is not None else {}
         self.module = ast.parse(self.code)
-        self.type_checking_imports: Dict[str, Any] = {}
+        self.definitions: Set[str] = set()
+
+        if globalns is None:
+            try:
+                globalns = create_module_from_sourcefile(fullname, str(path)).__dict__
+            except Exception as e:
+                raise ImportError(f"error raises evaluating {path}") from e
+        self.globalns = globalns
+
         self.analyze()
 
     def analyze(self) -> None:
@@ -45,7 +73,7 @@ class Analyzer:
                 and stmt.test.id == "TYPE_CHECKING"
             ):
                 # Name is not resolved, only literal check
-                self.type_checking_imports = eval_import_stmts(stmt.body, self.package)
+                self.globalns.update(eval_import_stmts(stmt.body, self.package))
                 break
 
 
@@ -169,8 +197,9 @@ def convert_annot(s: str) -> str:
 class AnnotUnparser(_Unparser):
     """Special unparser for annotation with py3.9+ new style.
 
-    Legal annotation consists of (ast.Name, ast.Attribute, ast.Subscript, ellipsis).
+    Legal annotation consists of (ast.Name, ast.Attribute, ast.Subscript).
     `...` is only allowed in `ast.Subscript`, like Callable and Tuple.
+    str and None is OK.
 
     Annotation node should be transformed first to avoid naming problem like `T.Union`.
 
@@ -185,6 +214,8 @@ class AnnotUnparser(_Unparser):
             value = get_constant_value(node)
             if not isinstance(value, str):
                 raise ValueError(f"value {value!r} is invalid in annotation")
+            elif value is None:
+                return "None"
             return value
         return super().visit(node)
 
@@ -200,7 +231,7 @@ class AnnotUnparser(_Unparser):
                 self.write("None")
             else:
                 raise ValueError(
-                    "only str and ... constant is allowed in subscript scope, "
+                    "only str, Ellipsis and None is allowed in subscript scope, "
                     f"got {value.__class__}"
                 )
             return
