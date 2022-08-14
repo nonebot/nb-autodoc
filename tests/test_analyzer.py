@@ -1,5 +1,6 @@
 import pathlib
 import re
+import sys
 from pathlib import Path
 
 from nb_autodoc.analyzer import Analyzer, convert_annot
@@ -18,7 +19,9 @@ def test_Analyzer():
         "egd": egd,
         "ec": egd.ExampleClass,
     }
+    assert "tests.data.stuff1" not in sys.modules
     assert {k: analyzer.globalns[k] for k in target} == target
+    assert analyzer.globalns["A"].__module__ == "tests.data.stuff1"
 
 
 def test_convert_annot():
