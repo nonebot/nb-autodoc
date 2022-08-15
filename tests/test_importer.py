@@ -1,4 +1,4 @@
-from nb_autodoc.importer import Module, _modules
+from nb_autodoc.inspector import Module, _modules
 
 
 def test_Module():
