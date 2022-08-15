@@ -74,7 +74,9 @@ class Analyzer:
             ):
                 # Name is not resolved, only literal check
                 self.globalns.update(eval_import_stmts(stmt.body, self.package))
-                break
+            # Clear function body for performance
+            elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                stmt.body[1:] = []
 
 
 def eval_import_stmts(
@@ -192,6 +194,10 @@ def convert_annot(s: str) -> str:
     except SyntaxError:  # probably already new style
         return s
     return AnnotUnparser().visit(node)
+
+
+def is_new_style_literal(s: str) -> bool:
+    return "|" in s or "->" in s
 
 
 class AnnotUnparser(_Unparser):
