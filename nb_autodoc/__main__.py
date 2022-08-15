@@ -1,5 +1,9 @@
 import click
 
+from nb_autodoc.utils import logger
+
+logger.setLevel("INFO")
+
 
 @click.command()
 @click.argument("module_name")

@@ -1,3 +1,11 @@
+import logging
+
+logger = logging.getLogger("nb_autodoc")
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
+logger.addHandler(console_handler)
+
+
 def dedent(s: str) -> str:
     """Enhanced version of `textwrap.dedent`.
 
