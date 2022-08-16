@@ -17,8 +17,8 @@ def module_only_globalns():
 
 
 def test_Module():
-    module = Module("tests.test_pkg")
-    context = module.context
+    # module = Module("tests.test_pkg")
+    # context = module.context
     ...
 
 

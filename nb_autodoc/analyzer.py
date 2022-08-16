@@ -10,6 +10,7 @@ Stub file:
 
 """
 import ast
+import itertools
 import sys
 from contextlib import contextmanager
 from importlib import import_module
@@ -24,13 +25,25 @@ from typing import (
     Generator,
     Iterable,
     List,
+    NamedTuple,
     Optional,
-    Set,
+    Tuple,
     TypeVar,
     Union,
 )
 
+from nb_autodoc.utils import logger
+
 T = TypeVar("T")
+
+
+def ast_parse(source: str) -> ast.Module:
+    """AST parse function, mode must be "exec" to avoid duplicated typing."""
+    try:
+        return ast.parse(source, type_comments=True)
+    except SyntaxError:
+        # Invalid type comment: https://github.com/sphinx-doc/sphinx/issues/8652
+        return ast.parse(source)
 
 
 class Analyzer:
@@ -53,7 +66,7 @@ class Analyzer:
     ) -> None:
         self.code = open(path, "r").read()
         self.package = package
-        self.module = ast.parse(self.code)
+        self.module = ast_parse(self.code)
         self.type_refs: Dict[str, str] = {}
         """Store import and ClassDef refname for annotation analysis."""
 
@@ -75,7 +88,8 @@ class Analyzer:
             ):
                 # Name is not resolved, only literal check
                 self.globalns.update(eval_import_stmts(stmt.body, self.package))
-            # Clear function body for performance
+            # Clean function body for performance
+            # NOTE: __init__ body cleaned
             elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 stmt.body[1:] = []
 
@@ -126,9 +140,9 @@ def create_module_from_sourcefile(fullname: str, path: str) -> ModuleType:
     return module
 
 
-# Though python compat node in previous version
+# Although python compat node in previous version
 # It's not good idea to fixup and return correct node
-def is_constant_node(node: ast.AST) -> bool:
+def is_constant_node(node: ast.expr) -> bool:
     if sys.version_info >= (3, 8):
         return isinstance(node, ast.Constant)
     return isinstance(
@@ -136,10 +150,105 @@ def is_constant_node(node: ast.AST) -> bool:
     )
 
 
-def get_constant_value(node: ast.AST) -> Any:
+def get_constant_value(node: ast.expr) -> Any:
     if sys.version_info < (3, 8) and isinstance(node, ast.Ellipsis):
         return ...
-    return getattr(node, node._fields[0])
+    return getattr(node, node._fields[0])  # generic
+
+
+# Resolve complex assign like `a, b = c, d = 1, 2`
+def get_assign_targets(node: Union[ast.Assign, ast.AnnAssign]) -> List[ast.expr]:
+    if isinstance(node, ast.Assign):
+        return node.targets
+    else:
+        return [node.target]
+
+
+def get_target_names(node: ast.expr) -> List[str]:
+    """Get `[a, b, c]` from a target `(a, (b, c))`."""
+    if isinstance(node, ast.Name):
+        return [node.id]
+    elif isinstance(node, (ast.List, ast.Tuple)):
+        return list(
+            itertools.chain.from_iterable(get_target_names(elt) for elt in node.elts)
+        )
+    else:
+        # Not new variable creation
+        return []
+
+
+def get_target_attr_from(node: ast.expr, name: str) -> Optional[str]:
+    """Get `attr` from a target `self.attr`."""
+    if isinstance(node, ast.Attribute):
+        if isinstance(node.value, ast.Name) and node.value.id == name:
+            return node.attr
+    return None
+
+
+class AssignData(NamedTuple):
+    comment: str
+    type_comment: Optional[str]
+
+
+def traverse_assign(
+    node: Union[ast.Module, ast.ClassDef]
+) -> Dict[Tuple[str, ...], AssignData]:
+    """Traverse body and retrieve variable docstring and type_comment (if exists).
+
+    Before nb_autodoc v0.2.0, `#:` special comment syntax is allowed.
+    See: https://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html
+    Now it is deprecated for implicit meaning and irregular syntax.
+
+    Returns:
+        dict key is tuple of variable names, value is data tuple
+    """
+    res: Dict[Tuple[str, ...], AssignData] = {}
+    for i, stmt in enumerate(node.body):
+        if not isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+            continue
+        if i + 1 == len(node.body):
+            continue
+        next_stmt = node.body[i + 1]
+        if isinstance(next_stmt, ast.Expr) and is_constant_node(next_stmt.value):
+            docstring = get_constant_value(next_stmt.value)
+            if isinstance(docstring, str):
+                targets = get_assign_targets(stmt)
+                names = tuple(
+                    itertools.chain.from_iterable(get_target_names(i) for i in targets)
+                )
+                res[names] = AssignData(docstring, getattr(stmt, "type_comment", None))
+    return res
+
+
+def _traverse_docstring(node: Union[ast.Module, ast.ClassDef]) -> List[str]:
+    # TODO: extract type comment only from `a = 1  # type: int`, attr or tuple assign not support
+    docstrings: List[str] = []
+
+    stmt = node.body[0]
+    if is_constant_node(stmt):
+        docstrings.append(_compat_get_text(stmt))
+
+    for i, stmt in enumerate(node.body):
+        if (
+            isinstance(stmt, (ast.Assign, ast.AnnAssign))
+            and (not i == len(node.body))
+            and isinstance(node.body[i + 1], ast.Expr)
+        ):
+            expr = cast("ast.Expr", node.body[i + 1])
+            if not _is_str_node(expr):
+                continue
+            docstrings.append(_compat_get_text(expr))
+        elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) and isinstance(
+            stmt.body[0], ast.Expr
+        ):
+            expr = stmt.body[0]
+            if not _is_str_node(expr):
+                continue
+            docstrings.append(_compat_get_text(expr))
+        elif isinstance(stmt, ast.ClassDef):
+            docstrings.extend(_traverse_docstring(stmt))
+
+    return docstrings
 
 
 def interleave(
@@ -213,6 +322,11 @@ class AnnotUnparser(_Unparser):
     """
 
     def visit(self, node: ast.AST) -> str:
+        if not isinstance(node, ast.expr):
+            logger.error(
+                f"{self.__class__.__name__} expect ast.expr, got {node.__class__}"
+            )
+            return "<unknown>"
         if is_constant_node(node):
             value = get_constant_value(node)
             if value is None:
@@ -222,7 +336,7 @@ class AnnotUnparser(_Unparser):
             return value
         return super().visit(node)
 
-    def traverse(self, node: ast.AST) -> None:
+    def traverse(self, node: ast.expr) -> None:  # type: ignore[override]
         """Ensure traversing the valid visitor."""
         if is_constant_node(node):
             value = get_constant_value(node)

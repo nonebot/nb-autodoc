@@ -3,9 +3,23 @@ import re
 import sys
 from pathlib import Path
 
-from nb_autodoc.analyzer import Analyzer, convert_annot
+import pytest
+
+from nb_autodoc.analyzer import (
+    Analyzer,
+    AssignData,
+    ast_parse,
+    convert_annot,
+    traverse_assign,
+)
 
 from .data import example_google_docstring as egd
+
+
+@pytest.fixture(scope="module")
+def example_ast_module():
+    file = Path(__file__).resolve().parent / "data" / "example_google_docstring.py"
+    return ast_parse(open(file, "r").read())
 
 
 def test_Analyzer():
@@ -22,6 +36,29 @@ def test_Analyzer():
     assert "tests.data.stuff1" not in sys.modules
     assert {k: analyzer.globalns[k] for k in target} == target
     assert analyzer.globalns["A"].__module__ == "tests.data.stuff1"
+
+
+code = '''
+a = 1  # type: int>>invalid
+"""a docstring"""
+b = 2  # type: int
+"""b docstring"""
+"""bad"""
+def a(): ...
+"""bad"""
+c = d = 3
+"""c and d docstring"""
+'''
+
+
+def test_traverse_assign():
+    module = ast_parse(code)
+    res = traverse_assign(module)
+    assert res == {
+        ("a",): AssignData("a docstring", "int>>invalid"),
+        ("b",): AssignData("b docstring", "int"),
+        ("c", "d"): AssignData("c and d docstring", None),
+    }
 
 
 def test_convert_annot():
