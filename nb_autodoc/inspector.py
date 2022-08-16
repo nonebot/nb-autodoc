@@ -85,29 +85,11 @@ class Context(UserDict[str, TD]):
         self.skip_modules: Set[str] = set()
 
 
-class ABCAttribute(Generic[T]):
-    __slots__ = ("attr",)
-    attr: T
-
-    def __init__(self, _: Type[T]) -> None:
-        super().__init__()
-
-    def __get__(self, obj: Optional[object], objtype: Type[object]) -> T:
-        if obj is None:
-            return self  # type: ignore  # getattr from class
-        if not hasattr(self, "attr"):
-            raise NotImplementedError
-        return self.attr
-
-    def __set__(self, obj: object, value: T) -> None:
-        self.attr = value
-
-
 class DocMixin:
     """Common documentation attributes."""
 
-    __dmodule__ = ABCAttribute(str)
-    __dtype__ = ABCAttribute(str)
+    __dmodule__: str
+    __dtype__: str
 
 
 class Doc(DocMixin):
