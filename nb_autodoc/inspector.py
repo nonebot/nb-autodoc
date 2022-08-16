@@ -13,9 +13,20 @@ Module 处理标准:
     1. 为了避免子模块和包变量重名问题，默认输出所有模块，在构造时给予 skip_modules 变量，
         下划线开头模块会自动加入这个变量
 
-    考虑这样一个情况，internal 子模块为黑名单，但是其中一个类需要在 foo 外部模块输出，我想控制类的成员怎么做？
-    我不想在 internal 任何一个模块增加 __autodoc__，增加了复杂性，但是需要进行支持
-    所有 Document Object 提供一个 dmodule 变量，为本模块输出文档位置。
+    考虑这样一个情况:
+    ./
+    main.py
+    internal/
+        __init__.py
+    external/
+        __init__.py
+    internal 有个 Foo 类，包括成员 a 和 b，需要在 external 控制 Foo 和其成员要怎么做？
+    * external 写 __autodoc__ 违反了原则: 只能允许控制子模块和当前模块
+    * internal 写 __autodoc__ 造成文档和模块不一致，属于 implicit problem
+    * 希望 __autodoc__ 和静态代码分析无关
+    解决方案:
+        对 __autodoc__ 限制类型: class, method, function，额外增加 ref 黑白名单
+        在原来的基础上，从 obj 获取 __module__，直接 resolve 成 refname，加入 ref 黑白名单
 
 Module 处理流程:
     1. AST parse
@@ -36,6 +47,7 @@ Literal annotation:
 import types
 from collections import UserDict
 from importlib import import_module
+from operator import attrgetter
 from pkgutil import iter_modules
 from typing import Any, Dict, Generic, Optional, Set, Type, TypeVar, Union
 
@@ -66,6 +78,9 @@ class Context(UserDict[str, TD]):
         super().__init__()
         self.whitelist: Set[str] = set()
         self.blacklist: Set[str] = set()
+        # def_whitelist and def_blacklist use for object spec
+        self.def_whitelist: Set[str] = set()
+        self.def_blacklist: Set[str] = set()
         self.override_docstring: Dict[str, str] = {}
         self.skip_modules: Set[str] = set()
 
@@ -99,8 +114,8 @@ class Doc(DocMixin):
     docstring: Optional[str]
 
 
-class Reexport(Doc):
-    """Re-exported member for builder recognition."""
+class Identity(Doc):
+    """Placeholder for external, including re-export."""
 
 
 class Module(Doc):
@@ -108,18 +123,17 @@ class Module(Doc):
 
     To control module's documentable object, setting `__autodoc__` respected to:
         * module-level dict variable
-        * module is documentable (skipped if setting in a skip_module)
-        * key MUST be the current module's object's qualified name
-            (even if it is force-exported to other modules)
-        * value True for whitelist (force-exported), False for blacklist
-        * value string will override target object's docstring
+        * target object SHOULD be class, method or function
+        * key is the target object's qualified name
+        * value bool: True for whitelist, False for blacklist
+        * value str: override target object's docstring
+        * skip if setting in skip_modules
 
     Args:
         module: module name
         skip_modules: the full module names to skip documentation
     """
 
-    __ddict__: Dict[str, Union[Reexport, T_ModuleMember]]
     members: Dict[str, T_ModuleMember]
 
     def __init__(
@@ -141,19 +155,46 @@ class Module(Doc):
         self.context = _context
         _modules[self.name] = self
 
-        for name, value in self.__autodoc__.items():
-            refname = f"{self.name}.{name}"
+        # Resolve __autodoc__
+        # Target object always imported (how about LazyImport?)
+        for qualname, value in self.__autodoc__.items():
+            try:
+                obj = attrgetter(qualname)(self.obj)
+            except AttributeError:
+                logger.warning(
+                    f"{self.name}.__autodoc__: key {qualname!r} is not found"
+                )
+                continue
+            try:
+                obj_module = getattr(obj, "__module__")
+                obj_qualname = getattr(obj, "__qualname__")
+            except AttributeError:
+                logger.warning(
+                    f"{self.name}.__autodoc__: key {qualname!r} "
+                    f"expect class, method and function, got {type(obj)}"
+                )
+                continue
+            refname = f"{obj_module}.{obj_qualname}"
+            d_refname = f"{self.name}.{qualname}"
             if value is True:
-                self.context.whitelist.add(refname)
+                self.context.def_whitelist.add(refname)
+                self.context.whitelist.add(d_refname)
             elif value is False:
-                self.context.blacklist.add(refname)
+                self.context.def_blacklist.add(refname)
+                self.context.blacklist.add(d_refname)
             elif isinstance(value, str):
                 self.context.override_docstring[refname] = value
+            else:
+                logger.warning(
+                    f"{self.name}.__autodoc__: "
+                    f"expects value to be bool or str, got {type(value)}"
+                )
 
         if skip_modules is not None:
-            self.context.skip_modules = skip_modules
-        self.submodules: Optional[Dict[str, Module]] = None
+            self.context.skip_modules |= skip_modules
 
+        # Find submodules
+        self.submodules: Optional[Dict[str, Module]] = None
         if self.is_package:
             self.submodules = {}
             for finder, name, ispkg in iter_modules(self.obj.__path__):
@@ -161,10 +202,11 @@ class Module(Doc):
                     f"{self.name}.{name}", _package=self, _context=self.context
                 )
 
-        self.analyze()
-
     def __repr__(self) -> str:
         return f"<{'Package' if self.is_package else 'Module'} {self.name!r}>"
+
+    def _evaluate(self, s: str) -> Any:
+        return eval(s, self.globalns)
 
     @property
     def __autodoc__(self) -> Dict[str, Union[bool, str]]:
@@ -182,33 +224,42 @@ class Module(Doc):
 
     @property
     def globalns(self) -> Dict[str, Any]:
-        return self.analyzer.globalns
+        return self._analyzer.globalns
 
     @property
     def is_package(self) -> bool:
         return hasattr(self.obj, "__path__")
 
     def analyze(self) -> None:
-        """Traverse `__dict__` and specify the object from runtime and AST.
+        """Traverse all submodules and specify the object from runtime and AST.
 
-        Create definition namespace for documentation resolving.
+        Call this method after instance initialization. `__autodoc__` should be
+        resolved completely before calling.
+
+        This method creates the definition namespace. For those external
         """
         self.members = {}
-        self.analyzer = Analyzer(
+        self._analyzer = Analyzer(
             self.name,
             self.package.name if self.package is not None else None,
             self.filepath,
             globalns=self.obj.__dict__.copy(),
         )
         for name, obj in self.obj.__dict__.items():
-            if hasattr(obj, "__module__"):
-                obj.__module__
+            if name in self._analyzer.var_comments:
+                ...
+                continue
+            module = getattr(obj, "__module__", None)
+            if module is None:
+                self.members
+            elif module == self.name:
+                ...
             else:
                 # Possibly cause by overrided __getattr__ or builtins instance
                 self.members
 
-    def _evaluate(self, s: str) -> Any:
-        return eval(s, self.globalns)
+    def spec_and_create(self, obj: Any) -> T_ModuleMember:
+        ...
 
 
 class Class(Doc):
@@ -237,6 +288,8 @@ class Enum(Class):
 
 class Function(Doc):
     ...
+    # if no __doc__, found from __func__ exists
+    # search source from linecache
 
 
 NULL = object()

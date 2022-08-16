@@ -221,37 +221,6 @@ def traverse_assign(
     return res
 
 
-def _traverse_docstring(node: Union[ast.Module, ast.ClassDef]) -> List[str]:
-    # TODO: extract type comment only from `a = 1  # type: int`, attr or tuple assign not support
-    docstrings: List[str] = []
-
-    stmt = node.body[0]
-    if is_constant_node(stmt):
-        docstrings.append(_compat_get_text(stmt))
-
-    for i, stmt in enumerate(node.body):
-        if (
-            isinstance(stmt, (ast.Assign, ast.AnnAssign))
-            and (not i == len(node.body))
-            and isinstance(node.body[i + 1], ast.Expr)
-        ):
-            expr = cast("ast.Expr", node.body[i + 1])
-            if not _is_str_node(expr):
-                continue
-            docstrings.append(_compat_get_text(expr))
-        elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) and isinstance(
-            stmt.body[0], ast.Expr
-        ):
-            expr = stmt.body[0]
-            if not _is_str_node(expr):
-                continue
-            docstrings.append(_compat_get_text(expr))
-        elif isinstance(stmt, ast.ClassDef):
-            docstrings.extend(_traverse_docstring(stmt))
-
-    return docstrings
-
-
 def interleave(
     inter: Callable[[], None], f: Callable[[T], None], seq: Iterable[T]
 ) -> None:
