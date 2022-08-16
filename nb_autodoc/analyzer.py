@@ -54,7 +54,8 @@ class Analyzer:
         self.code = open(path, "r").read()
         self.package = package
         self.module = ast.parse(self.code)
-        self.definitions: Set[str] = set()
+        self.type_refs: Dict[str, str] = {}
+        """Store import and ClassDef refname for annotation analysis."""
 
         if globalns is None:
             try:
@@ -196,10 +197,6 @@ def convert_annot(s: str) -> str:
     return AnnotUnparser().visit(node)
 
 
-def is_new_style_literal(s: str) -> bool:
-    return "|" in s or "->" in s
-
-
 class AnnotUnparser(_Unparser):
     """Special unparser for annotation with py3.9+ new style.
 
@@ -218,10 +215,10 @@ class AnnotUnparser(_Unparser):
     def visit(self, node: ast.AST) -> str:
         if is_constant_node(node):
             value = get_constant_value(node)
+            if value is None:
+                return "None"
             if not isinstance(value, str):
                 raise ValueError(f"value {value!r} is invalid in annotation")
-            elif value is None:
-                return "None"
             return value
         return super().visit(node)
 

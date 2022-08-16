@@ -37,33 +37,23 @@ import types
 from collections import UserDict
 from importlib import import_module
 from pkgutil import iter_modules
-from typing import (
-    Any,
-    Dict,
-    Generic,
-    Optional,
-    Set,
-    Type,
-    TypeVar,
-    Union,
-    get_type_hints,
+from typing import Any, Dict, Generic, Optional, Set, Type, TypeVar, Union
+
+from nb_autodoc.analyzer import Analyzer, convert_annot
+from nb_autodoc.typing import T_Annot, T_ClassMember, T_ModuleMember, Tp_GenericAlias
+from nb_autodoc.utils import (
+    cached_property,
+    eval_annot_as_possible,
+    formatannotation,
+    logger,
 )
 
-from nb_autodoc.analyzer import Analyzer
-from nb_autodoc.typing import T_Annot, T_ClassMember, T_ModuleMember
-
 T = TypeVar("T")
+TT = TypeVar("TT")
 TD = TypeVar("TD", bound="Doc")
 
 
 _modules: Dict[str, "Module"] = {}
-
-
-def find_name_in_mro(cls: type, name: str, default: Any) -> Any:
-    for base in cls.__mro__:
-        if name in vars(base):
-            return vars(base)[name]
-    return default
 
 
 class Context(UserDict[str, TD]):
@@ -87,14 +77,14 @@ class ABCAttribute(Generic[T]):
     def __init__(self, _: Type[T]) -> None:
         super().__init__()
 
-    def __get__(self, obj: Optional[type], objtype: Type[type]) -> T:
+    def __get__(self, obj: Optional[object], objtype: Type[object]) -> T:
         if obj is None:
             return self  # type: ignore  # getattr from class
         if not hasattr(self, "attr"):
             raise NotImplementedError
         return self.attr
 
-    def __set__(self, obj: type, value: T) -> None:
+    def __set__(self, obj: object, value: T) -> None:
         self.attr = value
 
 
@@ -191,6 +181,10 @@ class Module(Doc):
         return self.obj.__file__
 
     @property
+    def globalns(self) -> Dict[str, Any]:
+        return self.analyzer.globalns
+
+    @property
     def is_package(self) -> bool:
         return hasattr(self.obj, "__path__")
 
@@ -209,18 +203,32 @@ class Module(Doc):
         for name, obj in self.obj.__dict__.items():
             if hasattr(obj, "__module__"):
                 obj.__module__
+            else:
+                # Possibly cause by overrided __getattr__ or builtins instance
+                self.members
 
-    def evaluate(self, expr: str) -> T_Annot:
-        """Evaluate string literal type annotation."""
-        return eval(expr, self.analyzer.globalns)
+    def _evaluate(self, s: str) -> Any:
+        return eval(s, self.globalns)
 
 
 class Class(Doc):
-    SPECIAL_MEMBERS = ["__get__", "__set__", "__delete__"]
+    def __init__(self, name: str, obj: type, module: Module) -> None:
+        self.name = name
+        self.docstring = obj.__doc__
+        self.obj = obj
+        self.module = module
+
+    @property
+    def qualname(self) -> str:
+        return self.name  # Nested class not support
+
+    @property
+    def refname(self) -> str:
+        return f"{self.module.name}.{self.name}"
 
 
 class Descriptor(Class):
-    ...
+    SPECIAL_MEMBERS = ["__get__", "__set__", "__delete__"]
 
 
 class Enum(Class):
@@ -231,8 +239,62 @@ class Function(Doc):
     ...
 
 
+NULL = object()
+
+
 class Variable(Doc):
-    ...
+    def __init__(
+        self,
+        name: str,
+        module: Module,
+        annot: T_Annot = NULL,
+        *,
+        cls: Optional[Class] = None,
+    ) -> None:
+        self.name = name
+        self.module = module
+        self.cls = cls
+        self._annot = annot
+
+    @cached_property
+    def annotation(self) -> str:
+        annot = self._annot
+        if annot is NULL or annot is ...:
+            return "untyped"
+        elif isinstance(annot, str):
+            if "->" in annot:
+                logger.warning(f"disallow alternative Callable syntax in {annot!r}")
+                return self.replace_annot_refs(annot)
+            # TODO: add "X | Y" parser feature
+            try:
+                annot = self.module._evaluate(annot)
+            except Exception as e:  # TypeError if "X | Y"
+                logger.error(f"evaluating annotation from {self.refname}: {e}")
+            else:
+                annot = formatannotation(annot)
+        elif isinstance(annot, Tp_GenericAlias):
+            annot = eval_annot_as_possible(
+                annot,
+                self.module.globalns,
+                f"failed evaluating annotation {self.refname}",
+            )
+            annot = formatannotation(annot)
+        else:  # type or None
+            annot = formatannotation(annot)
+        return convert_annot(self.replace_annot_refs(annot))
+
+    def replace_annot_refs(self, s: str) -> str:
+        return s
+
+    @property
+    def qualname(self) -> str:
+        if self.cls is None:
+            return self.name
+        return f"{self.cls.name}.{self.name}"
+
+    @property
+    def refname(self) -> str:
+        return f"{self.module.name}.{self.qualname}"
 
 
 class Property(Variable):
