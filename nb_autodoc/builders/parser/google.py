@@ -87,7 +87,7 @@ class Parser:
         "示例": "examples",
         "用法": "examples",
         "FrontMatter": "frontmatter",
-        "Meta": "frontmatter",
+        "前言": "frontmatter",
         "Raises": "raises",
         "Exceptions": "raises",
         "异常": "raises",
