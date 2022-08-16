@@ -48,6 +48,11 @@ def a(): ...
 """bad"""
 c = d = 3
 """c and d docstring"""
+x['_'], x.attr = 1, 2
+"""bad"""
+
+x['_'], (a, b) = c, (d, e) = 1, (2, 3)
+"""abcde docstring"""
 '''
 
 
@@ -58,6 +63,8 @@ def test_traverse_assign():
         ("a",): AssignData("a docstring", "int>>invalid"),
         ("b",): AssignData("b docstring", "int"),
         ("c", "d"): AssignData("c and d docstring", None),
+        (): AssignData("bad", None),
+        ("a", "b", "c", "d", "e"): AssignData("abcde docstring", None),
     }
 
 

@@ -216,6 +216,7 @@ def traverse_assign(
                 names = tuple(
                     itertools.chain.from_iterable(get_target_names(i) for i in targets)
                 )
+                # invalid docstring if names empty...
                 res[names] = AssignData(docstring, getattr(stmt, "type_comment", None))
     return res
 
