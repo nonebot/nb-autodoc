@@ -8,6 +8,7 @@ Module 处理标准:
     2. 三种 annotation 形式: type, string, typing.xxx object
     3. type alias 识别: variable 为 type 或者拥有 __origin__, __args__, __parameters__ 三个属性，
         为什么不识别模块名 typing ?: 可以同时处理 types.GenericAlias
+    4. 任何 class, method, function 的 `__name__` 和 `__qualname__` 必须等于他们在模块中的名称
 
 黑白名单和 Ref 处理:
     1. 为了避免子模块和包变量重名问题，默认输出所有模块，在构造时给予 skip_modules 变量，
@@ -28,6 +29,9 @@ Module 处理标准:
         对 __autodoc__ 限制类型: class, method, function，额外增加 ref 黑白名单
         在原来的基础上，从 obj 获取 __module__，直接 resolve 成 refname，加入 ref 黑白名单
 
+    annotation ref: refname to docname (url)
+    doc ref: docname to refname (find definition)
+
 Module 处理流程:
     1. AST parse
         1. 获取 variable comments，逻辑为 Assign 有 docstring 就 pick comment，
@@ -44,6 +48,7 @@ Literal annotation:
     1. 来自其他模块的对象在本模块输出，链接问题
 
 """
+import sys
 import types
 from collections import UserDict
 from importlib import import_module
@@ -76,11 +81,9 @@ class Context(UserDict[str, TD]):
 
     def __init__(self) -> None:
         super().__init__()
+        # Store object refname retrieve from __autodoc__
         self.whitelist: Set[str] = set()
         self.blacklist: Set[str] = set()
-        # def_whitelist and def_blacklist use for object spec
-        self.def_whitelist: Set[str] = set()
-        self.def_blacklist: Set[str] = set()
         self.override_docstring: Dict[str, str] = {}
         self.skip_modules: Set[str] = set()
 
@@ -97,7 +100,10 @@ class Doc(DocMixin):
 
 
 class Identity(Doc):
-    """Placeholder for external, including re-export."""
+    """Placeholder for external."""
+
+    def __init__(self, refname: str) -> None:
+        self.refname = refname
 
 
 class Module(Doc):
@@ -139,33 +145,51 @@ class Module(Doc):
 
         # Resolve __autodoc__
         # Target object always imported (how about LazyImport?)
+        self._external: Dict[str, Identity] = {}
         for qualname, value in self.__autodoc__.items():
             try:
                 obj = attrgetter(qualname)(self.obj)
             except AttributeError:
-                logger.warning(
-                    f"{self.name}.__autodoc__: key {qualname!r} is not found"
+                logger.error(
+                    f"{self.name}.__autodoc__: attribute {qualname!r} is "
+                    "not found in globals, skip"
                 )
                 continue
             try:
-                obj_module = getattr(obj, "__module__")
+                obj_modulename = getattr(obj, "__module__")
                 obj_qualname = getattr(obj, "__qualname__")
             except AttributeError:
+                # Could not interinspect the variable module
+                # TODO: analyze definition and filter import stmt to find out module
                 logger.warning(
-                    f"{self.name}.__autodoc__: key {qualname!r} "
-                    f"expect class, method and function, got {type(obj)}"
+                    f"{self.name}.__autodoc__: attribute {qualname!r} is "
+                    f"expected to be class, method and function, "
+                    f"got {type(obj)}, skip. "
+                    "Re-export a variable is currently not supported. "
+                    "Setting variable docstring if you want to force-export it."
                 )
                 continue
-            refname = f"{obj_module}.{obj_qualname}"
-            d_refname = f"{self.name}.{qualname}"
+            # Do some necessary runtime check
+            obj_module = sys.modules[obj_modulename]
+            try:
+                if attrgetter(obj_qualname)(obj_module) is not obj:
+                    raise AttributeError
+            except AttributeError:
+                logger.error(
+                    f"{obj_modulename}.{obj_qualname} has inconsistant "
+                    "qualified name in runtime during __autodoc__ resolving, skip"
+                )
+                continue
+            # Storage from qualname, obj_module, obj_qualname
+            obj_refname = f"{obj_modulename}.{obj_qualname}"
+            if self.name != obj_modulename:
+                self._external[qualname] = Identity(obj_refname)
             if value is True:
-                self.context.def_whitelist.add(refname)
-                self.context.whitelist.add(d_refname)
+                self.context.whitelist.add(obj_refname)
             elif value is False:
-                self.context.def_blacklist.add(refname)
-                self.context.blacklist.add(d_refname)
+                self.context.blacklist.add(obj_refname)
             elif isinstance(value, str):
-                self.context.override_docstring[refname] = value
+                self.context.override_docstring[obj_refname] = value
             else:
                 logger.warning(
                     f"{self.name}.__autodoc__: "
@@ -200,9 +224,8 @@ class Module(Doc):
 
     @property
     def filepath(self) -> str:
-        if self.obj.__file__ is None:
-            raise RuntimeError
-        return self.obj.__file__
+        # No check for <string> or <unknown> or None
+        return self.obj.__file__  # type: ignore
 
     @property
     def globalns(self) -> Dict[str, Any]:
@@ -250,6 +273,7 @@ class Class(Doc):
         self.docstring = obj.__doc__
         self.obj = obj
         self.module = module
+        # validate class.__name__ and __qualname__ if equals to name (for annot eval)
 
     @property
     def qualname(self) -> str:
