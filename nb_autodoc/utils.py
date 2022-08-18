@@ -2,6 +2,7 @@ import logging
 import re
 import sys
 import types
+from typing import _AnnotatedAlias  # type: ignore
 from typing import (
     Any,
     Callable,
@@ -12,6 +13,7 @@ from typing import (
     Type,
     TypeVar,
     Union,
+    _SpecialForm,
     cast,
 )
 
@@ -34,30 +36,96 @@ def find_name_in_mro(cls: type, name: str, default: Any) -> Any:
     return default
 
 
-def formatannotation(annot: T_Annot) -> str:
-    """ForwardRef will be replaced to quoted name."""
-    if annot is None or annot is type(None):
+def _remove_typing_prefix(s: str) -> str:
+    def repl(match: re.Match[str]) -> str:
+        text = match.group()
+        if text.startswith("typing."):
+            return text[len("typing.") :]
+        return text
+
+    return re.sub(r"[\w\.]+", repl, s)
+
+
+def _type_repr(obj: Any, type_alias: Dict[T_GenericAlias, str], msg: str = "") -> str:
+    if obj in type_alias:
+        return type_alias[obj]
+    if obj is ...:  # Arg ellipsis is OK
+        return "..."
+    elif obj is type(None) or obj is None:
         return "None"
+    elif isinstance(obj, str):
+        # Possible in types.GenericAlias
+        logger.warning(f"bare string type annotation {obj!r}")
+        return obj
+    elif isinstance(obj, Tp_GenericAlias):
+        # Annotated do not give a name
+        if sys.version_info >= (3, 9) and isinstance(obj, _AnnotatedAlias):
+            return _type_repr(obj.__origin__, type_alias)
+        if isinstance(obj.__origin__, _SpecialForm):
+            name = obj.__origin__._name  # type: ignore
+        else:
+            # Most ABCs and concrete type alias
+            # Getattr to trick types.GenericAlias
+            name = getattr(obj, "_name", None) or obj.__origin__.__name__
+        if name == "Union":
+            args = obj.__args__
+            if len(args) == 2:
+                if args[0] is type(None):
+                    return f"Optional[{_type_repr(args[1], type_alias)}]"
+                elif args[1] is type(None):
+                    return f"Optional[{_type_repr(args[0], type_alias)}]"
+        elif name == "Callable":
+            if len(obj.__args__) == 2 and obj.__args__[0] is Ellipsis:
+                return f"Callable[..., {_type_repr(obj.__args__[1], type_alias)}]"
+            args = ", ".join(_type_repr(a, type_alias) for a in obj.__args__[:-1])
+            rt = _type_repr(obj.__args__[-1], type_alias)
+            return f"Callable[[{args}], {rt}]"
+        args = ", ".join([_type_repr(a, type_alias) for a in obj.__args__])
+        return f"{name}[{args}]"
+    # The isinstance type should behind the types.GenericAlias check
+    # Because list[int] is both type and GenericAlias subclass
+    elif isinstance(obj, type):
+        if obj.__module__ == "builtins":
+            return obj.__qualname__
+        return f"{obj.__module__}.{obj.__qualname__}"
+    elif isinstance(obj, TypeVar):
+        return repr(obj)
+    elif isinstance(obj, ForwardRef):
+        logger.warning(msg + f"bare string type annotation {obj.__forward_arg__!r}")
+        return obj.__forward_arg__
+    module = getattr(obj, "__module__", "")
+    qualname = getattr(obj, "__qualname__", "")
+    if module == "typing":
+        if qualname == "NewType.<locals>.new_type":
+            return obj.__name__
+        logger.warning(msg + "unknown typing object, maybe a bug on nb_autodoc")
+        return _remove_typing_prefix(repr(obj))
+    raise TypeError(f"unexpected annotation type {type(obj)}")
+
+
+def formatannotation(
+    annot: T_Annot, type_alias: Dict[T_GenericAlias, str], msg: str = ""
+) -> str:
+    """Traverse __args__ and specify the type to represent.
+
+    Give `type_alias` to specify the type's original reference.
+
+    Raises:
+        TypeError: annotation is invalid
+    """
+    if annot is ...:
+        raise TypeError("ellipsis annotation is invalid")
+    elif isinstance(annot, ForwardRef):
+        logger.warning(msg + "expect GenericAlias, got ForwardRef")
+        return annot.__forward_arg__
     elif isinstance(annot, str):
+        logger.warning(msg + f"expect GenericAlias, got bare string {annot!r}")
         return annot
     module = getattr(annot, "__module__", "")
     top_module = module.split(".", 1)[0]
-    if module == "typing":
-        if getattr(annot, "__qualname__", "") == "NewType.<locals>.new_type":
-            return annot.__name__
-        annot = repr(annot).replace("typing.", "")
     if top_module == "nptyping":
         return repr(annot)
-    if isinstance(annot, type):
-        if annot.__module__ == "builtins":
-            return annot.__qualname__
-        return annot.__module__ + "." + annot.__qualname__
-    annot = re.sub(
-        r"\b(typing\.)?ForwardRef\((?P<quot>[\"\'])(?P<str>.*?)(?P=quot)\)",
-        r"\g<str>",
-        annot,
-    )
-    return annot
+    return _type_repr(annot, type_alias, msg)
 
 
 def eval_annot_as_possible(

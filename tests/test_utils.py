@@ -1,13 +1,15 @@
+# type: ignore
 import ast
 import inspect
+import sys
 import textwrap
 from functools import partial
 from pathlib import Path
-from typing import Callable, List, TypeVar, Union, cast
+from typing import Annotated, Callable, Dict, List, NewType, Tuple, TypeVar, Union, cast
 
 import pytest
 
-from nb_autodoc.utils import cleandoc, dedent
+from nb_autodoc.utils import cleandoc, dedent, formatannotation
 
 T = TypeVar("T")
 TT = TypeVar("TT")
@@ -89,6 +91,43 @@ def indented_texts(docstrings: List[str]):
             continue
         results.append(chunk[1])
     return results
+
+
+def test_formatannotation():
+    class Foo:
+        ...
+
+    Foo.__module__ = "test.typing"
+    Foo.__qualname__ = "Foo"
+
+    assets = {
+        None: "None",
+        "AnyStr": "AnyStr",
+        List[int]: "List[int]",
+        Union[int, None]: "Optional[int]",
+        Tuple[int, ...]: "Tuple[int, ...]",
+        Dict[str, None]: "Dict[str, None]",
+        Callable[[int, str, Foo], None]: "Callable[[int, str, test.typing.Foo], None]",
+        Union[int, "Fake"]: "Union[int, Fake]",
+        NewType("Fake", int): "Fake",
+        (
+            Dict[Union[int, str], Callable[..., str]]
+        ): "Dict[Union[int, str], Callable[..., str]]",
+    }
+    if sys.version_info >= (3, 9):
+        assets.update({Annotated[int, list, "any"]: "int"})
+        # types.GenericAlias has no arg check
+        assets.update(
+            {
+                list[int, "Fake"]: "list[int, Fake]",
+                Union[int, list[int, "Fake"]]: "Union[int, list[int, Fake]]",
+                list[int, Union[int, str], str]: "list[int, Union[int, str], str]",
+            }
+        )
+    with pytest.raises(TypeError):
+        formatannotation(...)
+    for annot, text in assets.items():
+        assert formatannotation(annot, {}) == text
 
 
 def partial_map(f: Callable[[T], TT], lst: List[T]) -> Callable[[], List[TT]]:
