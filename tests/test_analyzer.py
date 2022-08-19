@@ -1,3 +1,4 @@
+import ast
 import pathlib
 import re
 import sys
@@ -33,6 +34,10 @@ def get_code_by_marker(marker: str) -> str:
     return "".join(lines[lineno:end_lineno])  # type: ignore
 
 
+def node_to_dict(node: ast.AST) -> dict:
+    ...
+
+
 def test_Analyzer():
     analyzer = Analyzer(
         "tests.data.stuff1", "tests.data", Path(__file__).parent / "data" / "stuff1.py"
@@ -50,7 +55,8 @@ def test_Analyzer():
 
 
 def test_VariableVisitor():
-    module = ast_parse(get_code_by_marker("test_VariableVisitor"))
+    code = get_code_by_marker("test_VariableVisitor")
+    module = ast_parse(code)
     visitor = VariableVisitor()
     visitor.visit(module)
     # Duplicated from debug
@@ -68,6 +74,7 @@ def test_VariableVisitor():
         "C.a": "C.a docstring",
         "C.__init__.a": "C.__init__.a/b docstring",
         "C.__init__.b": "C.__init__.a/b docstring",
+        "C.__init__.d": "C.__init__.d docstring",
     }
     assert visitor.comments == docstrings
     if sys.version_info >= (3, 8):
@@ -77,6 +84,10 @@ def test_VariableVisitor():
             "C.__init__.a": "str | None",
             "C.__init__.b": "str | None",
         }
+    annotations = {
+        k: ast.get_source_segment(code, v) for k, v in visitor.annotations.items()
+    }
+    assert annotations == {"C.__init__.c": "int", "C.__init__.d": "str"}
 
 
 def test_convert_annot():

@@ -37,10 +37,14 @@ class C:
         a = 1  # type: bad
         """bad"""
     def __init__(slf, a, b):
-        self.badattr = 1  # type: int | str
+        self.badattr1: int = 1
+        self.badattr2 = 1  # type: int | str
         """bad"""
         slf.a = slf.b = 1  # type: str | None
         """C.__init__.a/b docstring"""
+        slf.c: int = 1
+        slf.d: str = 'foo'
+        """C.__init__.d docstring"""
     class _A:
         _a = 1
         """bad"""

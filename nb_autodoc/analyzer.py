@@ -211,7 +211,7 @@ class VariableVisitor(ast.NodeVisitor):
         self.current_function: Optional[ast.FunctionDef] = None
         self.comments: Dict[str, str] = {}
         self.type_comments: Dict[str, str] = {}
-        self.annotations: Dict[str, str] = {}
+        self.annotations: Dict[str, ast.expr] = {}
 
     def get_qualname_for(self, name: str) -> str:
         if not self.ctx:
@@ -227,34 +227,37 @@ class VariableVisitor(ast.NodeVisitor):
                 return self.current_function.args.args[0].arg
         return ""
 
-    def traverse_assign_comments(self, stmts: List[ast.stmt]) -> None:
+    def traverse_assign(self, stmts: List[ast.stmt]) -> None:
         """Traverse the body and find out variable comment.
 
         Variable with docstring will be picked, otherwise ignored.
         """
         for i, stmt in enumerate(stmts[:-1]):
             after_stmt = stmts[i + 1]
-            if not (
-                isinstance(stmt, (ast.Assign, ast.AnnAssign))
-                and isinstance(after_stmt, ast.Expr)
-            ):
-                continue
-            if isinstance(after_stmt, ast.Expr) and is_constant_node(after_stmt.value):
-                docstring = get_constant_value(after_stmt.value)
-                if isinstance(docstring, str):
-                    targets = get_assign_targets(stmt)
-                    names = tuple(
-                        itertools.chain.from_iterable(
-                            get_target_names(i, self.get_self()) for i in targets
-                        )
+            if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+                targets = get_assign_targets(stmt)
+                names = tuple(
+                    itertools.chain.from_iterable(
+                        get_target_names(i, self.get_self()) for i in targets
                     )
-                    # Invalid docstring if names empty...
-                    type_comment = getattr(stmt, "type_comment", None)
-                    for name in names:
-                        qualname = self.get_qualname_for(name)
-                        self.comments[qualname] = docstring
-                        if type_comment:
-                            self.type_comments[qualname] = type_comment
+                )
+                if not names:
+                    continue
+                # Add annotations in `__init__`
+                if isinstance(stmt, ast.AnnAssign):
+                    self.annotations[self.get_qualname_for(names[0])] = stmt.annotation
+                # Add comments and type_comments
+                if isinstance(after_stmt, ast.Expr) and is_constant_node(
+                    after_stmt.value
+                ):
+                    docstring = get_constant_value(after_stmt.value)
+                    if isinstance(docstring, str):
+                        type_comment = getattr(stmt, "type_comment", None)
+                        for name in names:
+                            qualname = self.get_qualname_for(name)
+                            self.comments[qualname] = docstring
+                            if type_comment:
+                                self.type_comments[qualname] = type_comment
 
     def visit(self, node: ast.AST) -> None:
         """Visit a node and record previous if visitor is concrete."""
@@ -265,7 +268,7 @@ class VariableVisitor(ast.NodeVisitor):
             self.previous = node
 
     def visit_Module(self, node: ast.Module) -> Any:
-        self.traverse_assign_comments(node.body)
+        self.traverse_assign(node.body)
         for stmt in node.body:
             if isinstance(stmt, _MODULE_ALLOW_VISIT):
                 self.visit(stmt)
@@ -274,7 +277,7 @@ class VariableVisitor(ast.NodeVisitor):
         if not self.current_class:
             self.current_class = node
             self.ctx.append(node.name)
-            self.traverse_assign_comments(node.body)
+            self.traverse_assign(node.body)
             # Concrete visit __init__
             for stmt in node.body:
                 if isinstance(stmt, _Tp_FunctionDef) and stmt.name == "__init__":
@@ -288,7 +291,7 @@ class VariableVisitor(ast.NodeVisitor):
         if not self.current_function:
             self.current_function = node
             self.ctx.append(node.name)
-            self.traverse_assign_comments(node.body)
+            self.traverse_assign(node.body)
             self.ctx.pop()
             self.current_function = None
 
