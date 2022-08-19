@@ -125,7 +125,7 @@ def test_formatannotation():
             }
         )
     with pytest.raises(TypeError):
-        formatannotation(...)
+        formatannotation(..., {})
     for annot, text in assets.items():
         assert formatannotation(annot, {}) == text
 
