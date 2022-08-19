@@ -194,7 +194,7 @@ _Tp_FunctionDef = cast(Type[ast.FunctionDef], (ast.FunctionDef, ast.AsyncFunctio
 _MODULE_ALLOW_VISIT = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
 
-class AssignVisitor(ast.NodeVisitor):
+class VariableVisitor(ast.NodeVisitor):
     """Pick variable comment and `__init__` annotation string.
 
     Before nb_autodoc v0.2.0, `#:` special comment syntax is allowed.
@@ -228,6 +228,10 @@ class AssignVisitor(ast.NodeVisitor):
         return ""
 
     def traverse_assign_comments(self, stmts: List[ast.stmt]) -> None:
+        """Traverse the body and find out variable comment.
+
+        Variable with docstring will be picked, otherwise ignored.
+        """
         for i, stmt in enumerate(stmts[:-1]):
             after_stmt = stmts[i + 1]
             if not (
@@ -240,8 +244,8 @@ class AssignVisitor(ast.NodeVisitor):
                 if isinstance(docstring, str):
                     targets = get_assign_targets(stmt)
                     names = tuple(
-                        itertools.chain(
-                            *(get_target_names(i, self.get_self()) for i in targets)
+                        itertools.chain.from_iterable(
+                            get_target_names(i, self.get_self()) for i in targets
                         )
                     )
                     # Invalid docstring if names empty...

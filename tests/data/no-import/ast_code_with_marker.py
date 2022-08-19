@@ -1,7 +1,7 @@
 # type: ignore
 # fmt: off
 
-# autodoc: test_AssignVisitor on
+# autodoc: test_VariableVisitor on
 
 a = 1  # type: int>>invalid
 """a docstring"""
@@ -45,7 +45,7 @@ class C:
         _a = 1
         """bad"""
 
-# autodoc: test_AssignVisitor off
+# autodoc: test_VariableVisitor off
 
 
 # fmt: on

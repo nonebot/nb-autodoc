@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from nb_autodoc.analyzer import Analyzer, AssignVisitor, ast_parse, convert_annot
+from nb_autodoc.analyzer import Analyzer, VariableVisitor, ast_parse, convert_annot
 
 from .data import example_google_docstring as egd
 
@@ -49,9 +49,9 @@ def test_Analyzer():
     assert analyzer.globalns["A"].__module__ == "tests.data.stuff1"
 
 
-def test_AssignVisitor():
-    module = ast_parse(get_code_by_marker("test_AssignVisitor"))
-    visitor = AssignVisitor()
+def test_VariableVisitor():
+    module = ast_parse(get_code_by_marker("test_VariableVisitor"))
+    visitor = VariableVisitor()
     visitor.visit(module)
     # Duplicated from debug
     docstrings = {
