@@ -11,6 +11,7 @@ Stub file:
 """
 import ast
 import itertools
+import linecache
 import sys
 from contextlib import contextmanager
 from importlib import import_module
@@ -28,8 +29,10 @@ from typing import (
     NamedTuple,
     Optional,
     Tuple,
+    Type,
     TypeVar,
     Union,
+    cast,
 )
 
 from nb_autodoc.utils import logger
@@ -47,37 +50,46 @@ def ast_parse(source: str) -> ast.Module:
 
 
 class Analyzer:
-    """Combination of definition finder, variable comment picker and overload picker.
+    """Wrapper of variable comment picker and overload picker.
 
     Args:
-        fullname: module name
-        package: package name, like fullname, useful when analyzing or performing import
+        name: module name
+        package: package name, useful in analyzing or performing import
         path: file path to analyze
         globalns: module's dictionary, evaluate from file if None
     """
 
     def __init__(
         self,
-        fullname: str,
+        name: str,
         package: Optional[str],
         path: Union[Path, str],
         *,
         globalns: Optional[Dict[str, Any]] = None,
     ) -> None:
-        self.code = open(path, "r").read()
+        self.name = name
         self.package = package
-        self.module = ast_parse(self.code)
+        self.path = str(path)
+        if globalns is None:
+            try:
+                globalns = create_module_from_sourcefile(name, self.path).__dict__
+            except Exception as e:
+                raise ImportError(f"error raises evaluating {self.path}") from e
+        self.globalns = globalns
+
+        code = open(self.path, "r").read()
+        self.module = ast_parse(code)
         self.type_refs: Dict[str, str] = {}
         """Store import and ClassDef refname for annotation analysis."""
 
-        if globalns is None:
-            try:
-                globalns = create_module_from_sourcefile(fullname, str(path)).__dict__
-            except Exception as e:
-                raise ImportError(f"error raises evaluating {path}") from e
-        self.globalns = globalns
-
         self.analyze()
+
+    @property
+    def lines(self) -> List[str]:
+        lines = linecache.getlines(self.path)
+        if not lines:
+            return linecache.updatecache(self.path, self.globalns)
+        return lines
 
     def analyze(self) -> None:
         for stmt in self.module.body:
@@ -88,10 +100,6 @@ class Analyzer:
             ):
                 # Name is not resolved, only literal check
                 self.globalns.update(eval_import_stmts(stmt.body, self.package))
-            # Clean function body for performance
-            # NOTE: __init__ body cleaned
-            elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                stmt.body[1:] = []
 
 
 def eval_import_stmts(
@@ -123,16 +131,16 @@ def eval_import_stmts(
     return imported
 
 
-def create_module_from_sourcefile(fullname: str, path: str) -> ModuleType:
+def create_module_from_sourcefile(modulename: str, path: str) -> ModuleType:
     """Create module from source file, this is useful for executing ".pyi" file.
 
     `importlib` supports suffixes like ".so" (extension_suffixes),
     ".py" (source_suffixes), ".pyc" (bytecode_suffixes).
     These extensions are recorded in `importlib._bootstrap_external`.
     """
-    loader = SourceFileLoader(fullname, path)
+    loader = SourceFileLoader(modulename, path)
     # spec_from_file_location without loader argument will skip invalid file extension
-    spec = spec_from_loader(fullname, loader)
+    spec = spec_from_loader(modulename, loader)
     if spec is None:  # only for type hints
         raise ImportError("no spec found")
     module = module_from_spec(spec)
@@ -164,61 +172,124 @@ def get_assign_targets(node: Union[ast.Assign, ast.AnnAssign]) -> List[ast.expr]
         return [node.target]
 
 
-def get_target_names(node: ast.expr) -> List[str]:
+def get_target_names(node: ast.expr, self: str = "") -> List[str]:
     """Get `[a, b, c]` from a target `(a, (b, c))`."""
+    if self:
+        if isinstance(node, ast.Attribute):
+            # Get `attr` from a target `self.attr`
+            if isinstance(node.value, ast.Name) and node.value.id == self:
+                return [node.attr]
+        return []  # Error docstring in class.__init__
     if isinstance(node, ast.Name):
         return [node.id]
     elif isinstance(node, (ast.List, ast.Tuple)):
         return list(
             itertools.chain.from_iterable(get_target_names(elt) for elt in node.elts)
         )
-    else:
-        # Not new variable creation
-        return []
+    # Not new variable creation
+    return []
 
 
-def get_target_attr_from(node: ast.expr, name: str) -> Optional[str]:
-    """Get `attr` from a target `self.attr`."""
-    if isinstance(node, ast.Attribute):
-        if isinstance(node.value, ast.Name) and node.value.id == name:
-            return node.attr
-    return None
+_Tp_FunctionDef = cast(Type[ast.FunctionDef], (ast.FunctionDef, ast.AsyncFunctionDef))
+_MODULE_ALLOW_VISIT = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
 
-class AssignData(NamedTuple):
-    comment: str
-    type_comment: Optional[str]
-
-
-def traverse_assign(
-    node: Union[ast.Module, ast.ClassDef]
-) -> Dict[Tuple[str, ...], AssignData]:
-    """Traverse body and retrieve variable docstring and type_comment (if exists).
+class AssignVisitor(ast.NodeVisitor):
+    """Pick variable comment and `__init__` annotation string.
 
     Before nb_autodoc v0.2.0, `#:` special comment syntax is allowed.
     See: https://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html
     Now it is deprecated for implicit meaning and irregular syntax.
 
-    Returns:
-        dict key is tuple of variable names, value is data tuple
+    If assign has multiple target like `a, b = 1, 2`, only the first name will be picked.
     """
-    res: Dict[Tuple[str, ...], AssignData] = {}
-    for i, stmt in enumerate(node.body):
-        if not isinstance(stmt, (ast.Assign, ast.AnnAssign)):
-            continue
-        if i + 1 == len(node.body):
-            continue
-        next_stmt = node.body[i + 1]
-        if isinstance(next_stmt, ast.Expr) and is_constant_node(next_stmt.value):
-            docstring = get_constant_value(next_stmt.value)
-            if isinstance(docstring, str):
-                targets = get_assign_targets(stmt)
-                names = tuple(
-                    itertools.chain.from_iterable(get_target_names(i) for i in targets)
-                )
-                # invalid docstring if names empty...
-                res[names] = AssignData(docstring, getattr(stmt, "type_comment", None))
-    return res
+
+    def __init__(self) -> None:
+        self.ctx: List[str] = []
+        self.previous: Optional[ast.AST] = None
+        self.current_class: Optional[ast.ClassDef] = None
+        self.current_function: Optional[ast.FunctionDef] = None
+        self.comments: Dict[str, str] = {}
+        self.type_comments: Dict[str, str] = {}
+        self.annotations: Dict[str, str] = {}
+
+    def get_qualname_for(self, name: str) -> str:
+        if not self.ctx:
+            return name
+        return ".".join(self.ctx) + "." + name
+
+    def get_self(self) -> str:
+        """Return the first argument name in a method, no decorator check."""
+        if self.current_class and self.current_function:
+            if sys.version_info >= (3, 8) and self.current_function.args.posonlyargs:
+                return self.current_function.args.posonlyargs[0].arg
+            if self.current_function.args.args:
+                return self.current_function.args.args[0].arg
+        return ""
+
+    def traverse_assign_comments(self, stmts: List[ast.stmt]) -> None:
+        for i, stmt in enumerate(stmts[:-1]):
+            after_stmt = stmts[i + 1]
+            if not (
+                isinstance(stmt, (ast.Assign, ast.AnnAssign))
+                and isinstance(after_stmt, ast.Expr)
+            ):
+                continue
+            if isinstance(after_stmt, ast.Expr) and is_constant_node(after_stmt.value):
+                docstring = get_constant_value(after_stmt.value)
+                if isinstance(docstring, str):
+                    targets = get_assign_targets(stmt)
+                    names = tuple(
+                        itertools.chain(
+                            *(get_target_names(i, self.get_self()) for i in targets)
+                        )
+                    )
+                    # Invalid docstring if names empty...
+                    type_comment = getattr(stmt, "type_comment", None)
+                    for name in names:
+                        qualname = self.get_qualname_for(name)
+                        self.comments[qualname] = docstring
+                        if type_comment:
+                            self.type_comments[qualname] = type_comment
+
+    def visit(self, node: ast.AST) -> None:
+        """Visit a node and record previous if visitor is concrete."""
+        method = "visit_" + node.__class__.__name__
+        visitor = getattr(self, method, self.generic_visit)
+        visitor(node)
+        if visitor is not self.generic_visit:
+            self.previous = node
+
+    def visit_Module(self, node: ast.Module) -> Any:
+        self.traverse_assign_comments(node.body)
+        for stmt in node.body:
+            if isinstance(stmt, _MODULE_ALLOW_VISIT):
+                self.visit(stmt)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        if not self.current_class:
+            self.current_class = node
+            self.ctx.append(node.name)
+            self.traverse_assign_comments(node.body)
+            # Concrete visit __init__
+            for stmt in node.body:
+                if isinstance(stmt, _Tp_FunctionDef) and stmt.name == "__init__":
+                    self.visit_FunctionDef(stmt)
+                    break
+            self.ctx.pop()
+            self.current_class = None
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        # Only __init__ will be visit
+        if not self.current_function:
+            self.current_function = node
+            self.ctx.append(node.name)
+            self.traverse_assign_comments(node.body)
+            self.ctx.pop()
+            self.current_function = None
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        return self.visit_FunctionDef(node)  # type: ignore
 
 
 def interleave(

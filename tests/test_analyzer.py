@@ -5,13 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from nb_autodoc.analyzer import (
-    Analyzer,
-    AssignData,
-    ast_parse,
-    convert_annot,
-    traverse_assign,
-)
+from nb_autodoc.analyzer import Analyzer, AssignVisitor, ast_parse, convert_annot
 
 from .data import example_google_docstring as egd
 
@@ -20,6 +14,23 @@ from .data import example_google_docstring as egd
 def example_ast_module():
     file = Path(__file__).resolve().parent / "data" / "example_google_docstring.py"
     return ast_parse(open(file, "r").read())
+
+
+lines = open(
+    Path(__file__).parent / "data" / "no-import" / "ast_code_with_marker.py"
+).readlines()
+
+
+def get_code_by_marker(marker: str) -> str:
+    marker_re = re.compile(rf"# autodoc: {marker} on")
+    end_marker_re = re.compile(rf"# autodoc: {marker} off")
+    for i, line in enumerate(lines):
+        if marker_re.match(line):
+            lineno = i
+    for i in range(lineno, len(lines[lineno:])):  # type: ignore
+        if end_marker_re.match(lines[i]):
+            end_lineno = i
+    return "".join(lines[lineno:end_lineno])  # type: ignore
 
 
 def test_Analyzer():
@@ -38,34 +49,34 @@ def test_Analyzer():
     assert analyzer.globalns["A"].__module__ == "tests.data.stuff1"
 
 
-code = '''
-a = 1  # type: int>>invalid
-"""a docstring"""
-b = 2  # type: int
-"""b docstring"""
-"""bad"""
-def a(): ...
-"""bad"""
-c = d = 3
-"""c and d docstring"""
-x['_'], x.attr = 1, 2
-"""bad"""
-
-x['_'], (a, b) = c, (d, e) = 1, (2, 3)
-"""abcde docstring"""
-'''
-
-
-def test_traverse_assign():
-    module = ast_parse(code)
-    res = traverse_assign(module)
-    assert res == {
-        ("a",): AssignData("a docstring", "int>>invalid"),
-        ("b",): AssignData("b docstring", "int"),
-        ("c", "d"): AssignData("c and d docstring", None),
-        (): AssignData("bad", None),
-        ("a", "b", "c", "d", "e"): AssignData("abcde docstring", None),
+def test_AssignVisitor():
+    module = ast_parse(get_code_by_marker("test_AssignVisitor"))
+    visitor = AssignVisitor()
+    visitor.visit(module)
+    # Duplicated from debug
+    docstrings = {
+        "a": "a docstring",
+        "b": "b docstring",
+        "c": "c and d docstring",
+        "d": "c and d docstring",
+        "a1": "abcde11111 docstring",
+        "b1": "abcde11111 docstring",
+        "c1": "abcde11111 docstring",
+        "d1": "abcde11111 docstring",
+        "e1": "abcde11111 docstring",
+        "B.a": "B.a docstring",
+        "C.a": "C.a docstring",
+        "C.__init__.a": "C.__init__.a/b docstring",
+        "C.__init__.b": "C.__init__.a/b docstring",
     }
+    assert visitor.comments == docstrings
+    if sys.version_info >= (3, 8):
+        assert visitor.type_comments == {
+            "a": "int>>invalid",
+            "b": "int",
+            "C.__init__.a": "str | None",
+            "C.__init__.b": "str | None",
+        }
 
 
 def test_convert_annot():
