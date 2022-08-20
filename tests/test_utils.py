@@ -5,7 +5,18 @@ import sys
 import textwrap
 from functools import partial
 from pathlib import Path
-from typing import Annotated, Callable, Dict, List, NewType, Tuple, TypeVar, Union, cast
+from typing import (
+    Annotated,
+    Callable,
+    Dict,
+    ForwardRef,
+    List,
+    NewType,
+    Tuple,
+    TypeVar,
+    Union,
+    cast,
+)
 
 import pytest
 
@@ -108,11 +119,12 @@ def test_formatannotation():
         Tuple[int, ...]: "Tuple[int, ...]",
         Dict[str, None]: "Dict[str, None]",
         Callable[[int, str, Foo], None]: "Callable[[int, str, test.typing.Foo], None]",
-        Union[int, "Fake"]: "Union[int, Fake]",
+        Union[int, "Fake"]: "Union[int, Fake]",  # Warning unevaluated ForwardRef
         NewType("Fake", int): "Fake",
         (
             Dict[Union[int, str], Callable[..., str]]
         ): "Dict[Union[int, str], Callable[..., str]]",
+        ForwardRef("Fake"): "Fake",
     }
     if sys.version_info >= (3, 9):
         assets.update({Annotated[int, list, "any"]: "int"})
@@ -135,32 +147,32 @@ def partial_map(f: Callable[[T], TT], lst: List[T]) -> Callable[[], List[TT]]:
 
 
 @pytest.mark.benchmark(group="utils.dedent")
-def test_dedent(benchmark, indented_texts: List[str]):
-    benchmark.pedantic(partial_map(dedent, indented_texts), iterations=10, rounds=100)
+def test_dedent(indented_texts: List[str]):
+    # benchmark.pedantic(partial_map(dedent, indented_texts), iterations=10, rounds=100)
     for text in indented_texts:  # for string diff
         test_text = dedent(text)
         target_text = textwrap.dedent(text)
         assert test_text == target_text
 
 
-@pytest.mark.benchmark(group="utils.dedent")
-def test_textwrap_dedent(benchmark, indented_texts: List[str]):
-    benchmark.pedantic(
-        partial_map(textwrap.dedent, indented_texts), iterations=10, rounds=100
-    )
+# @pytest.mark.benchmark(group="utils.dedent")
+# def test_textwrap_dedent(benchmark, indented_texts: List[str]):
+#     benchmark.pedantic(
+#         partial_map(textwrap.dedent, indented_texts), iterations=10, rounds=100
+#     )
 
 
 @pytest.mark.benchmark(group="utils.cleandoc")
-def test_cleandoc(benchmark, docstrings: List[str]):
-    benchmark.pedantic(partial_map(cleandoc, docstrings), iterations=10, rounds=100)
+def test_cleandoc(docstrings: List[str]):
+    # benchmark.pedantic(partial_map(cleandoc, docstrings), iterations=10, rounds=100)
     for docstring in docstrings:
         test_docstring = cleandoc(docstring)
         target_docstring = inspect.cleandoc(docstring)
         assert test_docstring == target_docstring
 
 
-@pytest.mark.benchmark(group="utils.cleandoc")
-def test_inspect_cleandoc(benchmark, docstrings: List[str]):
-    benchmark.pedantic(
-        partial_map(inspect.cleandoc, docstrings), iterations=10, rounds=100
-    )
+# @pytest.mark.benchmark(group="utils.cleandoc")
+# def test_inspect_cleandoc(benchmark, docstrings: List[str]):
+#     benchmark.pedantic(
+#         partial_map(inspect.cleandoc, docstrings), iterations=10, rounds=100
+#     )

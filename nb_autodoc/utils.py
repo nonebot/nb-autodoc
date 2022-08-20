@@ -55,7 +55,7 @@ def _type_repr(obj: Any, type_alias: Dict[T_GenericAlias, str], msg: str = "") -
         return "None"
     elif isinstance(obj, str):
         # Possible in types.GenericAlias
-        logger.warning(f"bare string type annotation {obj!r}")
+        logger.warning(f"found bare string {obj!r} in __args__")
         return obj
     elif isinstance(obj, Tp_GenericAlias):
         # Annotated do not give a name
@@ -91,7 +91,7 @@ def _type_repr(obj: Any, type_alias: Dict[T_GenericAlias, str], msg: str = "") -
     elif isinstance(obj, TypeVar):
         return repr(obj)
     elif isinstance(obj, ForwardRef):
-        logger.warning(msg + f"bare string type annotation {obj.__forward_arg__!r}")
+        logger.warning(msg + f"found unevaluated {obj}")
         return obj.__forward_arg__
     module = getattr(obj, "__module__", "")
     qualname = getattr(obj, "__qualname__", "")
@@ -116,7 +116,7 @@ def formatannotation(
     if annot is ...:
         raise TypeError("ellipsis annotation is invalid")
     elif isinstance(annot, ForwardRef):
-        logger.warning(msg + "expect GenericAlias, got ForwardRef")
+        logger.warning(msg + f"expect GenericAlias, got {annot}")
         return annot.__forward_arg__
     elif isinstance(annot, str):
         logger.warning(msg + f"expect GenericAlias, got bare string {annot!r}")

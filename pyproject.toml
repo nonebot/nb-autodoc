@@ -31,6 +31,9 @@ profile = "black"
 extra_standard_library = ["typing_extensions"]
 skip_gitignore = true
 
+[tool.pytest.ini_options]
+log_cli = true  # for temporary debug
+
 [tool.pdm]
 version = { source = "file", path = "nb_autodoc/__init__.py" }
 
