@@ -3,8 +3,10 @@
 
 # autodoc: test_VariableVisitor on
 
-a = 1  # type: int>>invalid
+a = 1  # type: (int>>invalid) -> str
 """a docstring"""
+a2 = 1  # type: int
+a3: "A" = 1
 b = 2  # type: int
 """b docstring"""
 """bad"""
@@ -38,7 +40,7 @@ class C:
         """bad"""
     def __init__(slf, a, b):
         self.badattr1: int = 1
-        self.badattr2 = 1  # type: int | str
+        self.badattr2 = 1  # type: bad
         """bad"""
         slf.a = slf.b = 1  # type: str | None
         """C.__init__.a/b docstring"""

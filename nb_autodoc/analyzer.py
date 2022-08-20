@@ -44,8 +44,12 @@ def ast_parse(source: str) -> ast.Module:
     """AST parse function, mode must be "exec" to avoid duplicated typing."""
     try:
         return ast.parse(source, type_comments=True)
-    except SyntaxError:
+    except SyntaxError as e:
+        logger.exception(e)
         # Invalid type comment: https://github.com/sphinx-doc/sphinx/issues/8652
+        return ast.parse(source)
+    except TypeError:
+        # Fallback
         return ast.parse(source)
 
 
@@ -100,6 +104,12 @@ class Analyzer:
             ):
                 # Name is not resolved, only literal check
                 self.globalns.update(eval_import_stmts(stmt.body, self.package))
+                break
+        var_visitor = VariableVisitor()
+        var_visitor.visit(self.module)
+        self.var_comments = var_visitor.comments
+        self.var_type_comments = var_visitor.type_comments
+        self.var_annotations = var_visitor.annotations
 
 
 def eval_import_stmts(
@@ -195,13 +205,16 @@ _MODULE_ALLOW_VISIT = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
 
 class VariableVisitor(ast.NodeVisitor):
-    """Pick variable comment and `__init__` annotation string.
+    """Pick variable comment, type comment and annotations.
 
     Before nb_autodoc v0.2.0, `#:` special comment syntax is allowed.
     See: https://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html
     Now it is deprecated for implicit meaning and irregular syntax.
 
-    If assign has multiple target like `a, b = 1, 2`, only the first name will be picked.
+    If assign has multiple target like `a, b = 1, 2`, its docstring and type comment
+    will be assigned to each name.
+
+    Instance vars in class.__init__ save in form of `A.__init__.a`.
     """
 
     def __init__(self) -> None:
@@ -228,10 +241,7 @@ class VariableVisitor(ast.NodeVisitor):
         return ""
 
     def traverse_assign(self, stmts: List[ast.stmt]) -> None:
-        """Traverse the body and find out variable comment.
-
-        Variable with docstring will be picked, otherwise ignored.
-        """
+        """Traverse the body and find out variable comment."""
         for i, stmt in enumerate(stmts[:-1]):
             after_stmt = stmts[i + 1]
             if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
@@ -243,21 +253,24 @@ class VariableVisitor(ast.NodeVisitor):
                 )
                 if not names:
                     continue
-                # Add annotations in `__init__`
+                # Add annotations
                 if isinstance(stmt, ast.AnnAssign):
                     self.annotations[self.get_qualname_for(names[0])] = stmt.annotation
+                else:  # Add Assign type_comment
+                    type_comment = getattr(stmt, "type_comment", None)
+                    if type_comment:
+                        for name in names:
+                            qualname = self.get_qualname_for(name)
+                            self.type_comments[qualname] = type_comment
                 # Add comments and type_comments
                 if isinstance(after_stmt, ast.Expr) and is_constant_node(
                     after_stmt.value
                 ):
                     docstring = get_constant_value(after_stmt.value)
                     if isinstance(docstring, str):
-                        type_comment = getattr(stmt, "type_comment", None)
                         for name in names:
                             qualname = self.get_qualname_for(name)
                             self.comments[qualname] = docstring
-                            if type_comment:
-                                self.type_comments[qualname] = type_comment
 
     def visit(self, node: ast.AST) -> None:
         """Visit a node and record previous if visitor is concrete."""

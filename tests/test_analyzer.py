@@ -79,7 +79,8 @@ def test_VariableVisitor():
     assert visitor.comments == docstrings
     if sys.version_info >= (3, 8):
         assert visitor.type_comments == {
-            "a": "int>>invalid",
+            "a": "(int>>invalid) -> str",
+            "a2": "int",
             "b": "int",
             "C.__init__.a": "str | None",
             "C.__init__.b": "str | None",
@@ -87,7 +88,7 @@ def test_VariableVisitor():
     annotations = {
         k: ast.get_source_segment(code, v) for k, v in visitor.annotations.items()
     }
-    assert annotations == {"C.__init__.c": "int", "C.__init__.d": "str"}
+    assert annotations == {"a3": '"A"', "C.__init__.c": "int", "C.__init__.d": "str"}
 
 
 def test_convert_annot():
