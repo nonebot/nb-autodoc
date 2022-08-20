@@ -54,7 +54,7 @@ from collections import UserDict
 from importlib import import_module
 from operator import attrgetter
 from pkgutil import iter_modules
-from typing import Any, Dict, Generic, Optional, Set, Type, TypeVar, Union
+from typing import Any, Dict, Optional, Set, TypeVar, Union
 
 from nb_autodoc.analyzer import Analyzer, convert_annot
 from nb_autodoc.typing import T_Annot, T_ClassMember, T_ModuleMember, Tp_GenericAlias
@@ -139,12 +139,13 @@ class Module(Doc):
         self.docstring = module.__doc__
         self.package = _package
         if _context is None:
-            _context = Context()
+            raise TypeError("Module cannot be instantiated, use Module.new() instead")
         self.context = _context
         _modules[self.name] = self
 
         # Resolve __autodoc__
         # Target object always imported (how about LazyImport?)
+        # TODO: Analyze reexport stmt and add to whitelist-reference
         self._external: Dict[str, Identity] = {}
         for qualname, value in self.__autodoc__.items():
             try:
@@ -228,12 +229,27 @@ class Module(Doc):
         return self.obj.__file__  # type: ignore
 
     @property
+    def is_package(self) -> bool:
+        return hasattr(self.obj, "__path__")
+
+    @property
     def globalns(self) -> Dict[str, Any]:
         return self._analyzer.globalns
 
     @property
-    def is_package(self) -> bool:
-        return hasattr(self.obj, "__path__")
+    def analyzed(self) -> bool:
+        return hasattr(self, "members")
+
+    @classmethod
+    def new(
+        cls,
+        module: Union[str, types.ModuleType],
+        *,
+        skip_modules: Optional[Set[str]] = None,
+    ) -> "Module":
+        obj = cls(module, skip_modules=skip_modules, _context=Context())
+        obj.analyze()
+        return obj
 
     def analyze(self) -> None:
         """Traverse all submodules and specify the object from runtime and AST.
@@ -243,10 +259,19 @@ class Module(Doc):
 
         This method creates the definition namespace. For those external
         """
+        if self.analyzed:
+            return
         self.members = {}
+        package = self.package.name if self.package is not None else None
+        if package is None and "." in self.name:
+            # Self is top module and submodule of unknown package
+            if self.is_package:
+                package = self.name
+            else:
+                package = self.name.rsplit(".", 1)[0]
         self._analyzer = Analyzer(
             self.name,
-            self.package.name if self.package is not None else None,
+            package,
             self.filepath,
             globalns=self.obj.__dict__.copy(),
         )
@@ -262,9 +287,6 @@ class Module(Doc):
             else:
                 # Possibly cause by overrided __getattr__ or builtins instance
                 self.members
-
-    def spec_and_create(self, obj: Any) -> T_ModuleMember:
-        ...
 
 
 class Class(Doc):
