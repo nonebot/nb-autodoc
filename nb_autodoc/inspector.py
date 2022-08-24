@@ -56,7 +56,10 @@ TD = TypeVar("TD", bound="Doc")
 
 
 class Context(UserDict[str, TD]):
-    """Store definition, equals to all members except module."""
+    """Store definitions.
+
+    Equals to all members except Module, External and LibraryAttr.
+    """
 
     def __init__(self) -> None:
         super().__init__()
@@ -137,7 +140,7 @@ class ModuleManager:
                         f"and expects docstring, got value {type(value)}"
                     )
                 # Key must be identifier
-                module._library_attrs[key] = Library(key, value)
+                module._library_attrs[key] = LibraryAttr(key, value)
                 continue
             # External
             if module.name != objbody.__module__:
@@ -172,7 +175,7 @@ class Module(Doc):
     # Slots that not setting instantly
     members: Dict[str, T_ModuleMember]
     _externals: Dict[str, "External"]
-    _library_attrs: Dict[str, "Library"]
+    _library_attrs: Dict[str, "LibraryAttr"]
 
     def __init__(
         self,
@@ -389,7 +392,7 @@ class External(Doc):
         self.refname = refname
 
 
-class Library(Doc):
+class LibraryAttr(Doc):
     """Storage for user library attribute."""
 
     def __init__(self, docname: str, doc: str) -> None:
