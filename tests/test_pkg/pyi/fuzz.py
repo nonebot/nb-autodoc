@@ -42,6 +42,3 @@ class A:
         if name == "dummyping":
             return self.pingelse(name)
         return self.ping(name)
-
-
-__autodoc__ = {"A.b": False}

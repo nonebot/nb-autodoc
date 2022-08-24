@@ -143,7 +143,7 @@ class ModuleManager:
                 module._library_attrs[key] = LibraryAttr(key, value)
                 continue
             # External
-            if module.name != objbody.__module__:
+            if module.name != objbody.__module__ and not attr:
                 logger.info(
                     f"{module.name} | __autodoc__[{key!r}] reference to "
                     f"external {refname!r}"
@@ -396,5 +396,5 @@ class LibraryAttr(Doc):
     """Storage for user library attribute."""
 
     def __init__(self, docname: str, doc: str) -> None:
-        self.docname = docname
-        self.docstring = cleandoc(doc)
+        self.docname: str = docname
+        self.docstring: str = cleandoc(doc)

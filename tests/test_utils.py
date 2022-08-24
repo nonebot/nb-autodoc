@@ -118,7 +118,9 @@ def test_formatannotation():
         Union[int, None]: "Optional[int]",
         Tuple[int, ...]: "Tuple[int, ...]",
         Dict[str, None]: "Dict[str, None]",
-        Callable[[int, str, Foo], None]: "Callable[[int, str, test.typing.Foo], None]",
+        Callable[
+            [int, "Fake", Foo], "Fake"
+        ]: "Callable[[int, Fake, test.typing.Foo], Fake]",
         Union[int, "Fake"]: "Union[int, Fake]",  # Warning unevaluated ForwardRef
         NewType("Fake", int): "Fake",
         (
