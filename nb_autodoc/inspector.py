@@ -48,18 +48,17 @@ Literal annotation:
     1. 来自其他模块的对象在本模块输出，链接问题
 
 """
-import sys
 import types
 from collections import UserDict
 from importlib import import_module
-from operator import attrgetter
 from pkgutil import iter_modules
-from typing import Any, Dict, Optional, Set, TypeVar, Union
+from typing import Any, Dict, List, Optional, Set, TypeVar, Union
 
 from nb_autodoc.analyzer import Analyzer, convert_annot
 from nb_autodoc.typing import T_Annot, T_ClassMember, T_ModuleMember, Tp_GenericAlias
 from nb_autodoc.utils import (
     cached_property,
+    cleandoc,
     eval_annot_as_possible,
     formatannotation,
     logger,
@@ -70,14 +69,8 @@ TT = TypeVar("TT")
 TD = TypeVar("TD", bound="Doc")
 
 
-_modules: Dict[str, "Module"] = {}
-
-
 class Context(UserDict[str, TD]):
-    """Store definition, equals to all module's members.
-
-    * Avoid same name on submodule and variable
-    """
+    """Store definition, equals to all members except module."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -88,41 +81,112 @@ class Context(UserDict[str, TD]):
         self.skip_modules: Set[str] = set()
 
 
-class DocMixin:
-    """Common documentation attributes."""
-
-    __dmodule__: str
-    __dtype__: str
-
-
-class Doc(DocMixin):
-    docstring: Optional[str]
-
-
-class Identity(Doc):
-    """Placeholder for external."""
-
-    def __init__(self, refname: str) -> None:
-        self.refname = refname
-
-
-class Module(Doc):
-    """Import and analyze module and submodules.
+class ModuleManager:
+    """Manager for module and submodules.
 
     To control module's documentable object, setting `__autodoc__` respected to:
         * module-level dict variable
-        * target object SHOULD be class, method or function
-        * key is the target object's qualified name
+        * target object must be class, method or function
+        * key is the target object's qualified name in current module
         * value bool: True for whitelist, False for blacklist
         * value str: override target object's docstring
-        * skip if setting in skip_modules
 
     Args:
         module: module name
-        skip_modules: the full module names to skip documentation
+        skip_modules: the module names to skip documentation
     """
 
+    def __init__(
+        self,
+        module: Union[str, types.ModuleType],
+        *,
+        skip_modules: Optional[Set[str]] = None,
+    ) -> None:
+        self.context: Context[Doc] = Context()
+        self.module = Module(module, skip_modules=skip_modules, _context=self.context)
+        self.name = self.module.name
+        self.modules = {module.name: module for module in self.module.list_modules()}
+        for dmodule in self.modules.values():
+            self.resolve_autodoc(dmodule)
+        for dmodule in self.modules.values():
+            dmodule.prepare()
+
+    def resolve_autodoc(self, module: "Module") -> None:
+        module._externals = {}
+        module._library_attrs = {}
+        for key, value in module.__autodoc__.items():
+            name, _, attr = key.partition(".")
+            # Leave attr (if exists) to its class to resolve
+            try:
+                objbody = module.obj.__dict__[name]
+            except KeyError:
+                logger.error(
+                    f"{module.name} | __autodoc__[{key!r}] is "
+                    "not found in globals, skip"
+                )
+                continue
+            if not isinstance(objbody, (type, types.FunctionType, types.MethodType)):
+                # Could not introspect builtins data or instance
+                # TODO: analyze import stmt to find out module
+                logger.error(
+                    f"{module.name} | __autodoc__[{key!r}] {name!r} is "
+                    f"expected to be class, method or function, "
+                    f"got {type(objbody)!r}, skip. "
+                    "Re-export a variable is currently not supported. "
+                    "Setting docstring to variable if you want to force-export it."
+                )
+                continue
+            refname = f"{objbody.__module__}.{objbody.__qualname__}"
+            if attr:
+                refname += "." + attr
+            # User library
+            if objbody.__module__ not in self.modules:
+                logger.info(
+                    f"{module.name} | __autodoc__[{key!r}] reference to "
+                    f"user library {refname!r}"
+                )
+                if not isinstance(value, str):
+                    raise ValueError(
+                        f"{module.name}.__autodoc__[{key!r}] is a user library "
+                        f"and expects docstring, got value {type(value)}"
+                    )
+                # Key must be identifier
+                module._library_attrs[key] = Library(key, value)
+                continue
+            # External
+            if module.name != objbody.__module__:
+                logger.info(
+                    f"{module.name} | __autodoc__[{key!r}] reference to "
+                    f"external {refname!r}"
+                )
+                module._externals[key] = External(refname)
+            if value is True:
+                module.context.whitelist.add(refname)
+            elif value is False:
+                module.context.blacklist.add(refname)
+            elif isinstance(value, str):
+                module.context.override_docstring[refname] = value
+            else:
+                logger.error(
+                    f"{module.name}.__autodoc__[{key!r}] "
+                    f"expects value bool or str, got {type(value)}"
+                )
+
+
+class Doc:
+    docstring: Optional[str]
+
+
+_modules: Dict[str, "Module"] = {}
+
+
+class Module(Doc):
+    """Analyze module."""
+
+    # Slots that not setting instantly
     members: Dict[str, T_ModuleMember]
+    _externals: Dict[str, "External"]
+    _library_attrs: Dict[str, "Library"]
 
     def __init__(
         self,
@@ -132,70 +196,16 @@ class Module(Doc):
         _package: Optional["Module"] = None,
         _context: Optional[Context[Doc]] = None,
     ) -> None:
-        """Find submodules and retrieve white and black list."""
+        """Find submodules and link."""
         if isinstance(module, str):
             module = import_module(module)
         self.obj = module
-        self.docstring = module.__doc__
+        self.docstring = module.__doc__ and cleandoc(module.__doc__)
         self.package = _package
         if _context is None:
-            raise TypeError("Module cannot be instantiated, use Module.new() instead")
+            raise TypeError("Module cannot be instantiated, use ModuleManager instead")
         self.context = _context
         _modules[self.name] = self
-
-        # Resolve __autodoc__
-        # Target object always imported (how about LazyImport?)
-        # TODO: Analyze reexport stmt and add to whitelist-reference
-        self._external: Dict[str, Identity] = {}
-        for qualname, value in self.__autodoc__.items():
-            try:
-                obj = attrgetter(qualname)(self.obj)
-            except AttributeError:
-                logger.error(
-                    f"{self.name}.__autodoc__: attribute {qualname!r} is "
-                    "not found in globals, skip"
-                )
-                continue
-            try:
-                obj_modulename = getattr(obj, "__module__")
-                obj_qualname = getattr(obj, "__qualname__")
-            except AttributeError:
-                # Could not interinspect the variable module
-                # TODO: analyze definition and filter import stmt to find out module
-                logger.warning(
-                    f"{self.name}.__autodoc__: attribute {qualname!r} is "
-                    f"expected to be class, method and function, "
-                    f"got {type(obj)}, skip. "
-                    "Re-export a variable is currently not supported. "
-                    "Setting variable docstring if you want to force-export it."
-                )
-                continue
-            # Do some necessary runtime check
-            obj_module = sys.modules[obj_modulename]
-            try:
-                if attrgetter(obj_qualname)(obj_module) is not obj:
-                    raise AttributeError
-            except AttributeError:
-                logger.error(
-                    f"{obj_modulename}.{obj_qualname} has inconsistant "
-                    "qualified name in runtime during __autodoc__ resolving, skip"
-                )
-                continue
-            # Storage from qualname, obj_module, obj_qualname
-            obj_refname = f"{obj_modulename}.{obj_qualname}"
-            if self.name != obj_modulename:
-                self._external[qualname] = Identity(obj_refname)
-            if value is True:
-                self.context.whitelist.add(obj_refname)
-            elif value is False:
-                self.context.blacklist.add(obj_refname)
-            elif isinstance(value, str):
-                self.context.override_docstring[obj_refname] = value
-            else:
-                logger.warning(
-                    f"{self.name}.__autodoc__: "
-                    f"expects value to be bool or str, got {type(value)}"
-                )
 
         if skip_modules is not None:
             self.context.skip_modules |= skip_modules
@@ -213,7 +223,7 @@ class Module(Doc):
         return f"<{'Package' if self.is_package else 'Module'} {self.name!r}>"
 
     def _evaluate(self, s: str) -> Any:
-        return eval(s, self.globalns)
+        return eval(s, self._analyzer.globalns)
 
     @property
     def __autodoc__(self) -> Dict[str, Union[bool, str]]:
@@ -224,7 +234,7 @@ class Module(Doc):
         return self.obj.__name__
 
     @property
-    def filepath(self) -> str:
+    def file(self) -> str:
         # No check for <string> or <unknown> or None
         return self.obj.__file__  # type: ignore
 
@@ -233,33 +243,30 @@ class Module(Doc):
         return hasattr(self.obj, "__path__")
 
     @property
-    def globalns(self) -> Dict[str, Any]:
-        return self._analyzer.globalns
-
-    @property
-    def analyzed(self) -> bool:
+    def prepared(self) -> bool:
         return hasattr(self, "members")
 
-    @classmethod
-    def new(
-        cls,
-        module: Union[str, types.ModuleType],
-        *,
-        skip_modules: Optional[Set[str]] = None,
-    ) -> "Module":
-        obj = cls(module, skip_modules=skip_modules, _context=Context())
-        obj.analyze()
-        return obj
+    def list_modules(self) -> List["Module"]:
+        res: List[Module] = [self]
+        if self.submodules is None:
+            return res
+        for module in self.submodules.values():
+            if module.is_package:
+                res.extend(module.list_modules())
+            else:
+                res.append(module)
+        return res
 
-    def analyze(self) -> None:
-        """Traverse all submodules and specify the object from runtime and AST.
+    def prepare(self) -> None:
+        """Construct the module members.
 
-        Call this method after instance initialization. `__autodoc__` should be
-        resolved completely before calling.
-
-        This method creates the definition namespace. For those external
+        Create definition namespace, create placeholder for external.
+        Ensure `__autodoc__` has been resolved before calling this method.
         """
-        if self.analyzed:
+        if not hasattr(self, "_externals") or not hasattr(self, "_library_attrs"):
+            raise ValueError(f"unable to prepare {self.name}")
+
+        if self.prepared:
             return
         self.members = {}
         package = self.package.name if self.package is not None else None
@@ -272,7 +279,7 @@ class Module(Doc):
         self._analyzer = Analyzer(
             self.name,
             package,
-            self.filepath,
+            self.file,
             globalns=self.obj.__dict__.copy(),
         )
         for name, obj in self.obj.__dict__.items():
@@ -290,9 +297,11 @@ class Module(Doc):
 
 
 class Class(Doc):
+    """Analyze class."""
+
     def __init__(self, name: str, obj: type, module: Module) -> None:
         self.name = name
-        self.docstring = obj.__doc__
+        self.docstring = obj.__doc__ and cleandoc(obj.__doc__)
         self.obj = obj
         self.module = module
         # validate class.__name__ and __qualname__ if equals to name (for annot eval)
@@ -307,15 +316,18 @@ class Class(Doc):
 
 
 class Descriptor(Class):
+    """Analyze descriptor class."""
+
     SPECIAL_MEMBERS = ["__get__", "__set__", "__delete__"]
 
 
 class Enum(Class):
-    ...
+    """Analyze enum class."""
 
 
 class Function(Doc):
-    ...
+    """Analyze function."""
+
     # if no __doc__, found from __func__ exists
     # search source from linecache
 
@@ -324,6 +336,8 @@ NULL = object()
 
 
 class Variable(Doc):
+    """Analyze variable."""
+
     def __init__(
         self,
         name: str,
@@ -379,4 +393,19 @@ class Variable(Doc):
 
 
 class Property(Variable):
-    ...
+    """Analyze property."""
+
+
+class External(Doc):
+    """Placeholder for external."""
+
+    def __init__(self, refname: str) -> None:
+        self.refname = refname
+
+
+class Library(Doc):
+    """Storage for user library attribute."""
+
+    def __init__(self, docname: str, doc: str) -> None:
+        self.docname = docname
+        self.docstring = cleandoc(doc)

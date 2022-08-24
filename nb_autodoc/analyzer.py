@@ -26,9 +26,7 @@ from typing import (
     Generator,
     Iterable,
     List,
-    NamedTuple,
     Optional,
-    Tuple,
     Type,
     TypeVar,
     Union,
@@ -97,14 +95,18 @@ class Analyzer:
 
     def analyze(self) -> None:
         for stmt in self.module.body:
-            if (
-                isinstance(stmt, ast.If)
-                and isinstance(stmt.test, ast.Name)
-                and stmt.test.id == "TYPE_CHECKING"
-            ):
-                # Name is not resolved, only literal check
-                self.globalns.update(eval_import_stmts(stmt.body, self.package))
-                break
+            if isinstance(stmt, ast.If):
+                if (
+                    isinstance(stmt.test, ast.Name) and stmt.test.id == "TYPE_CHECKING"
+                ) or (
+                    is_constant_node(stmt.test)
+                    and get_constant_value(stmt.test) == False
+                ):
+                    if is_constant_node(stmt.test):
+                        logger.warning("")
+                    # Name is not resolved, only literal check
+                    self.globalns.update(eval_import_stmts(stmt.body, self.package))
+                    break
         var_visitor = VariableVisitor()
         var_visitor.visit(self.module)
         self.var_comments = var_visitor.comments
@@ -121,23 +123,21 @@ def eval_import_stmts(
         # Avoid exec and use import_module
         if isinstance(node, ast.Import):
             for alias in node.names:
-                setname = alias.asname or alias.name
-                imported[setname] = import_module(alias.name)
+                name = alias.asname or alias.name
+                imported[name] = import_module(alias.name)
         elif isinstance(node, ast.ImportFrom):
             for alias in node.names:
                 if alias.name == "*":
                     break
-                setname = alias.asname or alias.name
+                name = alias.asname or alias.name
                 from_module_name = resolve_name(
                     "." * node.level + (node.module or ""), package
                 )
                 module = import_module(from_module_name)
                 if alias.name in module.__dict__:
-                    imported[setname] = module.__dict__[alias.name]
+                    imported[name] = module.__dict__[alias.name]
                 else:
-                    imported[setname] = import_module(
-                        "." + alias.name, from_module_name
-                    )
+                    imported[name] = import_module("." + alias.name, from_module_name)
     return imported
 
 
@@ -262,7 +262,7 @@ class VariableVisitor(ast.NodeVisitor):
                         for name in names:
                             qualname = self.get_qualname_for(name)
                             self.type_comments[qualname] = type_comment
-                # Add comments and type_comments
+                # Add comments
                 if isinstance(after_stmt, ast.Expr) and is_constant_node(
                     after_stmt.value
                 ):
