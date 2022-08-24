@@ -1,18 +1,11 @@
-"""Import, inspect and link both runtime module and source code.
+"""Inspect and analyze module from runtime and AST.
 
 context 储存真实对象，不储存 ref。
 module.members 储存可文档对象，包括 ref。
 
 Module 处理标准:
     1. 所有子模块都会在内部 import（即使识别为黑名单），严格依照 __dict__ 顺序输出对象
-    2. 三种 annotation 形式: type, string, typing.xxx object
-    3. type alias 识别: variable 为 type 或者拥有 __origin__, __args__, __parameters__ 三个属性，
-        为什么不识别模块名 typing ?: 可以同时处理 types.GenericAlias
-    4. 任何 class, method, function 的 `__name__` 和 `__qualname__` 必须等于他们在模块中的名称
-
-黑白名单和 Ref 处理:
-    1. 为了避免子模块和包变量重名问题，默认输出所有模块，在构造时给予 skip_modules 变量，
-        下划线开头模块会自动加入这个变量
+    2. 任何 class, method, function 的 `__name__` 和 `__qualname__` 必须等于他们在模块中的名称
 
     考虑这样一个情况:
     ./
@@ -26,19 +19,12 @@ Module 处理标准:
     * internal 写 __autodoc__ 造成文档和模块不一致，属于 implicit problem
     * 希望 __autodoc__ 和静态代码分析无关
     解决方案:
-        对 __autodoc__ 限制类型: class, method, function，额外增加 ref 黑白名单
-        在原来的基础上，从 obj 获取 __module__，直接 resolve 成 refname，加入 ref 黑白名单
-
-    annotation ref: refname to docname (url)
-    doc ref: docname to refname (find definition)
+        对 __autodoc__ 限制类型: class, method, function 直接 introspect object
+        "A.a" 则解析 A 得到 internal.A，将 internal.A.a 加入黑白名单（转交给 class 处理）
 
 Module 处理流程:
     1. AST parse
-        1. 获取 variable comments，逻辑为 Assign 有 docstring 就 pick comment，
-            名称非 _ 开头即为 public，所有 FunctionDef 和 ClassDef 的 qualname
-    2. 模块对象过滤并实例化文档对象，copy __dict__ 并构建各自的 globalns，黑名单暂时不处理，
-        如果为白名单则创建为 ForwardRef（为了保持顺序）。
-    3. 构建 Document Tree。
+        * 获取 variable comments，逻辑为 Assign 有 docstring 就 pick comment
 
 Literal annotation:
     1. 验证是否 new style，由于 new style 处理过于复杂（FunctionType 嵌套和转换问题），对其只进行 refname 替换
