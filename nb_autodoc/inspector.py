@@ -223,6 +223,10 @@ class Module(Doc):
         return getattr(self.obj, "__autodoc__", {})
 
     @property
+    def annotations(self) -> Dict[str, T_Annot]:
+        return getattr(self.obj, "__annotations__", {})
+
+    @property
     def name(self) -> str:
         return self.obj.__name__
 
@@ -275,17 +279,29 @@ class Module(Doc):
             globalns=self.obj.__dict__.copy(),
         )
         for name, obj in self.obj.__dict__.items():
-            if name in self._analyzer.var_comments:
-                ...
+            if name in self._externals:
+                self.members[name] = self._externals.pop(name)
                 continue
+            if name in self._library_attrs:
+                self.members[name] = self._library_attrs.pop(name)
+                continue
+            # None if getattr overrided or builtins instance
             module = getattr(obj, "__module__", None)
-            if module is None:
-                self.members
-            elif module == self.name:
-                ...
-            else:
-                # Possibly cause by overrided __getattr__ or builtins instance
-                self.members
+            if module == self.name:
+                if isinstance(obj, type):
+                    self.members[name] = Class(name, obj, self)
+                elif isinstance(obj, (types.FunctionType, types.MethodType)):
+                    self.members[name] = Function(name, obj, self)
+                continue
+            elif name in self._analyzer.var_comments:
+                self.members[name] = Variable(name, self)
+        else:
+            if self._externals:
+                logger.warning(f"{self.name} | unused _externals {self._externals}")
+            if self._library_attrs:
+                logger.warning(
+                    f"{self.name} | unused _library_attrs {self._library_attrs}"
+                )
 
 
 class Class(Doc):
@@ -296,7 +312,12 @@ class Class(Doc):
         self.docstring = obj.__doc__ and cleandoc(obj.__doc__)
         self.obj = obj
         self.module = module
+        self.inst_vars = {}
         # validate class.__name__ and __qualname__ if equals to name (for annot eval)
+
+    @property
+    def annotations(self) -> Dict[str, T_Annot]:
+        return getattr(self.obj, "__annotations__", {})
 
     @property
     def qualname(self) -> str:
@@ -320,8 +341,20 @@ class Enum(Class):
 class Function(Doc):
     """Analyze function."""
 
+    def __init__(
+        self,
+        name: str,
+        obj: Union[types.FunctionType, types.MethodType],
+        module: Module,
+        *,
+        cls: Optional[Class] = None,
+    ) -> None:
+        self.name = name
+        self.obj = obj
+        self.module = module
+        self.cls = cls
+
     # if no __doc__, found from __func__ exists
-    # search source from linecache
 
 
 NULL = object()
@@ -334,54 +367,74 @@ class Variable(Doc):
         self,
         name: str,
         module: Module,
-        annot: T_Annot = NULL,
         *,
         cls: Optional[Class] = None,
     ) -> None:
         self.name = name
         self.module = module
         self.cls = cls
-        self._annot = annot
+
+    @cached_property
+    def annot(self) -> T_Annot:
+        if not self.cls:
+            return self.module.annotations.get(self.name, NULL)
+        elif self.name in self.cls.annotations:
+            return self.cls.annotations[self.name]
+        elif self.name in self.cls.inst_vars:
+            return self.module._analyzer.var_annotations.get(self.refname, NULL)
 
     @cached_property
     def annotation(self) -> str:
-        annot = self._annot
-        if annot is NULL or annot is ...:
+        annot = self.annot
+        if annot is NULL:
             return "untyped"
         elif isinstance(annot, str):
             if "->" in annot:
-                logger.warning(f"disallow alternative Callable syntax in {annot!r}")
+                logger.warning(
+                    f"{self.module.name} | disallow alternative Callable syntax "
+                    f"in {self.qualname} {annot!r}"
+                )
                 return self.replace_annot_refs(annot)
             # TODO: add "X | Y" parser feature
             try:
                 annot = self.module._evaluate(annot)
             except Exception as e:  # TypeError if "X | Y"
-                logger.error(f"evaluating annotation from {self.refname}: {e}")
+                logger.error(
+                    f"{self.module.name} | error evaluating annotation {self.qualname} {e}"
+                )
             else:
-                annot = formatannotation(annot)
+                annot = formatannotation(annot, {})
         elif isinstance(annot, Tp_GenericAlias):
             annot = eval_annot_as_possible(
                 annot,
-                self.module.globalns,
+                self.module._analyzer.globalns,
                 f"failed evaluating annotation {self.refname}",
             )
-            annot = formatannotation(annot)
+            annot = formatannotation(annot, {})
         else:  # type or None
-            annot = formatannotation(annot)
+            annot = formatannotation(annot, {})
         return convert_annot(self.replace_annot_refs(annot))
-
-    def replace_annot_refs(self, s: str) -> str:
-        return s
 
     @property
     def qualname(self) -> str:
         if self.cls is None:
             return self.name
-        return f"{self.cls.name}.{self.name}"
+        if self.name in self.cls.inst_vars:
+            return f"{self.cls.qualname}.__init__.{self.name}"
+        else:
+            return f"{self.cls.qualname}.{self.name}"
 
     @property
     def refname(self) -> str:
         return f"{self.module.name}.{self.qualname}"
+
+    @property
+    def comment(self) -> str:
+        """Variable always has comment."""
+        return self.module._analyzer.var_comments[self.qualname]
+
+    def replace_annot_refs(self, s: str) -> str:
+        return s
 
 
 class Property(Variable):
