@@ -99,7 +99,10 @@ def _type_repr(obj: Any, type_alias: Dict[T_GenericAlias, str], msg: str = "") -
     elif isinstance(obj, type):
         if obj.__module__ == "builtins":
             return obj.__qualname__
-        return f"{obj.__module__}.{determind_varname(obj)}"
+        if "<locals>" in obj.__qualname__:
+            return f"{obj.__module__}.{determind_varname(obj)}"
+        else:
+            return f"{obj.__module__}.{obj.__qualname__}"
     elif isinstance(obj, TypeVar):
         return repr(obj)
     elif isinstance(obj, ForwardRef):

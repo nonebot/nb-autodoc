@@ -136,8 +136,10 @@ class ModuleManager:
                 )
                 continue
             # qualname is unreliable (e.g. dynamic class or function)
-            varname = determind_varname(objbody)
-            refname = f"{objbody.__module__}.{varname}"
+            qualname = objbody.__qualname__
+            if "<locals>" in qualname:
+                qualname = determind_varname(objbody)
+            refname = f"{objbody.__module__}.{qualname}"
             if attr:
                 refname += "." + attr
             # User library
