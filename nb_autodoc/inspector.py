@@ -34,6 +34,7 @@ Literal annotation:
     1. 来自其他模块的对象在本模块输出，链接问题
 
 """
+import sys
 import types
 from collections import UserDict
 from importlib import import_module
@@ -69,6 +70,18 @@ class Context(UserDict[str, TD]):
         self.blacklist: Set[str] = set()
         self.override_docstring: Dict[str, str] = {}
         self.skip_modules: Set[str] = set()
+
+
+def determind_varname(obj: Union[type, types.FunctionType, types.MethodType]) -> str:
+    # Maybe implement in AST analysis
+    module = sys.modules[obj.__module__]
+    for name, item in module.__dict__.items():
+        if obj is item:
+            return name
+    raise RuntimeError(
+        "could not determine where the object located. "
+        f"object: {obj!r} __module__: {obj.__module__} __qualname__: {obj.__qualname__}"
+    )
 
 
 class ModuleManager:
@@ -133,7 +146,9 @@ class ModuleManager:
                     "Setting docstring to variable if you want to force-export it."
                 )
                 continue
-            refname = f"{objbody.__module__}.{objbody.__qualname__}"
+            # qualname is unreliable (e.g. dynamic class or function)
+            varname = determind_varname(objbody)
+            refname = f"{objbody.__module__}.{varname}"
             if attr:
                 refname += "." + attr
             # User library
@@ -318,7 +333,11 @@ class Class(Doc):
         self.obj = obj
         self.module = module
         self.inst_vars = {}
-        # validate class.__name__ and __qualname__ if equals to name (for annot eval)
+        if self.refname != f"{obj.__module__}.{obj.__qualname__}":
+            logger.error(
+                f"{self.module.name} | {self.qualname!r} has inconsistant "
+                f"runtime module {obj.__module__} or qualname {obj.__qualname__}"
+            )
 
     @property
     def annotations(self) -> Dict[str, T_Annot]:
@@ -358,8 +377,30 @@ class Function(Doc):
         self.obj = obj
         self.module = module
         self.cls = cls
+        if self.refname != f"{obj.__module__}.{obj.__qualname__}":
+            logger.warning(
+                f"{self.module.name} | {self.qualname!r} has inconsistant "
+                f"runtime module {obj.__module__} or qualname {obj.__qualname__}. "
+                "This is possibly caused by dynamic function creation. "
+                # f"Overriding object.__qualname__ to {self.qualname!r}."
+            )
 
-    # if no __doc__, found from __func__ exists
+    @property
+    def docstring(self) -> Optional[str]:
+        doc = self.module._analyzer.var_comments.get(self.qualname, self.obj.__doc__)
+        if doc is None and hasattr(self.obj, "__func__"):
+            doc = self.obj.__func__.__doc__
+        return doc
+
+    @property
+    def qualname(self) -> str:
+        if self.cls:
+            return f"{self.cls.qualname}.{self.name}"
+        return self.name
+
+    @property
+    def refname(self) -> str:
+        return f"{self.module.name}.{self.qualname}"
 
 
 NULL = object()

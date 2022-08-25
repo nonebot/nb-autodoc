@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, Type, TypeVar
+from typing import Dict, Set, Tuple, Type, TypeVar
 
 import pytest
 
@@ -25,14 +25,20 @@ def filter_type(dct: Dict[str, T_ModuleMember], typ: Type[T]) -> Dict[str, T]:
     return {k: v for k, v in dct.items() if isinstance(v, typ)}
 
 
+def filter_spec_module_prefix(st: Set[str], prefix: str) -> Set[str]:
+    return {s for s in st if s.startswith(prefix + ".")}
+
+
 def test_resolve_autodoc():
-    modulemanager = ModuleManager("tests.test_pkg.sub")
-    _sub_module = modulemanager.modules["tests.test_pkg.sub"]
-    assert _sub_module.is_package
-    assert modulemanager.context.blacklist == {
-        "tests.test_pkg.sub._reexport_sample.A.a"
-    }
-    assert modulemanager.context.whitelist == {
+    manager = ModuleManager("tests.test_pkg.sub")
+    test_module = manager.modules["tests.test_pkg.sub"]
+    assert test_module.is_package
+    assert filter_spec_module_prefix(
+        manager.context.blacklist, "tests.test_pkg.sub._reexport_sample"
+    ) == {"tests.test_pkg.sub._reexport_sample.A.a"}
+    assert filter_spec_module_prefix(
+        manager.context.whitelist, "tests.test_pkg.sub._reexport_sample"
+    ) == {
         "tests.test_pkg.sub._reexport_sample._fc",
         "tests.test_pkg.sub._reexport_sample.A._e",
         "tests.test_pkg.sub._reexport_sample.A",
@@ -40,11 +46,17 @@ def test_resolve_autodoc():
         "tests.test_pkg.sub._reexport_sample.fa",
         "tests.test_pkg.sub._reexport_sample.A._c",
     }
-    assert flat_external(filter_type(_sub_module.members, External)) == {
+    assert flat_external(filter_type(test_module.members, External)) == {
         "fa": "tests.test_pkg.sub._reexport_sample.fa",
         "_fc": "tests.test_pkg.sub._reexport_sample._fc",
         "A": "tests.test_pkg.sub._reexport_sample.A",
     }
-    assert flat_libraryattr(filter_type(_sub_module.members, LibraryAttr)) == {
+    assert flat_libraryattr(filter_type(test_module.members, LibraryAttr)) == {
         "Path": ("Path", "pathlib.Path docstring...")
     }
+
+
+def test_member_filter():
+    manager = ModuleManager("tests.test_pkg.sub")
+    test_module = manager.modules["tests.test_pkg.sub.member_filter"]
+    assert not test_module.is_package
