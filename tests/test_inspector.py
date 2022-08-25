@@ -1,8 +1,11 @@
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Type, TypeVar
 
 import pytest
 
 from nb_autodoc.inspector import External, LibraryAttr, ModuleManager
+from nb_autodoc.typing import T_ModuleMember
+
+T = TypeVar("T")
 
 
 @pytest.fixture(scope="module")
@@ -16,6 +19,10 @@ def flat_external(dct: Dict[str, External]) -> Dict[str, str]:
 
 def flat_libraryattr(dct: Dict[str, LibraryAttr]) -> Dict[str, Tuple[str, str]]:
     return {k: (v.docname, v.docstring) for k, v in dct.items()}
+
+
+def filter_type(dct: Dict[str, T_ModuleMember], typ: Type[T]) -> Dict[str, T]:
+    return {k: v for k, v in dct.items() if isinstance(v, typ)}
 
 
 def test_resolve_autodoc():
@@ -33,11 +40,11 @@ def test_resolve_autodoc():
         "tests.test_pkg.sub._foo.fa",
         "tests.test_pkg.sub._foo.A._c",
     }
-    assert flat_external(_sub_module._externals) == {
+    assert flat_external(filter_type(_sub_module.members, External)) == {
         "fa": "tests.test_pkg.sub._foo.fa",
         "_fc": "tests.test_pkg.sub._foo._fc",
         "A": "tests.test_pkg.sub._foo.A",
     }
-    assert flat_libraryattr(_sub_module._library_attrs) == {
+    assert flat_libraryattr(filter_type(_sub_module.members, LibraryAttr)) == {
         "Path": ("Path", "pathlib.Path docstring...")
     }
