@@ -41,6 +41,7 @@ from pkgutil import iter_modules
 from typing import Any, Dict, List, Optional, Set, TypeVar, Union
 
 from nb_autodoc.analyzer import Analyzer, convert_annot
+from nb_autodoc.config import Config
 from nb_autodoc.typing import T_Annot, T_ClassMember, T_ModuleMember, Tp_GenericAlias
 from nb_autodoc.utils import (
     cached_property,
@@ -89,12 +90,19 @@ class ModuleManager:
         self,
         module: Union[str, types.ModuleType],
         *,
+        strict: bool = True,
         skip_modules: Optional[Set[str]] = None,
     ) -> None:
         self.context: Context[Doc] = Context()
-        self.module = Module(module, skip_modules=skip_modules, _context=self.context)
+        self.module = Module(module, _context=self.context)
         self.name = self.module.name
+        self.config = Config(
+            strict=strict,
+            skip_modules=skip_modules or set(),
+            docstring_section_indent=None,
+        )
         self.modules = {module.name: module for module in self.module.list_modules()}
+
         for dmodule in self.modules.values():
             self.resolve_autodoc(dmodule)
         for dmodule in self.modules.values():
@@ -181,7 +189,6 @@ class Module(Doc):
         self,
         module: Union[str, types.ModuleType],
         *,
-        skip_modules: Optional[Set[str]] = None,
         _package: Optional["Module"] = None,
         _context: Optional[Context[Doc]] = None,
     ) -> None:
@@ -195,9 +202,6 @@ class Module(Doc):
             raise TypeError("Module cannot be instantiated, use ModuleManager instead")
         self.context = _context
         _modules[self.name] = self
-
-        if skip_modules is not None:
-            self.context.skip_modules |= skip_modules
 
         # Find submodules
         self.submodules: Optional[Dict[str, Module]] = None
@@ -254,7 +258,6 @@ class Module(Doc):
         """
         if not hasattr(self, "_externals") or not hasattr(self, "_library_attrs"):
             raise ValueError(f"unable to prepare {self.name}")
-
         if self.prepared:
             return
         self.members = {}

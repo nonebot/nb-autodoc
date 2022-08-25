@@ -1,6 +1,7 @@
-from typing import Optional, TypedDict
+from typing import Optional, Set, TypedDict
 
 
 class Config(TypedDict):
-    strict_mode: bool
+    strict: bool
+    skip_modules: Set[str]
     docstring_section_indent: Optional[int]
