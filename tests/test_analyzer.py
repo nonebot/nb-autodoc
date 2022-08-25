@@ -79,7 +79,7 @@ def test_VariableVisitor():
     assert visitor.comments == docstrings
     if sys.version_info >= (3, 8):
         assert visitor.type_comments == {
-            "a": "(int>>invalid) -> str",
+            "a": "int",
             "a2": "int",
             "b": "int",
             "C.__init__.a": "str | None",

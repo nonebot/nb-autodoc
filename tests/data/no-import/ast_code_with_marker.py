@@ -3,7 +3,7 @@
 
 # autodoc: test_VariableVisitor on
 
-a = 1  # type: (int>>invalid) -> str
+a = 1  # type: int
 """a docstring"""
 a2 = 1  # type: int
 a3: "A" = 1
