@@ -323,7 +323,7 @@ class Class(Doc):
         self.docstring = obj.__doc__ and cleandoc(obj.__doc__)
         self.obj = obj
         self.module = module
-        self.inst_vars = {}
+        self.inst_vars: Set[str] = set()
         if self.refname != f"{obj.__module__}.{obj.__qualname__}":
             logger.warning(
                 f"{self.module.name} | {self.qualname!r} has inconsistant "
@@ -377,10 +377,10 @@ class Function(Doc):
             )
 
     @property
-    def docstring(self) -> Optional[str]:
+    def docstring(self) -> Optional[str]:  # type: ignore[override]
         doc = self.module._analyzer.var_comments.get(self.qualname, self.obj.__doc__)
         if doc is None and hasattr(self.obj, "__func__"):
-            doc = self.obj.__func__.__doc__
+            doc = getattr(self.obj, "__func__").__doc__
         return doc
 
     @property
