@@ -288,6 +288,11 @@ class Module(Doc):
             # None if getattr overrided or builtins instance
             module = getattr(obj, "__module__", None)
             if module == self.name:
+                refname = f"{module}.{name}"
+                if refname in self.context.blacklist:
+                    continue
+                if name.startswith("_") and refname not in self.context.whitelist:
+                    continue
                 if isinstance(obj, type):
                     self.members[name] = Class(name, obj, self)
                 elif isinstance(obj, (types.FunctionType, types.MethodType)):
