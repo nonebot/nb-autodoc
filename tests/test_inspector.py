@@ -10,7 +10,7 @@ T = TypeVar("T")
 
 @pytest.fixture(scope="module")
 def main_modulemanager():
-    return ModuleManager("tests.test_pkg", skip_modules={"tests.test_pkg.sub._foo"})
+    return ModuleManager("tests.test_pkg")
 
 
 def flat_external(dct: Dict[str, External]) -> Dict[str, str]:
@@ -26,24 +26,24 @@ def filter_type(dct: Dict[str, T_ModuleMember], typ: Type[T]) -> Dict[str, T]:
 
 
 def test_resolve_autodoc():
-    modulemanager = ModuleManager(
-        "tests.test_pkg.sub", skip_modules={"tests.test_pkg.sub._foo"}
-    )
+    modulemanager = ModuleManager("tests.test_pkg.sub")
     _sub_module = modulemanager.modules["tests.test_pkg.sub"]
     assert _sub_module.is_package
-    assert modulemanager.context.blacklist == {"tests.test_pkg.sub._foo.A.a"}
+    assert modulemanager.context.blacklist == {
+        "tests.test_pkg.sub._reexport_sample.A.a"
+    }
     assert modulemanager.context.whitelist == {
-        "tests.test_pkg.sub._foo._fc",
-        "tests.test_pkg.sub._foo.A._e",
-        "tests.test_pkg.sub._foo.A",
-        "tests.test_pkg.sub._foo._fe",
-        "tests.test_pkg.sub._foo.fa",
-        "tests.test_pkg.sub._foo.A._c",
+        "tests.test_pkg.sub._reexport_sample._fc",
+        "tests.test_pkg.sub._reexport_sample.A._e",
+        "tests.test_pkg.sub._reexport_sample.A",
+        "tests.test_pkg.sub._reexport_sample._fe",
+        "tests.test_pkg.sub._reexport_sample.fa",
+        "tests.test_pkg.sub._reexport_sample.A._c",
     }
     assert flat_external(filter_type(_sub_module.members, External)) == {
-        "fa": "tests.test_pkg.sub._foo.fa",
-        "_fc": "tests.test_pkg.sub._foo._fc",
-        "A": "tests.test_pkg.sub._foo.A",
+        "fa": "tests.test_pkg.sub._reexport_sample.fa",
+        "_fc": "tests.test_pkg.sub._reexport_sample._fc",
+        "A": "tests.test_pkg.sub._reexport_sample.A",
     }
     assert flat_libraryattr(filter_type(_sub_module.members, LibraryAttr)) == {
         "Path": ("Path", "pathlib.Path docstring...")

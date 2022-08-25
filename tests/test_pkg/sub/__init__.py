@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from ._foo import A, _fc, _fd, _fe, fa, fb
+from ._reexport_sample import A, _fc, _fd, _fe, fa, fb
 
 __autodoc__ = {
     "fa": True,
