@@ -47,6 +47,7 @@ from nb_autodoc.typing import T_Annot, T_ClassMember, T_ModuleMember, Tp_Generic
 from nb_autodoc.utils import (
     cached_property,
     cleandoc,
+    determind_varname,
     eval_annot_as_possible,
     formatannotation,
     logger,
@@ -70,18 +71,6 @@ class Context(UserDict[str, TD]):
         self.blacklist: Set[str] = set()
         self.override_docstring: Dict[str, str] = {}
         self.skip_modules: Set[str] = set()
-
-
-def determind_varname(obj: Union[type, types.FunctionType, types.MethodType]) -> str:
-    # Maybe implement in AST analysis
-    module = sys.modules[obj.__module__]
-    for name, item in module.__dict__.items():
-        if obj is item:
-            return name
-    raise RuntimeError(
-        "could not determine where the object located. "
-        f"object: {obj!r} __module__: {obj.__module__} __qualname__: {obj.__qualname__}"
-    )
 
 
 class ModuleManager:
@@ -334,9 +323,10 @@ class Class(Doc):
         self.module = module
         self.inst_vars = {}
         if self.refname != f"{obj.__module__}.{obj.__qualname__}":
-            logger.error(
+            logger.warning(
                 f"{self.module.name} | {self.qualname!r} has inconsistant "
-                f"runtime module {obj.__module__} or qualname {obj.__qualname__}"
+                f"runtime module {obj.__module__!r} or qualname {obj.__qualname__!r}. "
+                "This is possibly caused by dynamic class creation."
             )
 
     @property
@@ -380,9 +370,8 @@ class Function(Doc):
         if self.refname != f"{obj.__module__}.{obj.__qualname__}":
             logger.warning(
                 f"{self.module.name} | {self.qualname!r} has inconsistant "
-                f"runtime module {obj.__module__} or qualname {obj.__qualname__}. "
-                "This is possibly caused by dynamic function creation. "
-                # f"Overriding object.__qualname__ to {self.qualname!r}."
+                f"runtime module {obj.__module__!r} or qualname {obj.__qualname__!r}. "
+                "This is possibly caused by dynamic function creation."
             )
 
     @property

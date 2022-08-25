@@ -36,6 +36,18 @@ def find_name_in_mro(cls: type, name: str, default: Any) -> Any:
     return default
 
 
+def determind_varname(obj: Union[type, types.FunctionType, types.MethodType]) -> str:
+    # Maybe implement in AST analysis
+    module = sys.modules[obj.__module__]
+    for name, item in module.__dict__.items():
+        if obj is item:
+            return name
+    raise RuntimeError(
+        "could not determine where the object located. "
+        f"object: {obj!r} __module__: {obj.__module__} __qualname__: {obj.__qualname__}"
+    )
+
+
 def _remove_typing_prefix(s: str) -> str:
     def repl(match: re.Match[str]) -> str:
         text = match.group()
@@ -87,7 +99,7 @@ def _type_repr(obj: Any, type_alias: Dict[T_GenericAlias, str], msg: str = "") -
     elif isinstance(obj, type):
         if obj.__module__ == "builtins":
             return obj.__qualname__
-        return f"{obj.__module__}.{obj.__qualname__}"
+        return f"{obj.__module__}.{determind_varname(obj)}"
     elif isinstance(obj, TypeVar):
         return repr(obj)
     elif isinstance(obj, ForwardRef):
