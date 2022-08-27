@@ -47,10 +47,10 @@ from nb_autodoc.typing import T_Annot, T_ClassMember, T_ModuleMember, Tp_Generic
 from nb_autodoc.utils import (
     cached_property,
     cleandoc,
-    determind_varname,
     eval_annot_as_possible,
     formatannotation,
     logger,
+    safe_getattr,
 )
 
 T = TypeVar("T")
@@ -135,11 +135,10 @@ class ModuleManager:
                     "Setting docstring to variable if you want to force-export it."
                 )
                 continue
-            # qualname is unreliable (e.g. dynamic class or function)
-            qualname = objbody.__qualname__
-            if "<locals>" in qualname:
-                qualname = determind_varname(objbody)
-            refname = f"{objbody.__module__}.{qualname}"
+            # intrespect is unreliable (e.g. dynamic class or function)
+            if '<locals>' in objbody.__qualname__:
+                continue
+            refname = f"{objbody.__module__}.{objbody.__qualname__}"
             if attr:
                 refname += "." + attr
             # User library
@@ -190,6 +189,7 @@ class Module(Doc):
     members: Dict[str, T_ModuleMember]
     _externals: Dict[str, "External"]
     _library_attrs: Dict[str, "LibraryAttr"]
+    _dynamic_class_or_function: Set[str]
 
     def __init__(
         self,
@@ -290,6 +290,10 @@ class Module(Doc):
                 continue
             if name in self._library_attrs:
                 self.members[name] = self._library_attrs.pop(name)
+                continue
+            if '<locals>' in safe_getattr(obj, '__qualname__', ''):
+                if name in self._analyzer.var_comments:
+                    self.members[name] = DynamicClassFunction(name, obj, self)
                 continue
             # None if getattr overrided or builtins instance
             module = getattr(obj, "__module__", None)
@@ -476,6 +480,19 @@ class Variable(Doc):
 
 class Property(Variable):
     """Analyze property."""
+
+
+class DynamicClassFunction(Doc):
+    """Analyze dynamic class or function."""
+
+    def __init__(self, name: str, obj: Any, module: Module) -> None:
+        self.name = name
+        self.obj = obj
+        self.module = module
+
+    @property
+    def comment(self) -> str:
+        return self.module._analyzer.var_comments[self.name]
 
 
 class External(Doc):

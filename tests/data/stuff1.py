@@ -13,6 +13,9 @@ if TYPE_CHECKING:
     from . import example_google_docstring as egd
     from .example_google_docstring import ExampleClass as ec
 
+if False:
+    import os
+
 
 class A:
     ...

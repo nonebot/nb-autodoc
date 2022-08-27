@@ -133,7 +133,7 @@ def test_formatannotation():
         # types.GenericAlias has no arg check
         assets.update(
             {
-                list[int, "Fake"]: "list[int, Fake]",
+                list[Foo, "Fake"]: "list[test.typing.Foo, Fake]",
                 Union[int, list[int, "Fake"]]: "Union[int, list[int, Fake]]",
                 list[int, Union[int, str], str]: "list[int, Union[int, str], str]",
             }

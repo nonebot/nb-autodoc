@@ -33,22 +33,33 @@ from typing import (
     cast,
 )
 
-from nb_autodoc.utils import logger
+from nb_autodoc.utils import CustomLogger, logger
 
 T = TypeVar("T")
 
 
-def ast_parse(source: str) -> ast.Module:
+def ast_parse(source: str, filename: str = "<unknown>") -> ast.Module:
     """AST parse function, mode must be "exec" to avoid duplicated typing."""
     try:
         return ast.parse(source, type_comments=True)
-    except SyntaxError as e:
-        logger.exception(e)
+    except SyntaxError:
+        logger.exception(f"unable to parse {filename}")
         # Invalid type comment: https://github.com/sphinx-doc/sphinx/issues/8652
         return ast.parse(source)
     except TypeError:
         # Fallback
         return ast.parse(source)
+
+
+class AnalyzerLogger(CustomLogger["Analyzer"]):
+    def getmsg(self, msg: str, **kwargs: Any) -> str:
+        builder = []
+        builder.append(self.obj.name)
+        if "lineno" in kwargs:
+            builder.append(self.obj.filename + f':{kwargs["lineno"]}')
+        else:
+            builder.append(self.obj.filename)
+        return " ".join(builder) + " | " + msg
 
 
 class Analyzer:
@@ -76,15 +87,19 @@ class Analyzer:
             try:
                 globalns = create_module_from_sourcefile(name, self.path).__dict__
             except Exception as e:
-                raise ImportError(f"error raises evaluating {self.path}") from e
+                raise ImportError(f"error raises executing {self.path}") from e
         self.globalns = globalns
+        self.logger = AnalyzerLogger(self)
 
         code = open(self.path, "r").read()
-        self.module = ast_parse(code)
-        self.type_refs: Dict[str, str] = {}
-        """Store import and ClassDef refname for annotation analysis."""
+        self.tree = ast_parse(code, filename=self.path)
 
+        self.analyze_type_checking()
         self.analyze()
+
+    @property
+    def filename(self) -> str:
+        return Path(self.path).name
 
     @property
     def lines(self) -> List[str]:
@@ -93,8 +108,8 @@ class Analyzer:
             return linecache.updatecache(self.path, self.globalns)
         return lines
 
-    def analyze(self) -> None:
-        for stmt in self.module.body:
+    def analyze_type_checking(self) -> None:
+        for stmt in self.tree.body:
             if isinstance(stmt, ast.If):
                 if (
                     isinstance(stmt.test, ast.Name) and stmt.test.id == "TYPE_CHECKING"
@@ -103,41 +118,60 @@ class Analyzer:
                     and get_constant_value(stmt.test) == False
                 ):
                     if is_constant_node(stmt.test):
-                        logger.warning("")
+                        self.logger.warning(
+                            f"use TYPE_CHECKING instead of False", lineno=stmt.lineno
+                        )
                     # Name is not resolved, only literal check
-                    self.globalns.update(eval_import_stmts(stmt.body, self.package))
-                    break
+                    self.globalns.update(
+                        eval_import_stmts(stmt.body, self.package, logger=self.logger)
+                    )
+
+    def analyze(self) -> None:
         var_visitor = VariableVisitor()
-        var_visitor.visit(self.module)
+        var_visitor.visit(self.tree)
         self.var_comments = var_visitor.comments
         self.var_type_comments = var_visitor.type_comments
         self.var_annotations = var_visitor.annotations
 
 
 def eval_import_stmts(
-    stmts: List[ast.stmt], package: Optional[str] = None
+    stmts: List[ast.stmt],
+    package: Optional[str] = None,
+    logger: Optional[AnalyzerLogger] = None,
 ) -> Dict[str, Any]:
-    """Evaluate `ast.Import` and `ast.ImportFrom` using importlib."""
+    """Evaluate `ast.Import` and `ast.ImportFrom` using importlib.
+
+    This function will never raises, it will evaluate as much stmt as possible.
+    """
     imported = {}
-    for node in stmts:
-        # Avoid exec and use import_module
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                name = alias.asname or alias.name
-                imported[name] = import_module(alias.name)
-        elif isinstance(node, ast.ImportFrom):
-            for alias in node.names:
-                if alias.name == "*":
-                    break
-                name = alias.asname or alias.name
-                from_module_name = resolve_name(
-                    "." * node.level + (node.module or ""), package
+    for stmt in stmts:
+        try:
+            if isinstance(stmt, ast.Import):
+                for alias in stmt.names:
+                    imported[alias.asname or alias.name.split(".")[0]] = __import__(
+                        alias.name
+                    )
+            elif isinstance(stmt, ast.ImportFrom):
+                for alias in stmt.names:
+                    if alias.name == "*":
+                        break
+                    varname = alias.asname or alias.name
+                    from_module_name = resolve_name(
+                        "." * stmt.level + (stmt.module or ""), package
+                    )
+                    from_module = import_module(from_module_name)
+                    if alias.name in from_module.__dict__:
+                        imported[varname] = from_module.__dict__[alias.name]
+                    else:
+                        imported[varname] = import_module(
+                            from_module_name + "." + alias.name
+                        )
+        except ImportError as e:
+            # Specially for loguru.Logger
+            if logger:
+                logger.warning(
+                    f"evaluate import stmt failed -- {e}", lineno=stmt.lineno
                 )
-                module = import_module(from_module_name)
-                if alias.name in module.__dict__:
-                    imported[name] = module.__dict__[alias.name]
-                else:
-                    imported[name] = import_module("." + alias.name, from_module_name)
     return imported
 
 
