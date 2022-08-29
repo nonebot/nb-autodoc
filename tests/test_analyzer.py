@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from nb_autodoc.analyzer import Analyzer, VariableVisitor, ast_parse, convert_annot
+from nb_autodoc.analyzer import Analyzer, DefinitionFinder, ast_parse, convert_annot
 
 from .data import example_google_docstring as egd
 
@@ -54,13 +54,14 @@ def test_Analyzer():
     assert analyzer.globalns["A"].__module__ == "tests.data.stuff1"
 
 
-def test_VariableVisitor():
-    code = get_code_by_marker("test_VariableVisitor")
+def test_DefinitionFinder():
+    code = get_code_by_marker("test_DefinitionFinder")
     module = ast_parse(code)
-    visitor = VariableVisitor()
+    visitor = DefinitionFinder()
     visitor.visit(module)
+    del code, module
     # Duplicated from debug
-    docstrings = {
+    _target_comments = {
         "a": "a docstring",
         "b": "b docstring",
         "c": "c and d docstring",
@@ -76,19 +77,18 @@ def test_VariableVisitor():
         "C.__init__.b": "C.__init__.a/b docstring",
         "C.__init__.d": "C.__init__.d docstring",
     }
-    assert visitor.comments == docstrings
+    assert visitor.comments == _target_comments
     if sys.version_info >= (3, 8):
-        assert visitor.type_comments == {
+        _type_comments = {k: ast.unparse(v) for k, v in visitor.type_comments.items()}
+        assert _type_comments == {
             "a": "int",
             "a2": "int",
             "b": "int",
             "C.__init__.a": "str | None",
             "C.__init__.b": "str | None",
         }
-    annotations = {
-        k: ast.get_source_segment(code, v) for k, v in visitor.annotations.items()
-    }
-    assert annotations == {"a3": '"A"', "C.__init__.c": "int", "C.__init__.d": "str"}
+    _annotations = {k: ast.unparse(v) for k, v in visitor.annotations.items()}
+    assert _annotations == {"a3": "'A'", "C.__init__.c": "int", "C.__init__.d": "str"}
 
 
 def test_convert_annot():

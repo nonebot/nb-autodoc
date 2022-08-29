@@ -27,10 +27,9 @@ from typing import (
     Iterable,
     List,
     Optional,
-    Type,
     TypeVar,
     Union,
-    cast,
+    overload,
 )
 
 from nb_autodoc.utils import CustomLogger, logger
@@ -39,7 +38,10 @@ T = TypeVar("T")
 
 
 def ast_parse(source: str, filename: str = "<unknown>") -> ast.Module:
-    """AST parse function, mode must be "exec" to avoid duplicated typing."""
+    """AST parse function with mode "exec".
+
+    Argument filename is only used for logging.
+    """
     try:
         return ast.parse(source, type_comments=True)
     except SyntaxError:
@@ -49,6 +51,26 @@ def ast_parse(source: str, filename: str = "<unknown>") -> ast.Module:
     except TypeError:
         # Fallback
         return ast.parse(source)
+
+
+@overload
+def ast_unparse(node: ast.AST) -> str:
+    ...
+
+
+@overload
+def ast_unparse(node: ast.AST, _default: str) -> str:
+    ...
+
+
+def ast_unparse(node: ast.AST, _default: Optional[str] = None) -> str:
+    # TODO: implement ast.expr / ast.Expression unparser
+    if sys.version_info >= (3, 8):
+        # Or get_source_segment?
+        return ast.unparse(node)
+    if _default is None:
+        raise
+    return _default
 
 
 class AnalyzerLogger(CustomLogger["Analyzer"]):
@@ -92,7 +114,7 @@ class Analyzer:
         self.logger = AnalyzerLogger(self)
 
         code = open(self.path, "r").read()
-        self.tree = ast_parse(code, filename=self.path)
+        self.tree = ast_parse(code, self.path)
 
         self.analyze_type_checking()
         self.analyze()
@@ -107,6 +129,14 @@ class Analyzer:
         if not lines:
             return linecache.updatecache(self.path, self.globalns)
         return lines
+
+    def analyze(self) -> None:
+        visitor = DefinitionFinder()
+        visitor.visit(self.tree)
+        self.deforders = visitor.deforders
+        self.comments = visitor.comments
+        self.type_comments = visitor.type_comments
+        self.annotations = visitor.annotations
 
     def analyze_type_checking(self) -> None:
         for stmt in self.tree.body:
@@ -126,12 +156,23 @@ class Analyzer:
                         eval_import_stmts(stmt.body, self.package, logger=self.logger)
                     )
 
-    def analyze(self) -> None:
-        var_visitor = VariableVisitor()
-        var_visitor.visit(self.tree)
-        self.var_comments = var_visitor.comments
-        self.var_type_comments = var_visitor.type_comments
-        self.var_annotations = var_visitor.annotations
+    def get_autodoc_literal(self) -> Dict[str, str]:
+        """Get `__autodoc__` using `ast.literal_eval`."""
+        self.logger.debug("searching __autodoc__...")
+        for stmt in self.tree.body:
+            if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+                targets = get_assign_targets(stmt)
+                if (
+                    len(targets) == 1
+                    and isinstance(targets[0], ast.Name)
+                    and targets[0].id == "__autodoc__"
+                ):
+                    self.logger.debug("found __autodoc__ and evaluate")
+                    if stmt.value is None:
+                        raise ValueError("autodoc requires value")
+                    return ast.literal_eval(stmt.value)
+        self.logger.debug("no found __autodoc__")
+        return {}
 
 
 def eval_import_stmts(
@@ -234,11 +275,10 @@ def get_target_names(node: ast.expr, self: str = "") -> List[str]:
     return []
 
 
-_Tp_FunctionDef = cast(Type[ast.FunctionDef], (ast.FunctionDef, ast.AsyncFunctionDef))
-_MODULE_ALLOW_VISIT = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+_DEF_VISIT = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
 
-class VariableVisitor(ast.NodeVisitor):
+class DefinitionFinder:
     """Pick variable comment, type comment and annotations.
 
     Before nb_autodoc v0.2.0, `#:` special comment syntax is allowed.
@@ -248,7 +288,7 @@ class VariableVisitor(ast.NodeVisitor):
     If assign has multiple target like `a, b = 1, 2`, its docstring and type comment
     will be assigned to each name.
 
-    Instance vars in class.__init__ save in form of `A.__init__.a`.
+    Instance var in `A.__init__` saves in `A.__init__.a` format.
     """
 
     def __init__(self) -> None:
@@ -256,9 +296,13 @@ class VariableVisitor(ast.NodeVisitor):
         self.previous: Optional[ast.AST] = None
         self.current_class: Optional[ast.ClassDef] = None
         self.current_function: Optional[ast.FunctionDef] = None
+        self.counter = itertools.count()
+        self.deforders: Dict[str, int] = {}
+        """Definition entry."""
         self.comments: Dict[str, str] = {}
-        self.type_comments: Dict[str, str] = {}
-        self.annotations: Dict[str, ast.expr] = {}
+        """Variable comment and function docstring."""
+        self.annotations: Dict[str, ast.Expression] = {}
+        self.type_comments: Dict[str, ast.Expression] = {}
 
     def get_qualname_for(self, name: str) -> str:
         if not self.ctx:
@@ -273,6 +317,23 @@ class VariableVisitor(ast.NodeVisitor):
             if self.current_function.args.args:
                 return self.current_function.args.args[0].arg
         return ""
+
+    def add_definition_entry(self, name: str) -> None:
+        qualname = self.get_qualname_for(name)
+        self.deforders[qualname] = next(self.counter)
+
+    def add_comment(self, name: str, comment: str) -> None:
+        qualname = self.get_qualname_for(name)
+        self.comments[qualname] = comment
+
+    def add_annotation(self, name: str, annotation: ast.expr) -> None:
+        qualname = self.get_qualname_for(name)
+        self.annotations[qualname] = ast.Expression(annotation)
+
+    def add_type_comment(self, name: str, type_comment: str) -> None:
+        qualname = self.get_qualname_for(name)
+        expre = ast.parse(type_comment, mode="eval")
+        self.type_comments[qualname] = expre
 
     def traverse_assign(self, stmts: List[ast.stmt]) -> None:
         """Traverse the body and find out variable comment."""
@@ -289,22 +350,20 @@ class VariableVisitor(ast.NodeVisitor):
                     continue
                 # Add annotations
                 if isinstance(stmt, ast.AnnAssign):
-                    self.annotations[self.get_qualname_for(names[0])] = stmt.annotation
+                    self.add_annotation(names[0], stmt.annotation)
                 else:  # Add Assign type_comment
                     type_comment = getattr(stmt, "type_comment", None)
                     if type_comment:
                         for name in names:
-                            qualname = self.get_qualname_for(name)
-                            self.type_comments[qualname] = type_comment
+                            self.add_type_comment(name, type_comment)
                 # Add comments
                 if isinstance(after_stmt, ast.Expr) and is_constant_node(
                     after_stmt.value
                 ):
-                    docstring = get_constant_value(after_stmt.value)
-                    if isinstance(docstring, str):
+                    comment = get_constant_value(after_stmt.value)
+                    if isinstance(comment, str):
                         for name in names:
-                            qualname = self.get_qualname_for(name)
-                            self.comments[qualname] = docstring
+                            self.add_comment(name, comment)
 
     def visit(self, node: ast.AST) -> None:
         """Visit a node and record previous if visitor is concrete."""
@@ -314,10 +373,13 @@ class VariableVisitor(ast.NodeVisitor):
         if visitor is not self.generic_visit:
             self.previous = node
 
+    def generic_visit(self, node: ast.AST) -> None:
+        raise NotImplementedError
+
     def visit_Module(self, node: ast.Module) -> Any:
         self.traverse_assign(node.body)
         for stmt in node.body:
-            if isinstance(stmt, _MODULE_ALLOW_VISIT):
+            if isinstance(stmt, _DEF_VISIT):
                 self.visit(stmt)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
@@ -327,18 +389,17 @@ class VariableVisitor(ast.NodeVisitor):
             self.traverse_assign(node.body)
             # Concrete visit __init__
             for stmt in node.body:
-                if isinstance(stmt, _Tp_FunctionDef) and stmt.name == "__init__":
-                    self.visit_FunctionDef(stmt)
-                    break
+                if isinstance(stmt, _DEF_VISIT):
+                    self.visit(stmt)
             self.ctx.pop()
             self.current_class = None
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        # Only __init__ will be visit
         if not self.current_function:
             self.current_function = node
             self.ctx.append(node.name)
-            self.traverse_assign(node.body)
+            if self.current_class and node.name == "__init__":
+                self.traverse_assign(node.body)
             self.ctx.pop()
             self.current_function = None
 

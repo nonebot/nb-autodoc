@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Tuple, Union
 from typing_extensions import Protocol
 
 if TYPE_CHECKING:
-    from nb_autodoc.inspector import (
+    from nb_autodoc.manager import (
         Class,
         DynamicClassFunction,
         External,
@@ -29,7 +29,9 @@ class T_GenericAlias(Protocol):
 
 T_Annot = Any
 """`Union[typing._GenericAlias, types.GenericAlias, type, str, None]`."""
-T_ModuleMember = Union["Class", "Function", "Variable", "External", "LibraryAttr", "DynamicClassFunction"]
+T_ModuleMember = Union[
+    "Class", "Function", "Variable", "External", "LibraryAttr", "DynamicClassFunction"
+]
 T_ClassMember = Union["Function", "Variable"]
 
 if sys.version_info >= (3, 9):

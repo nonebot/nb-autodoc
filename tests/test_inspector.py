@@ -2,7 +2,7 @@ from typing import Dict, Set, Tuple, Type, TypeVar
 
 import pytest
 
-from nb_autodoc.inspector import External, LibraryAttr, ModuleManager
+from nb_autodoc.manager import External, LibraryAttr, ModuleManager
 from nb_autodoc.typing import T_ModuleMember
 
 T = TypeVar("T")

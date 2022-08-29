@@ -100,6 +100,7 @@ class ModuleManager:
         self.name = self.module.name
         self.config = Config(
             strict=strict,
+            static=True,
             skip_modules=skip_modules or set(),
             docstring_section_indent=None,
         )
@@ -136,7 +137,7 @@ class ModuleManager:
                 )
                 continue
             # intrespect is unreliable (e.g. dynamic class or function)
-            if '<locals>' in objbody.__qualname__:
+            if "<locals>" in objbody.__qualname__:
                 continue
             refname = f"{objbody.__module__}.{objbody.__qualname__}"
             if attr:
@@ -291,7 +292,7 @@ class Module(Doc):
             if name in self._library_attrs:
                 self.members[name] = self._library_attrs.pop(name)
                 continue
-            if '<locals>' in safe_getattr(obj, '__qualname__', ''):
+            if "<locals>" in safe_getattr(obj, "__qualname__", ""):
                 if name in self._analyzer.var_comments:
                     self.members[name] = DynamicClassFunction(name, obj, self)
                 continue

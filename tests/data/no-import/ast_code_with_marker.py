@@ -1,7 +1,7 @@
 # type: ignore
 # fmt: off
 
-# autodoc: test_VariableVisitor on
+# autodoc: test_DefinitionFinder on
 
 a = 1  # type: int
 """a docstring"""
@@ -51,7 +51,7 @@ class C:
         _a = 1
         """bad"""
 
-# autodoc: test_VariableVisitor off
+# autodoc: test_DefinitionFinder off
 
 
 # fmt: on
