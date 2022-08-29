@@ -332,7 +332,7 @@ class DefinitionFinder:
 
     def add_type_comment(self, name: str, type_comment: str) -> None:
         qualname = self.get_qualname_for(name)
-        expre = ast.parse(type_comment, mode="eval")
+        expre = ast.parse(repr(type_comment), mode="eval")
         self.type_comments[qualname] = expre
 
     def traverse_assign(self, stmts: List[ast.stmt]) -> None:
@@ -366,15 +366,13 @@ class DefinitionFinder:
                             self.add_comment(name, comment)
 
     def visit(self, node: ast.AST) -> None:
-        """Visit a node and record previous if visitor is concrete."""
+        """Visit a concrete node."""
         method = "visit_" + node.__class__.__name__
         visitor = getattr(self, method, self.generic_visit)
         visitor(node)
-        if visitor is not self.generic_visit:
-            self.previous = node
 
     def generic_visit(self, node: ast.AST) -> None:
-        raise NotImplementedError
+        """Disallow generic visit."""
 
     def visit_Module(self, node: ast.Module) -> Any:
         self.traverse_assign(node.body)

@@ -81,11 +81,11 @@ def test_DefinitionFinder():
     if sys.version_info >= (3, 8):
         _type_comments = {k: ast.unparse(v) for k, v in visitor.type_comments.items()}
         assert _type_comments == {
-            "a": "int",
-            "a2": "int",
-            "b": "int",
-            "C.__init__.a": "str | None",
-            "C.__init__.b": "str | None",
+            "a": "'int'",
+            "a2": "'int'",
+            "b": "'int'",
+            "C.__init__.a": "'str | None'",
+            "C.__init__.b": "'str | None'",
         }
     _annotations = {k: ast.unparse(v) for k, v in visitor.annotations.items()}
     assert _annotations == {"a3": "'A'", "C.__init__.c": "int", "C.__init__.d": "str"}
