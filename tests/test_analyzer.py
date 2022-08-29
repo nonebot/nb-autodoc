@@ -10,13 +10,6 @@ from nb_autodoc.analyzer import Analyzer, DefinitionFinder, ast_parse, convert_a
 
 from .data import example_google_docstring as egd
 
-
-@pytest.fixture(scope="module")
-def example_ast_module():
-    file = Path(__file__).resolve().parent / "data" / "example_google_docstring.py"
-    return ast_parse(open(file, "r").read())
-
-
 lines = open(
     Path(__file__).parent / "data" / "no-import" / "ast_code_with_marker.py"
 ).readlines()
@@ -28,14 +21,10 @@ def get_code_by_marker(marker: str) -> str:
     for i, line in enumerate(lines):
         if marker_re.match(line):
             lineno = i
-    for i in range(lineno, len(lines[lineno:])):  # type: ignore
+    for i in range(lineno, len(lines)):  # type: ignore
         if end_marker_re.match(lines[i]):
             end_lineno = i
     return "".join(lines[lineno:end_lineno])  # type: ignore
-
-
-def node_to_dict(node: ast.AST) -> dict:
-    ...
 
 
 def test_Analyzer():
@@ -60,7 +49,37 @@ def test_DefinitionFinder():
     visitor = DefinitionFinder()
     visitor.visit(module)
     del code, module
-    # Duplicated from debug
+    assert visitor.deforders == {
+        "a": 4,
+        "a2": 1,
+        "a3": 2,
+        "b": 3,
+        "c": 5,
+        "d": 6,
+        "a1": 7,
+        "b1": 8,
+        "c1": 9,
+        "d1": 10,
+        "e1": 11,
+        "A": 12,
+        "A.a": 13,
+        "B": 14,
+        "B.a": 15,
+        "B1": 16,
+        "B1.a": 17,
+        "B1.__init__": 18,
+        "B1.b": 19,
+        "C": 20,
+        "C.a": 21,
+        "C.ma": 22,
+        "C.__init__": 23,
+        "C.__init__.a": 24,
+        "C.__init__.b": 25,
+        "C.__init__.c": 26,
+        "C.__init__.d": 27,
+        "C._A": 28,
+    }
+    print(visitor.deforders)
     _target_comments = {
         "a": "a docstring",
         "b": "b docstring",

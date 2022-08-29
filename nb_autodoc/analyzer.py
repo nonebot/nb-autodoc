@@ -294,7 +294,7 @@ class DefinitionFinder:
     def __init__(self) -> None:
         self.ctx: List[str] = []
         self.previous: Optional[ast.AST] = None
-        self.current_class: Optional[ast.ClassDef] = None
+        self.current_class: List[str] = []
         self.current_function: Optional[ast.FunctionDef] = None
         self.counter = itertools.count()
         self.deforders: Dict[str, int] = {}
@@ -335,10 +335,13 @@ class DefinitionFinder:
         expre = ast.parse(repr(type_comment), mode="eval")
         self.type_comments[qualname] = expre
 
-    def traverse_assign(self, stmts: List[ast.stmt]) -> None:
-        """Traverse the body and find out variable comment."""
-        for i, stmt in enumerate(stmts[:-1]):
-            after_stmt = stmts[i + 1]
+    def traverse_body(self, stmts: List[ast.stmt]) -> None:
+        """Traverse visit Def body.
+
+        Add definition and pick comment for all Assign or AnnAssign.
+        Distribute if the node is another Def.
+        """
+        for i, stmt in enumerate(stmts):
             if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
                 targets = get_assign_targets(stmt)
                 names = tuple(
@@ -348,15 +351,20 @@ class DefinitionFinder:
                 )
                 if not names:
                     continue
-                # Add annotations
+                for name in names:
+                    self.add_definition_entry(name)
+                # Add annotation for AnnAssign or type_comment for Assign
                 if isinstance(stmt, ast.AnnAssign):
                     self.add_annotation(names[0], stmt.annotation)
-                else:  # Add Assign type_comment
+                else:
                     type_comment = getattr(stmt, "type_comment", None)
                     if type_comment:
                         for name in names:
                             self.add_type_comment(name, type_comment)
-                # Add comments
+                if i == len(stmts) - 1:
+                    continue
+                after_stmt = stmts[i + 1]
+                # Add comments if exists
                 if isinstance(after_stmt, ast.Expr) and is_constant_node(
                     after_stmt.value
                 ):
@@ -364,6 +372,8 @@ class DefinitionFinder:
                     if isinstance(comment, str):
                         for name in names:
                             self.add_comment(name, comment)
+            elif isinstance(stmt, _DEF_VISIT):
+                self.visit(stmt)
 
     def visit(self, node: ast.AST) -> None:
         """Visit a concrete node."""
@@ -374,30 +384,29 @@ class DefinitionFinder:
     def generic_visit(self, node: ast.AST) -> None:
         """Disallow generic visit."""
 
-    def visit_Module(self, node: ast.Module) -> Any:
-        self.traverse_assign(node.body)
-        for stmt in node.body:
-            if isinstance(stmt, _DEF_VISIT):
-                self.visit(stmt)
+    def visit_Module(self, node: ast.Module) -> None:
+        self.traverse_body(node.body)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        if not self.current_class:
-            self.current_class = node
+        if len(self.current_class) == 0:
+            self.add_definition_entry(node.name)
+            self.current_class.append(node.name)
             self.ctx.append(node.name)
-            self.traverse_assign(node.body)
-            # Concrete visit __init__
-            for stmt in node.body:
-                if isinstance(stmt, _DEF_VISIT):
-                    self.visit(stmt)
+            self.traverse_body(node.body)
             self.ctx.pop()
-            self.current_class = None
+            self.current_class.pop()
+        elif len(self.current_class) == 1:
+            self.add_definition_entry(node.name)
+        else:
+            pass
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         if not self.current_function:
+            self.add_definition_entry(node.name)
             self.current_function = node
             self.ctx.append(node.name)
             if self.current_class and node.name == "__init__":
-                self.traverse_assign(node.body)
+                self.traverse_body(node.body)
             self.ctx.pop()
             self.current_function = None
 

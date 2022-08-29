@@ -31,6 +31,12 @@ class B:
     a = 1
     """B.a docstring"""
 
+class B1:
+    a = 1
+    # no error even no self
+    def __init__(): ...
+    def b(): ...
+
 class C:
     a = 1
     """C.a docstring"""
