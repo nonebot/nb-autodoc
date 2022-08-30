@@ -99,12 +99,16 @@ class ModuleManager:
         self.module = Module(module, _context=self.context)
         self.name = self.module.name
         self.config = Config(
+            name=self.name,
             strict=strict,
             static=True,
             skip_modules=skip_modules or set(),
             docstring_section_indent=None,
         )
         self.modules = {module.name: module for module in self.module.list_modules()}
+        self.analyzers = {
+            name: module._analyzer for name, module in self.modules.items()
+        }
 
         for dmodule in self.modules.values():
             self.resolve_autodoc(dmodule)
@@ -214,9 +218,11 @@ class Module(Doc):
         self.submodules: Optional[Dict[str, Module]] = None
         if self.is_package:
             self.submodules = {}
-            for finder, name, ispkg in iter_modules(self.obj.__path__):
+            for finder, name, ispkg in iter_modules(
+                self.obj.__path__, prefix=self.name + "."
+            ):
                 self.submodules[name] = Module(
-                    f"{self.name}.{name}", _package=self, _context=self.context
+                    name, _package=self, _context=self.context
                 )
 
     def __repr__(self) -> str:

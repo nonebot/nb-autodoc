@@ -46,38 +46,42 @@ def test_Analyzer():
 def test_DefinitionFinder():
     code = get_code_by_marker("test_DefinitionFinder")
     module = ast_parse(code)
-    visitor = DefinitionFinder()
+    visitor = DefinitionFinder("mypkg.pkg", "mypkg.pkg.pkg")
     visitor.visit(module)
     del code, module
+    print(visitor.deforders)
     assert visitor.deforders == {
-        "a": 4,
-        "a2": 1,
-        "a3": 2,
-        "b": 3,
-        "c": 5,
-        "d": 6,
-        "a1": 7,
-        "b1": 8,
-        "c1": 9,
-        "d1": 10,
-        "e1": 11,
-        "A": 12,
-        "A.a": 13,
-        "B": 14,
-        "B.a": 15,
-        "B1": 16,
-        "B1.a": 17,
-        "B1.__init__": 18,
-        "B1.b": 19,
-        "C": 20,
-        "C.a": 21,
-        "C.ma": 22,
-        "C.__init__": 23,
-        "C.__init__.a": 24,
-        "C.__init__.b": 25,
-        "C.__init__.c": 26,
-        "C.__init__.d": 27,
-        "C._A": 28,
+        "ext_B": 0,
+        "ext_fb": 1,
+        "ext_fc": 2,
+        "a": 7,
+        "a2": 4,
+        "a3": 5,
+        "b": 6,
+        "c": 8,
+        "d": 9,
+        "a1": 10,
+        "b1": 11,
+        "c1": 12,
+        "d1": 13,
+        "e1": 14,
+        "A": 15,
+        "A.a": 16,
+        "B": 17,
+        "B.a": 18,
+        "B1": 19,
+        "B1.a": 20,
+        "B1.__init__": 21,
+        "B1.b": 22,
+        "C": 23,
+        "C.a": 24,
+        "C.ma": 25,
+        "C.__init__": 26,
+        "C.__init__.a": 27,
+        "C.__init__.b": 28,
+        "C.__init__.c": 29,
+        "C.__init__.d": 30,
+        "C._A": 31,
     }
     print(visitor.deforders)
     _target_comments = {
@@ -108,6 +112,11 @@ def test_DefinitionFinder():
         }
     _annotations = {k: ast.unparse(v) for k, v in visitor.annotations.items()}
     assert _annotations == {"a3": "'A'", "C.__init__.c": "int", "C.__init__.d": "str"}
+    assert visitor.externals == {
+        "ext_B": "mypkg.pkg.ext_B",
+        "ext_fb": "mypkg.pkg.ext_fb",
+        "ext_fc": "mypkg.pkg.pkg.util.ext_fc",
+    }
 
 
 def test_convert_annot():

@@ -3,6 +3,14 @@
 
 # autodoc: test_DefinitionFinder on
 
+import os
+from pathlib import Path
+
+from mypkg import ext_A, ext_fa
+from mypkg.pkg import ext_B, ext_fb
+
+from .util import ext_fc
+
 a = 1  # type: int
 """a docstring"""
 a2 = 1  # type: int

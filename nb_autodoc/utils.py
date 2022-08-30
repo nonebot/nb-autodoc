@@ -1,7 +1,9 @@
+import ast
 import logging
 import re
 import sys
 import types
+from importlib.util import resolve_name as _resolve_name
 from typing import _AnnotatedAlias  # type: ignore
 from typing import (
     Any,
@@ -57,6 +59,14 @@ def safe_getattr(obj: Any, attr: str, default: Any) -> Any:
         return getattr(obj, attr, default)
     except Exception:
         return default
+
+
+def resolve_name(
+    name_or_import: Union[ast.ImportFrom, str], package: Optional[str] = None
+) -> str:
+    if isinstance(name_or_import, ast.ImportFrom):
+        name_or_import = "." * name_or_import.level + (name_or_import.module or "")
+    return _resolve_name(name_or_import, package)
 
 
 def find_name_in_mro(cls: type, name: str, default: Any) -> Any:

@@ -3,6 +3,8 @@ from typing import Optional, Set, TypedDict
 
 
 class Config(TypedDict):
+    name: str
+    """Module name."""
     strict: bool
     """Strict mode. Apply docstring validation. Defaults to True."""
     static: bool
@@ -12,5 +14,11 @@ class Config(TypedDict):
 
 
 default_config = MappingProxyType(
-    Config(strict=True, static=False, skip_modules=set(), docstring_section_indent=None)
+    Config(
+        name="<unknown>",
+        strict=True,
+        static=False,
+        skip_modules=set(),
+        docstring_section_indent=None,
+    )
 )

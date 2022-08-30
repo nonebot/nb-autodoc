@@ -16,7 +16,7 @@ import sys
 from contextlib import contextmanager
 from importlib import import_module
 from importlib.machinery import SourceFileLoader
-from importlib.util import module_from_spec, resolve_name, spec_from_loader
+from importlib.util import module_from_spec, spec_from_loader
 from pathlib import Path
 from types import ModuleType
 from typing import (
@@ -32,7 +32,7 @@ from typing import (
     overload,
 )
 
-from nb_autodoc.utils import CustomLogger, logger
+from nb_autodoc.utils import CustomLogger, logger, resolve_name
 
 T = TypeVar("T")
 
@@ -131,7 +131,7 @@ class Analyzer:
         return lines
 
     def analyze(self) -> None:
-        visitor = DefinitionFinder()
+        visitor = DefinitionFinder(self.name, self.package)
         visitor.visit(self.tree)
         self.deforders = visitor.deforders
         self.comments = visitor.comments
@@ -197,9 +197,7 @@ def eval_import_stmts(
                     if alias.name == "*":
                         break
                     varname = alias.asname or alias.name
-                    from_module_name = resolve_name(
-                        "." * stmt.level + (stmt.module or ""), package
-                    )
+                    from_module_name = resolve_name(stmt, package)
                     from_module = import_module(from_module_name)
                     if alias.name in from_module.__dict__:
                         imported[varname] = from_module.__dict__[alias.name]
@@ -275,7 +273,7 @@ def get_target_names(node: ast.expr, self: str = "") -> List[str]:
     return []
 
 
-_DEF_VISIT = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+_DEF_VISIT = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef, ast.ImportFrom)
 
 
 class DefinitionFinder:
@@ -291,7 +289,11 @@ class DefinitionFinder:
     Instance var in `A.__init__` saves in `A.__init__.a` format.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, name: str, package: Optional[str]) -> None:
+        self.name = name
+        """Relatively top-module name."""
+        self.package = package
+        """Package name."""
         self.ctx: List[str] = []
         self.previous: Optional[ast.AST] = None
         self.current_class: List[str] = []
@@ -299,8 +301,10 @@ class DefinitionFinder:
         self.counter = itertools.count()
         self.deforders: Dict[str, int] = {}
         """Definition entry."""
+        self.externals: Dict[str, str] = {}
+        """External reference."""
         self.comments: Dict[str, str] = {}
-        """Variable comment and function docstring."""
+        """Variable comment."""
         self.annotations: Dict[str, ast.Expression] = {}
         self.type_comments: Dict[str, ast.Expression] = {}
 
@@ -310,7 +314,7 @@ class DefinitionFinder:
         return ".".join(self.ctx) + "." + name
 
     def get_self(self) -> str:
-        """Return the first argument name in a method, no decorator check."""
+        """Return the first argument name in a method if exists."""
         if self.current_class and self.current_function:
             if sys.version_info >= (3, 8) and self.current_function.args.posonlyargs:
                 return self.current_function.args.posonlyargs[0].arg
@@ -386,6 +390,16 @@ class DefinitionFinder:
 
     def visit_Module(self, node: ast.Module) -> None:
         self.traverse_body(node.body)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        absoluate_module = resolve_name(node, self.package)
+        if absoluate_module == self.name or absoluate_module.startswith(
+            self.name + "."
+        ):
+            for alias in node.names:
+                varname = alias.asname or alias.name
+                self.add_definition_entry(varname)
+                self.externals[varname] = absoluate_module + "." + alias.name
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         if len(self.current_class) == 0:
