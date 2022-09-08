@@ -1,6 +1,6 @@
 import click
 
-from nb_autodoc.utils import logger
+from nb_autodoc.log import logger
 
 logger.setLevel("INFO")
 

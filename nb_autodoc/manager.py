@@ -34,28 +34,34 @@ Literal annotation:
     1. 来自其他模块的对象在本模块输出，链接问题
 
 """
-import sys
 import types
 from collections import UserDict
+from contextvars import ContextVar
 from importlib import import_module
 from pkgutil import iter_modules
 from typing import Any, Dict, List, Optional, Set, TypeVar, Union
 
 from nb_autodoc.analyzer import Analyzer, convert_annot
-from nb_autodoc.config import Config
+from nb_autodoc.config import Config, default_config
+from nb_autodoc.log import logger
 from nb_autodoc.typing import T_Annot, T_ClassMember, T_ModuleMember, Tp_GenericAlias
 from nb_autodoc.utils import (
     cached_property,
     cleandoc,
     eval_annot_as_possible,
     formatannotation,
-    logger,
     safe_getattr,
 )
 
 T = TypeVar("T")
 TT = TypeVar("TT")
 TD = TypeVar("TD", bound="Doc")
+
+
+modules: Dict[str, "Module"] = {}
+current_module: ContextVar["Module"] = ContextVar("current_module")
+# maybe useful in builder
+# NOTE: isfunction not recognize the C extension function (builtin), maybe isroutine and callable
 
 
 class Context(UserDict[str, TD]):
@@ -89,26 +95,14 @@ class ModuleManager:
     """
 
     def __init__(
-        self,
-        module: Union[str, types.ModuleType],
-        *,
-        strict: bool = True,
-        skip_modules: Optional[Set[str]] = None,
+        self, module: Union[str, types.ModuleType], *, config: Config = default_config
     ) -> None:
         self.context: Context[Doc] = Context()
-        self.module = Module(module, _context=self.context)
+        self.module = Module(module, self)
         self.name = self.module.name
-        self.config = Config(
-            name=self.name,
-            strict=strict,
-            static=True,
-            skip_modules=skip_modules or set(),
-            docstring_section_indent=None,
-        )
+        self.config = config.copy()
         self.modules = {module.name: module for module in self.module.list_modules()}
-        self.analyzers = {
-            name: module._analyzer for name, module in self.modules.items()
-        }
+        modules.update(self.modules)
 
         for dmodule in self.modules.values():
             self.resolve_autodoc(dmodule)
@@ -168,23 +162,23 @@ class ModuleManager:
                 )
                 module._externals[key] = External(refname)
             if value is True:
-                module.context.whitelist.add(refname)
+                module.manager.context.whitelist.add(refname)
             elif value is False:
-                module.context.blacklist.add(refname)
+                module.manager.context.blacklist.add(refname)
             elif isinstance(value, str):
-                module.context.override_docstring[refname] = value
+                module.manager.context.override_docstring[refname] = value
             else:
                 logger.error(
                     f"{module.name}.__autodoc__[{key!r}] "
                     f"expects value bool or str, got {type(value)}"
                 )
 
+    def __repr__(self) -> str:
+        return f"<{self.__class__.__name__} {self.name!r}>"
+
 
 class Doc:
     docstring: Optional[str]
-
-
-_modules: Dict[str, "Module"] = {}
 
 
 class Module(Doc):
@@ -199,9 +193,9 @@ class Module(Doc):
     def __init__(
         self,
         module: Union[str, types.ModuleType],
+        manager: "ModuleManager",
         *,
         _package: Optional["Module"] = None,
-        _context: Optional[Context[Doc]] = None,
     ) -> None:
         """Find submodules and link."""
         if isinstance(module, str):
@@ -209,10 +203,7 @@ class Module(Doc):
         self.obj = module
         self.docstring = module.__doc__ and cleandoc(module.__doc__)
         self.package = _package
-        if _context is None:
-            raise TypeError("Module cannot be instantiated, use ModuleManager instead")
-        self.context = _context
-        _modules[self.name] = self
+        self.manager = manager
 
         # Find submodules
         self.submodules: Optional[Dict[str, Module]] = None
@@ -221,9 +212,7 @@ class Module(Doc):
             for finder, name, ispkg in iter_modules(
                 self.obj.__path__, prefix=self.name + "."
             ):
-                self.submodules[name] = Module(
-                    name, _package=self, _context=self.context
-                )
+                self.submodules[name] = Module(name, self.manager, _package=self)
 
     def __repr__(self) -> str:
         return f"<{'Package' if self.is_package else 'Module'} {self.name!r}>"
@@ -250,7 +239,7 @@ class Module(Doc):
 
     @property
     def is_package(self) -> bool:
-        return hasattr(self.obj, "__path__")
+        return self.submodules is not None
 
     @property
     def prepared(self) -> bool:

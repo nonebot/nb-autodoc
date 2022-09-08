@@ -1,5 +1,4 @@
 import ast
-import logging
 import re
 import sys
 import types
@@ -19,39 +18,11 @@ from typing import (
     cast,
 )
 
+from nb_autodoc.log import logger
 from nb_autodoc.typing import T_Annot, T_GenericAlias, Tp_GenericAlias
 
 T = TypeVar("T")
 TT = TypeVar("TT")
-
-
-logger = logging.getLogger("nb_autodoc")
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
-logger.addHandler(console_handler)
-
-
-class CustomLogger(Generic[T]):
-    def __init__(self, obj: T) -> None:
-        self.obj = obj
-
-    def getmsg(self, msg: str, **kwargs: Any) -> str:
-        raise NotImplementedError
-
-    def debug(self, msg: str, **kwargs: Any) -> None:
-        logger.debug(self.getmsg(msg, **kwargs))
-
-    def info(self, msg: str, **kwargs: Any) -> None:
-        logger.info(self.getmsg(msg, **kwargs))
-
-    def warning(self, msg: str, **kwargs: Any) -> None:
-        logger.warning(self.getmsg(msg, **kwargs))
-
-    def error(self, msg: str, **kwargs: Any) -> None:
-        logger.error(self.getmsg(msg, **kwargs))
-
-    def fatal(self, msg: str, **kwargs: Any) -> None:
-        logger.fatal(self.getmsg(msg, **kwargs))
 
 
 def safe_getattr(obj: Any, attr: str, default: Any) -> Any:
