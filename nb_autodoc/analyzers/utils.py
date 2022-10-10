@@ -47,6 +47,8 @@ def ast_unparse(node: ast.AST, _default: t.Optional[str] = None) -> str:
     return _default
 
 
+### For analyzers
+
 # Although python compat node in previous version
 # It's not good idea to fixup and return correct node
 def is_constant_node(node: ast.expr) -> bool:
@@ -87,6 +89,9 @@ def get_target_names(node: ast.expr, self: str = "") -> t.List[str]:
         )
     # Not new variable creation
     return []
+
+
+### For components
 
 
 class ImportFailed(t.NamedTuple):
@@ -137,21 +142,6 @@ def eval_import_stmts(
     return imported, failed_from_import
 
 
-def interleave(
-    inter: t.Callable[[], None], f: t.Callable[[T], None], seq: t.Iterable[T]
-) -> None:
-    """Call f on each item on seq, calling inter() in between."""
-    seq = iter(seq)
-    try:
-        f(next(seq))
-    except StopIteration:
-        pass
-    else:
-        for x in seq:
-            inter()
-            f(x)
-
-
 class Unparser(ast.NodeVisitor):
     """Utilities like `ast._Unparser` in py3.9+.
 
@@ -172,6 +162,22 @@ class Unparser(ast.NodeVisitor):
         self._source = []
         self.traverse(node)
         return "".join(self._source)
+
+    @t.final
+    @staticmethod
+    def interleave(
+        inter: t.Callable[[], None], f: t.Callable[[T], None], seq: t.Iterable[T]
+    ) -> None:
+        """Call f on each item on seq, calling inter() in between."""
+        seq = iter(seq)
+        try:
+            f(next(seq))
+        except StopIteration:
+            pass
+        else:
+            for x in seq:
+                inter()
+                f(x)
 
     @t.final
     def write(self, s: str) -> None:

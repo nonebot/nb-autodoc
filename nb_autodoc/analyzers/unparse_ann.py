@@ -4,7 +4,7 @@ import typing as t
 
 from nb_autodoc.log import logger
 
-from .utils import Unparser, get_constant_value, interleave, is_constant_node
+from .utils import Unparser, get_constant_value, is_constant_node
 
 T = t.TypeVar("T")
 
@@ -53,11 +53,11 @@ class AnnotUnparser(Unparser):
         if is_constant_node(node):
             value = get_constant_value(node)
             if value is ...:
-                self.write("...")
+                Unparser.write(self, "...")
             elif isinstance(value, str):
-                self.write(repr(str))
+                Unparser.write(self, repr(str))
             elif value is None:
-                self.write("None")
+                Unparser.write(self, "None")
             else:
                 raise ValueError(
                     "only str, Ellipsis and None is allowed in subscript scope, "
@@ -69,12 +69,12 @@ class AnnotUnparser(Unparser):
         return super().traverse(node)
 
     def visit_Name(self, node: ast.Name) -> None:
-        self.write(node.id)
+        Unparser.write(self, node.id)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         self.traverse(node.value)
-        self.write(".")
-        self.write(node.attr)
+        Unparser.write(self, ".")
+        Unparser.write(self, node.attr)
 
     def visit_Subscript(self, node: ast.Subscript) -> None:
         if not isinstance(node.value, ast.Name):
@@ -91,25 +91,33 @@ class AnnotUnparser(Unparser):
         else:
             slice_spec = node.slice
         if name.id in ("List", "Set", "Tuple", "Dict"):
-            self.write(name.id.lower())
-            with self.delimit("[", "]"):
+            Unparser.write(self, name.id.lower())
+            with Unparser.delimit(self, "[", "]"):
                 if isinstance(slice_spec, ast.Tuple):
-                    interleave(lambda: self.write(", "), self.traverse, slice_spec.elts)
+                    Unparser.interleave(
+                        lambda: Unparser.write(self, ", "),
+                        self.traverse,
+                        slice_spec.elts,
+                    )
                 else:
                     self.traverse(slice_spec)
         elif name.id == "Union":
-            interleave(lambda: self.write(" | "), self.traverse, slice_spec.elts)
+            Unparser.interleave(
+                lambda: Unparser.write(self, " | "), self.traverse, slice_spec.elts
+            )
         elif name.id == "Optional":
             self.traverse(slice_spec)
-            self.write(" | None")
+            Unparser.write(self, " | None")
         elif name.id == "Callable":
             params = slice_spec.elts[0]
             if is_constant_node(params) and get_constant_value(params) is ...:
-                self.write("(*Any, **Any)")
+                Unparser.write(self, "(*Any, **Any)")
             else:  # must be ast.List
-                with self.delimit("(", ")"):
-                    interleave(lambda: self.write(", "), self.traverse, params.elts)
-            self.write(" -> ")
+                with Unparser.delimit(self, "(", ")"):
+                    Unparser.interleave(
+                        lambda: Unparser.write(self, ", "), self.traverse, params.elts
+                    )
+            Unparser.write(self, " -> ")
             return_t = slice_spec.elts[1]
             if (
                 isinstance(return_t, ast.Subscript)
@@ -118,20 +126,22 @@ class AnnotUnparser(Unparser):
             ):
                 # Avoid ambitious return union, details in bpo-43609
                 # Thanks https://gist.github.com/cleoold/6db17392b33de59c10303c6337eb692f
-                with self.delimit("(", ")"):
+                with Unparser.delimit(self, "(", ")"):
                     self.traverse(return_t)
             else:
                 self.traverse(return_t)
 
     def visit_Subscript_orig(self, node: ast.Subscript) -> t.Any:
         self.traverse(node.value)
-        with self.delimit("[", "]"):
+        with Unparser.delimit(self, "[", "]"):
             if sys.version_info < (3, 9):
                 if isinstance(node.slice, ast.Index):
                     self.traverse(node.slice.value)
                 else:
                     self.traverse(node.slice)  # block
             elif isinstance(node.slice, ast.Tuple):
-                interleave(lambda: self.write(", "), self.traverse, node.slice.elts)
+                Unparser.interleave(
+                    lambda: Unparser.write(self, ", "), self.traverse, node.slice.elts
+                )
             else:
                 self.traverse(node.slice)
