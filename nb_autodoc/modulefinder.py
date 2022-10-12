@@ -16,7 +16,17 @@ from fnmatch import fnmatchcase
 from importlib import import_module
 from importlib.machinery import SourceFileLoader, all_suffixes
 from importlib.util import module_from_spec, spec_from_loader
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, List, final
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Set,
+    final,
+)
 
 from nb_autodoc.log import logger
 from nb_autodoc.utils import frozendict, getmodulename
@@ -128,6 +138,7 @@ class ModuleFinder(_Finder):
     ) -> Iterator[types.ModuleType]:
         # # check because find_spec on NamespacePath wants package __path__
         # assert fullname in sys.modules, f"module {fullname} must be imported"
+        yielded: Set[str] = set()  # yielded item name
         namespace_path: defaultdict[str, List[str]] = defaultdict(list)
         for entry in path:
             # generally allow OSError
@@ -137,6 +148,8 @@ class ModuleFinder(_Finder):
             for itementry in dircontents:
                 item = itementry.name
                 if itementry.is_dir():
+                    if item in yielded:
+                        continue
                     if not item.isidentifier() or item in _special_exclude_dirs:
                         continue
                     # is package, import and get __path__
@@ -144,17 +157,22 @@ class ModuleFinder(_Finder):
                         subfullname = fullname + "." + item
                         pkg = import_module(subfullname)
                         yield pkg
-                        if hasattr(pkg, "__path__"):
-                            yield from self.iter_modules(subfullname, pkg.__path__)
+                        yielded.add(item)
+                        yield from self.iter_modules(subfullname, pkg.__path__)
                     # is implicit namespace, record it but not import
                     else:
                         namespace_path[item].append(itementry.path)
                 elif itementry.is_file():
                     modname = getmodulename(item)
+                    if modname in yielded:
+                        continue
                     if not modname or modname in _special_exclude_modulename:
                         continue
                     yield import_module(fullname + "." + modname)
+                    yielded.add(modname)
         # search portions in namespace_path
         for item, path in namespace_path.items():
+            if item in yielded:
+                continue
             if path:
                 yield from self.iter_modules(fullname + "." + item, path)
