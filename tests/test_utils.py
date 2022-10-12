@@ -1,6 +1,7 @@
 # type: ignore
 import ast
 import inspect
+import os
 import sys
 import textwrap
 from functools import partial
@@ -20,7 +21,7 @@ from typing import (
 
 import pytest
 
-from nb_autodoc.utils import cleandoc, dedent, formatannotation
+from nb_autodoc.utils import cleandoc, dedent, formatannotation, getmodulename
 
 T = TypeVar("T")
 TT = TypeVar("TT")
@@ -102,6 +103,18 @@ def indented_texts(docstrings: List[str]):
             continue
         results.append(chunk[1])
     return results
+
+
+# inspect
+
+
+def test_getmodulename():
+    norm = os.path.normpath
+    assert getmodulename(norm("/home/user/xxx.py")) == "xxx"
+    assert getmodulename(norm("__init__.py")) == "__init__"
+    assert getmodulename(norm("./__init__.so")) == "__init__"
+    assert getmodulename(norm("/xxx.pyi")) == None
+    assert getmodulename(norm("/xxx-yyy.py")) == None
 
 
 def test_formatannotation():

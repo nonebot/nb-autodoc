@@ -6,8 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from nb_autodoc.analyzer import Analyzer, DefinitionFinder, ast_parse, convert_annot
-
 from .data import example_google_docstring as egd
 
 lines = open(

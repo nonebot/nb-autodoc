@@ -1,8 +1,10 @@
 import ast
+import os
 import re
 import sys
 import types
 import typing as t
+from importlib.machinery import all_suffixes
 from importlib.util import resolve_name as imp_resolve_name
 
 from nb_autodoc.log import logger
@@ -68,6 +70,18 @@ def resolve_name(
     return imp_resolve_name(name_or_import, package)
 
 
+# inspect
+
+
+def getmodulename(path: str) -> t.Optional[str]:
+    """Reimplement `inspect.getmodulename` for identifier modulename."""
+    fn = os.path.basename(path)
+    left, dot, right = fn.partition(".")
+    if dot and left.isidentifier() and "." + right in all_suffixes():
+        return left
+    return None
+
+
 def find_name_in_mro(cls: type, name: str, default: t.Any) -> t.Any:
     for base in cls.__mro__:
         if name in vars(base):
@@ -78,8 +92,8 @@ def find_name_in_mro(cls: type, name: str, default: t.Any) -> t.Any:
 def determind_varname(obj: t.Union[type, types.FunctionType, types.MethodType]) -> str:
     # Maybe implement in AST analysis
     module = sys.modules[obj.__module__]
-    for name, item in module.__dict__.items():
-        if obj is item:
+    for name, value in module.__dict__.items():
+        if obj is value:
             return name
     raise RuntimeError(
         "could not determine where the object located. "
@@ -88,6 +102,7 @@ def determind_varname(obj: t.Union[type, types.FunctionType, types.MethodType]) 
 
 
 def _remove_typing_prefix(s: str) -> str:
+    # see: https://github.com/python/cpython/issues/96073
     def repl(match: re.Match[str]) -> str:
         text = match.group()
         if text.startswith("typing."):
