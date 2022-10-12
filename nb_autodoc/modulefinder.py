@@ -7,29 +7,19 @@ Directory or module name that not an identifier will not be imported. Those are 
 as other module's search path.
 """
 
-import inspect
 import os
 import sys
 import types
+from collections import defaultdict
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from importlib import import_module
 from importlib.machinery import SourceFileLoader, all_suffixes
 from importlib.util import module_from_spec, spec_from_loader
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Dict,
-    Final,
-    Iterable,
-    Iterator,
-    List,
-    final,
-)
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, List, final
 
 from nb_autodoc.log import logger
-from nb_autodoc.utils import frozendict
+from nb_autodoc.utils import frozendict, getmodulename
 
 if TYPE_CHECKING:
     from nb_autodoc.config import Config
@@ -95,22 +85,18 @@ class _Finder:
         return lambda x: any(fnmatchcase(x, pt) for pt in patterns)
 
 
-SOURCE_SUFFIXES: Final[List[str]] = [".py", ".pyi"]
-
-
 def create_module_from_sourcefile(
     modulename: str, path: str, init_attrs: Dict[str, Any] = frozendict()
 ) -> types.ModuleType:
-    """Create module from source file, this is useful for executing ".pyi" file.
+    """Create module from ".py" or ".pyi" source file.
 
-    `importlib` supports suffixes like ".so" (extension_suffixes),
+    importlib machinery supports suffixes ".so" (extension_suffixes),
     ".py" (source_suffixes), ".pyc" (bytecode_suffixes).
-    These extensions are recorded in `importlib._bootstrap_external`.
     """
     modname, ext = os.path.splitext(os.path.basename(path))
-    if not ext in SOURCE_SUFFIXES:
+    if not ext in (".py", ".pyi"):
         raise ValueError(
-            f"expect suffixes {SOURCE_SUFFIXES} to create source file module, "
+            "expect suffixes '.py' or '.pyi' to create source file module, "
             f"got {path!r} with suffix {ext!r}"
         )
     loader = SourceFileLoader(modulename, path)
@@ -126,61 +112,49 @@ def create_module_from_sourcefile(
 
 
 def _looks_like_package(path: str) -> bool:
-    try:
-        dircontents = os.listdir(path)
-    except OSError:
-        dircontents = []
-    for fn in dircontents:
+    for fn in os.listdir(path):
         left, dot, right = fn.partition(".")
-        if dot and left == "__init__" and "." + right in all_suffixes() + [".pyi"]:
-            # we generally allow pyi if package is stub for .so file
+        if dot and left == "__init__" and "." + right in all_suffixes():
             return True
     # return os.path.isfile(os.path.join(path, "__init__.py"))
     return False
 
 
-class SourceModuleFinder(_Finder):
+class ModuleFinder(_Finder):
     """Module finder for package `__path__`."""
-
-    # _LoaderBasics.is_package should be mock though compat
 
     def iter_modules(
         self, fullname: str, path: Iterable[str]
     ) -> Iterator[types.ModuleType]:
         # # check because find_spec on NamespacePath wants package __path__
         # assert fullname in sys.modules, f"module {fullname} must be imported"
-        namespace_path: List[str] = []
+        namespace_path: defaultdict[str, List[str]] = defaultdict(list)
         for entry in path:
-            try:
-                dircontents = os.listdir(entry)
-            except OSError:
-                continue  # skip unreadable path
-            for item in dircontents:
-                itempath = os.path.join(entry, item)
-                if os.path.isfile(itempath):
-                    modname, ext = os.path.splitext(item)
-                    if (
-                        modname.isidentifier()
-                        and modname not in _special_exclude_modulename
-                        and ext in SOURCE_SUFFIXES
-                    ):
-                        yield import_module(fullname + "." + modname)
-                elif os.path.isdir(itempath):
+            # generally allow OSError
+            dircontents = list(os.scandir(entry))
+            # package before same-named module
+            dircontents.sort(key=os.DirEntry.is_file)
+            for itementry in dircontents:
+                item = itementry.name
+                if itementry.is_dir():
                     if not item.isidentifier() or item in _special_exclude_dirs:
                         continue
-                    if _looks_like_package(itempath):
-                        pkg = import_module(fullname + "." + item)
-                    # package has __init__.pyi
-                    modname = inspect.getmodulename(item) or ""
                     # is package, import and get __path__
-                    if modname.isidentifier():
-                        continue
+                    if _looks_like_package(itementry.path):
+                        subfullname = fullname + "." + item
+                        pkg = import_module(subfullname)
+                        yield pkg
+                        if hasattr(pkg, "__path__"):
+                            yield from self.iter_modules(subfullname, pkg.__path__)
                     # is implicit namespace, record it but not import
-            # If no source file found under namespace package
-            # c extension maybe bound with pyi directory
-            # pyi must have a truly module, but finder do not analysis
-        # if namespace path, call iter_modules
-        if namespace_path:
-            yield from self.iter_modules(
-                fullname + "." + os.path.basename(namespace_path[0]), namespace_path
-            )
+                    else:
+                        namespace_path[item].append(itementry.path)
+                elif itementry.is_file():
+                    modname = getmodulename(item)
+                    if not modname or modname in _special_exclude_modulename:
+                        continue
+                    yield import_module(fullname + "." + modname)
+        # search portions in namespace_path
+        for item, path in namespace_path.items():
+            if path:
+                yield from self.iter_modules(fullname + "." + item, path)
