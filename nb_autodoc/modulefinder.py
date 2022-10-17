@@ -255,7 +255,7 @@ class ModuleFinder(_Finder):
                 module.__name__,
                 is_package=hasattr(module, "__path__"),
             )
-        yield (  # type: ignore  # mypy
+        yield (  # type: ignore  # mypy blames and operator
             module.__name__,
             create_mps(module),
             module_stub and create_mps(module_stub),
@@ -264,15 +264,17 @@ class ModuleFinder(_Finder):
         if path is None:
             return
         modules, stubs = self.scan_modules(module.__name__, path, ({}, {}))
-        modules = _fix_intermediate_modules(modules)
-        for name in modules.keys() | stubs.keys():
+        modules = _fix_inconsistent_modules(modules)
+        for name in sorted(modules.keys() | stubs.keys()):
+            # here stubs maybe inconsistent namespace but we don't announce
+            # user should check this
             submodule, stubresult = modules.get(name), stubs.get(name)
             yield (  # type: ignore  # mypy
                 name,
                 submodule and create_mps(submodule),
                 create_mps(create_module_from_stub_result(stubresult))
                 if stubresult
-                else None,  # this line use if..else because pylance break
+                else None,  # this line use if..else because pylance break on NamedTuple
             )
 
 
@@ -311,7 +313,7 @@ def create_module_from_sourcefile(
     return module
 
 
-def _fix_intermediate_modules(
+def _fix_inconsistent_modules(
     modules: t.Dict[str, types.ModuleType]
 ) -> t.Dict[str, types.ModuleType]:
     """Order modules and fix intermediate missing module.
