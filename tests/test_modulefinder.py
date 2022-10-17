@@ -1,5 +1,3 @@
-from operator import attrgetter
-
 import pytest
 
 from nb_autodoc.config import default_config
@@ -14,18 +12,26 @@ class TestModuleFinder:
     def _setup(self):
         ...
 
-    def test_iter_modules(self):
+    def test_scan_modules(self):
         with uncache_import(_PATH, "simplepkg") as m:
             finder = ModuleFinder(default_config)
-            orig_res = list(
-                (i.__name__, i) for i in finder.iter_modules("simplepkg", m.__path__)
-            )
-            res = dict(orig_res)
-            assert len(orig_res) == len(res)
-            assert hasattr(res["simplepkg.sub"], "__path__")
-            assert attrgetter("__spec__.origin")(res["simplepkg.foo"]).endswith(
-                "foo.py"
-            )
-            assert "simplepkg.simplenamespace" not in res
-            assert res["simplepkg.simplenamespace.portion1"]
-            assert res["simplepkg.simplenamespace.portion2"]
+            modules, stubs = finder.scan_modules("simplepkg", m.__path__, ({}, {}))
+        assert modules.keys() == {
+            "simplepkg.sub",
+            "simplepkg.sub.a",
+            "simplepkg.foo",
+            "simplepkg.simplenamespace.portion1",
+            "simplepkg.simplenamespace.portion2",
+        }
+        assert hasattr(modules["simplepkg.sub"], "__path__")
+        assert stubs.keys() == {
+            "simplepkg.sub",
+            "simplepkg.sub.a",
+            "simplepkg.sub.stubalone",
+            "simplepkg.stubalone",
+            "simplepkg.foo",
+            "simplepkg.simplenamespace.portion1",
+        }
+        assert stubs["simplepkg.sub"].is_package == True
+        assert stubs["simplepkg.sub"].origin.endswith("__init__.pyi")
+        assert stubs["simplepkg.foo"].origin.endswith("foo.pyi")

@@ -135,10 +135,6 @@ def _looks_like_package(path: str) -> bool:
     return False
 
 
-def _is_stub_package(path: str) -> bool:
-    return os.path.isfile(os.path.join(path, "__init__.pyi"))
-
-
 class StubFoundResult(t.NamedTuple):
     name: str
     origin: str
@@ -156,15 +152,17 @@ class ModuleFinder(_Finder):
     def scan_modules(
         self, fullname: str, path: t.Iterable[str], ctx: T_ModuleScanResult
     ) -> T_ModuleScanResult:
-        """Scan and yield modules per `__path__` recursively.
+        """Scan all modules from `__path__` recursively.
 
         Different from `pkgutil.iter_modules`, this function import and yield
         all submodules, and support PEP420 implicit namespace package.
+        Namespace module is not included in result.
         """
         # # check because find_spec on NamespacePath wants package __path__
         # assert fullname in sys.modules, f"module {fullname} must be imported"
         modules, stubs = ctx
         seen: t.Set[str] = set()  # seen item name
+        seen_stubs: t.Set[str] = set()
         namespace_path: defaultdict[str, t.List[str]] = defaultdict(list)
         for entry in path:
             # generally allow OSError
@@ -174,31 +172,53 @@ class ModuleFinder(_Finder):
             for itementry in dircontents:
                 item = itementry.name
                 if itementry.is_dir():
-                    if _is_stub_package(itementry.path):
-                        stubs[item]  # TODO
-                    if item in seen:
+                    if not item.isidentifier():
                         continue
-                    if not item.isidentifier() or item in _special_exclude_dirs:
+                    stub_path = os.path.join(itementry.path, "__init__.pyi")
+                    if os.path.isfile(stub_path) and item not in seen_stubs:
+                        childfullname = fullname + "." + item
+                        stubs[childfullname] = StubFoundResult(
+                            childfullname, stub_path, True
+                        )
+                        seen_stubs.add(item)
+                        # no continue here because dir can also be real module
+                    if item in _special_exclude_dirs or item in seen:
                         continue
                     # is package, import and get __path__
                     if _looks_like_package(itementry.path):
-                        module = import_module(fullname + "." + item)
-                        modules[module.__name__] = module
+                        childfullname = fullname + "." + item
+                        module = import_module(childfullname)
+                        modules[childfullname] = module
                         seen.add(item)
-                        self.scan_modules(module.__name__, module.__path__, ctx)
+                        self.scan_modules(childfullname, module.__path__, ctx)
                     # is implicit namespace, record it but not import
                     else:
                         namespace_path[item].append(itementry.path)
                 elif itementry.is_file():
-                    if item.endswith(".pyi") and item[:-4].isidentifier():
-                        stubs[item]  # TODO
+                    modname: t.Optional[str]
+                    modname, ext = os.path.splitext(item)
+                    if ext == ".pyi":
+                        if (
+                            modname.isidentifier()
+                            and modname not in _special_exclude_modulename
+                            and modname not in seen_stubs
+                        ):
+                            childfullname = fullname + "." + item[:-4]
+                            stubs[childfullname] = StubFoundResult(
+                                childfullname, itementry.path, False
+                            )
+                            seen_stubs.add(modname)
+                        continue
                     modname = getmodulename(item)
-                    if modname in seen:
+                    if (
+                        not modname
+                        or modname in _special_exclude_modulename
+                        or modname in seen
+                    ):
                         continue
-                    if not modname or modname in _special_exclude_modulename:
-                        continue
-                    module = import_module(fullname + "." + modname)
-                    modules[module.__name__] = module
+                    childfullname = fullname + "." + modname
+                    module = import_module(childfullname)
+                    modules[childfullname] = module
                     seen.add(modname)
         # search portions in namespace_path
         for item, path in namespace_path.items():
@@ -212,14 +232,8 @@ class ModuleFinder(_Finder):
         module: t.Optional[ModuleProperties]
         stub: t.Optional[ModuleProperties]
 
-    def process(self, module: types.ModuleType) -> t.Iterator[ModuleBoundResult]:
+    def find_iter(self, module: types.ModuleType) -> t.Iterator[ModuleBoundResult]:
         ...
-
-
-# class ModuleBoundType(Enum):
-#     SOURCE_STANDALONE
-#     C_EXTENSION_FILE_STUB
-#     C_EXTENSION_PKG_STUB
 
 
 def create_module_from_sourcefile(
