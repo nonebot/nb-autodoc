@@ -18,6 +18,7 @@ from fnmatch import fnmatchcase
 from importlib import import_module
 from importlib.machinery import ExtensionFileLoader, SourceFileLoader, all_suffixes
 from importlib.util import module_from_spec, spec_from_loader
+from itertools import accumulate, islice
 
 from nb_autodoc.log import logger
 from nb_autodoc.utils import getmodulename
@@ -75,6 +76,10 @@ class ModuleProperties:
     def is_namespace(self) -> bool:
         return self.loader_type is _LoaderType.NAMESPACE
 
+    @property
+    def is_package(self) -> bool:
+        return "__path__" in self.sm_dict
+
     @classmethod
     def from_module(cls, module: types.ModuleType) -> "ModuleProperties":
         spec = module.__spec__
@@ -82,9 +87,7 @@ class ModuleProperties:
         #     raise ValueError(f"cannot inspect dynamic module {module.__name__!r}")
         loader = spec and spec.loader
         if spec is not None and loader is None:
-            raise RuntimeError(
-                f"{module.__name__!r} has spec {spec} but have no loader"
-            )
+            raise RuntimeError(f"{module.__name__!r} has spec {spec} but has no loader")
         if loader is None:
             loader_type = _LoaderType.OTHER
         else:
@@ -141,17 +144,19 @@ class StubFoundResult(t.NamedTuple):
     is_package: bool
 
 
-T_ModuleScanResult = t.Tuple[
-    t.Dict[str, types.ModuleType], t.Dict[str, StubFoundResult]
+_ModuleScanResult = t.Tuple[t.Dict[str, types.ModuleType], t.Dict[str, StubFoundResult]]
+_ModuleBoundResult = t.Tuple[
+    str, t.Optional[ModuleProperties], t.Optional[ModuleProperties]
 ]
+"""Module bound result. Tuple of module name, real module, stub module."""
 
 
 class ModuleFinder(_Finder):
     """Search modules based on real package `__path__`."""
 
     def scan_modules(
-        self, fullname: str, path: t.Iterable[str], ctx: T_ModuleScanResult
-    ) -> T_ModuleScanResult:
+        self, fullname: str, path: t.Iterable[str], ctx: _ModuleScanResult
+    ) -> _ModuleScanResult:
         """Scan all modules from `__path__` recursively.
 
         Different from `pkgutil.iter_modules`, this function import and yield
@@ -228,16 +233,57 @@ class ModuleFinder(_Finder):
                 self.scan_modules(fullname + "." + item, path, ctx)
         return ctx
 
-    class ModuleBoundResult(t.NamedTuple):
-        module: t.Optional[ModuleProperties]
-        stub: t.Optional[ModuleProperties]
+    def find_iter(
+        self, module: t.Union[str, types.ModuleType]
+    ) -> t.Iterator[_ModuleBoundResult]:
+        if isinstance(module, str):
+            module = import_module(module)
+        # top-level needs a special treat because we don't want to
+        # search in parent path or sys path
+        create_mps = ModuleProperties.from_module
+        file = module.__file__
+        if file is None:
+            yield (module.__name__, create_mps(module), None)
+            return
+        file_dir, basename = os.path.split(file)
+        stub_path = os.path.join(file_dir, basename.split(".", 1)[0] + ".pyi")
+        module_stub = None
+        if os.path.isfile(stub_path):
+            # top module has stub
+            module_stub = create_module_from_sourcefile(
+                module.__name__,
+                module.__name__,
+                is_package=hasattr(module, "__path__"),
+            )
+        yield (  # type: ignore  # mypy
+            module.__name__,
+            create_mps(module),
+            module_stub and create_mps(module_stub),
+        )
+        path = getattr(module, "__path__", None)
+        if path is None:
+            return
+        modules, stubs = self.scan_modules(module.__name__, path, ({}, {}))
+        modules = _fix_intermediate_modules(modules)
+        for name in modules.keys() | stubs.keys():
+            submodule, stubresult = modules.get(name), stubs.get(name)
+            yield (  # type: ignore  # mypy
+                name,
+                submodule and create_mps(submodule),
+                create_mps(create_module_from_stub_result(stubresult))
+                if stubresult
+                else None,  # this line use if..else because pylance break
+            )
 
-    def find_iter(self, module: types.ModuleType) -> t.Iterator[ModuleBoundResult]:
-        ...
+
+def create_module_from_stub_result(res: StubFoundResult) -> types.ModuleType:
+    return create_module_from_sourcefile(
+        res.name, res.origin, is_package=res.is_package
+    )
 
 
 def create_module_from_sourcefile(
-    fullname: str, path: str, is_package: t.Optional[bool] = None
+    fullname: str, path: str, *, is_package: t.Optional[bool] = None
 ) -> types.ModuleType:
     """Create module from ".py" or ".pyi" source file.
 
@@ -263,3 +309,33 @@ def create_module_from_sourcefile(
     # module.__dict__.update(init_attrs)
     loader.exec_module(module)
     return module
+
+
+def _fix_intermediate_modules(
+    modules: t.Dict[str, types.ModuleType]
+) -> t.Dict[str, types.ModuleType]:
+    """Order modules and fix intermediate missing module.
+
+    Missing value is possibly namespace which skipped by `ModuleFinder.scan_modules`.
+    """
+    if len(modules) <= 1:
+        return modules
+    modules_unpack = sorted(modules.items())
+    for index in range(len(modules_unpack) - 2, -1, -1):
+        # implicit copy and reversed because size changes
+        (name, _), (nextname, _) = modules_unpack[index : index + 2]
+        if nextname.startswith(name + "."):
+            rightname = nextname[len(name) + 1 :]
+            if "." in rightname:
+                modules_unpack[index + 1 : index + 1] = [
+                    (modulename, import_module(modulename))
+                    for modulename in islice(
+                        accumulate(
+                            ["." + i for i in rightname.split(".")][:-1],
+                            initial=name,
+                        ),
+                        1,
+                        None,
+                    )
+                ]
+    return dict(modules_unpack)
