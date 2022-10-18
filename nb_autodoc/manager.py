@@ -1,39 +1,5 @@
-"""Inspect and analyze module from runtime and AST.
+"""Inspect and analyze module from runtime and AST."""
 
-Module 处理标准:
-    1. 所有子模块都会在内部 import（即使识别为黑名单），严格依照 __dict__ 或者 pyi 顺序输出对象
-    2. 所有对象基于 definition 和 external 进行分析
-    3. external 大部分情况是 from...import，但是 assign 也可能出现
-
-    考虑这样一个情况:
-    ./
-    main.py
-    internal/
-        __init__.py
-    external/
-        __init__.py
-    internal 有个 Foo 类，包括成员 a 和 b，需要在 external 控制 Foo 和其成员要怎么做？
-    * external 写 __autodoc__ 违反了原则: 只能允许控制子模块和当前模块
-    * internal 写 __autodoc__ 造成文档和模块不一致，属于 implicit problem
-    x 希望 __autodoc__ 和静态代码分析无关
-    解决方案:
-        首先为每个模块初始化 definition finder，然后 resolve autodoc。
-        "A.a" 则解析 A 得到 internal.A，将 internal.A.a 加入黑白名单（转交给 class 处理）
-
-Module 处理流程:
-    1. AST parse
-        * 获取 variable comments，将 namespace 解析为 definition(assign or def), external, library_attr。
-            builtin import 会被 ignore
-        * 如果有 stub 则进行同样解析，不过在 Module.prepare 流程只会调用 pyi.definition
-
-Literal annotation:
-    1. 验证是否 new style，由于 new style 处理过于复杂（FunctionType 嵌套和转换问题），对其只进行 refname 替换
-    2. 不是 new style 则进行 evaluate
-
-问题:
-    1. 来自其他模块的对象在本模块输出，链接问题
-
-"""
 import types
 from collections import ChainMap, UserDict
 from contextvars import ContextVar
