@@ -68,7 +68,7 @@ class Analyzer:
                     is_constant_node(stmt.test)
                     and get_constant_value(stmt.test) == False
                 ):
-                    # Name is not resolved, only literal check
+                    # TODO: Name is not resolved, only literal check
                     if is_constant_node(stmt.test):
                         logger.warning(
                             f"use TYPE_CHECKING instead of False",

@@ -1,11 +1,9 @@
 """Inspect and analyze module from runtime and AST.
 
-context 储存真实对象，不储存 ref。
-module.members 储存可文档对象，包括 ref。
-
 Module 处理标准:
-    1. 所有子模块都会在内部 import（即使识别为黑名单），严格依照 __dict__ 顺序输出对象
-    2. 任何 class, method, function 的 `__name__` 和 `__qualname__` 必须等于他们在模块中的名称
+    1. 所有子模块都会在内部 import（即使识别为黑名单），严格依照 __dict__ 或者 pyi 顺序输出对象
+    2. 所有对象基于 definition 和 external 进行分析
+    3. external 大部分情况是 from...import，但是 assign 也可能出现
 
     考虑这样一个情况:
     ./
@@ -17,14 +15,16 @@ Module 处理标准:
     internal 有个 Foo 类，包括成员 a 和 b，需要在 external 控制 Foo 和其成员要怎么做？
     * external 写 __autodoc__ 违反了原则: 只能允许控制子模块和当前模块
     * internal 写 __autodoc__ 造成文档和模块不一致，属于 implicit problem
-    * 希望 __autodoc__ 和静态代码分析无关
+    x 希望 __autodoc__ 和静态代码分析无关
     解决方案:
-        对 __autodoc__ 限制类型: class, method, function 直接 introspect object
+        首先为每个模块初始化 definition finder，然后 resolve autodoc。
         "A.a" 则解析 A 得到 internal.A，将 internal.A.a 加入黑白名单（转交给 class 处理）
 
 Module 处理流程:
     1. AST parse
-        * 获取 variable comments，逻辑为 Assign 有 docstring 就 pick comment
+        * 获取 variable comments，将 namespace 解析为 definition(assign or def), external, library_attr。
+            builtin import 会被 ignore
+        * 如果有 stub 则进行同样解析，不过在 Module.prepare 流程只会调用 pyi.definition
 
 Literal annotation:
     1. 验证是否 new style，由于 new style 处理过于复杂（FunctionType 嵌套和转换问题），对其只进行 refname 替换
@@ -35,15 +35,15 @@ Literal annotation:
 
 """
 import types
-from collections import UserDict
+from collections import ChainMap, UserDict
 from contextvars import ContextVar
-from importlib import import_module
-from pkgutil import iter_modules
 from typing import Any, Dict, List, Optional, Set, TypeVar, Union
 
-from nb_autodoc.analyzer import Analyzer, convert_annot
+# from nb_autodoc.analyzer import Analyzer, convert_annot
 from nb_autodoc.config import Config, default_config
 from nb_autodoc.log import logger
+from nb_autodoc.modulefinder import ModuleFinder, ModuleProperties
+from nb_autodoc.nodes import Page
 from nb_autodoc.typing import T_Annot, T_ClassMember, T_ModuleMember, Tp_GenericAlias
 from nb_autodoc.utils import (
     cached_property,
@@ -79,15 +79,19 @@ class Context(UserDict[str, TD]):
         self.skip_modules: Set[str] = set()
 
 
+# Source Module Manager 和 Extension Module Manager
+# 主要区别在于 build_node 方法，保证每个模块 build 一个 page，key 为模块名
 class ModuleManager:
-    """Manager for module and submodules.
+    """Manager shares the state for module and submodules.
 
-    To control module's documentable object, setting `__autodoc__` respected to:
+    To control module's documentable object, setting `__autodoc__` respects to:
         * module-level dict variable
-        * target object must be class, method or function
         * key is the target object's qualified name in current module
         * value bool: True for whitelist, False for blacklist
         * value str: override target object's docstring
+
+    `iter_modules` is used to find submodule of the pass-in module (Path entry finder).
+    `import_module` is used to import submodules. Namespace package is disallowed.
 
     Args:
         module: module name
@@ -97,8 +101,11 @@ class ModuleManager:
     def __init__(
         self, module: Union[str, types.ModuleType], *, config: Config = default_config
     ) -> None:
-        self.context: Context[Doc] = Context()
-        self.module = Module(module, self)
+        self.ctx: Context[Doc] = Context()
+        # TODO: use ChainMap
+        self.nodes: Dict[str, Page]
+        """data bus for all module analyzer to add node."""
+        self.module = Module(self)
         self.name = self.module.name
         self.config = config.copy()
         self.modules = {module.name: module for module in self.module.list_modules()}
@@ -162,11 +169,11 @@ class ModuleManager:
                 )
                 module._externals[key] = External(refname)
             if value is True:
-                module.manager.context.whitelist.add(refname)
+                module.manager.ctx.whitelist.add(refname)
             elif value is False:
-                module.manager.context.blacklist.add(refname)
+                module.manager.ctx.blacklist.add(refname)
             elif isinstance(value, str):
-                module.manager.context.override_docstring[refname] = value
+                module.manager.ctx.override_docstring[refname] = value
             else:
                 logger.error(
                     f"{module.name}.__autodoc__[{key!r}] "
@@ -192,33 +199,25 @@ class Module(Doc):
 
     def __init__(
         self,
-        module: Union[str, types.ModuleType],
         manager: "ModuleManager",
         *,
-        _package: Optional["Module"] = None,
+        py: Optional[ModuleProperties] = None,
+        pyi: Optional[ModuleProperties] = None,
     ) -> None:
-        """Find submodules and link."""
-        if isinstance(module, str):
-            module = import_module(module)
-        self.obj = module
-        self.docstring = module.__doc__ and cleandoc(module.__doc__)
-        self.package = _package
+        # source file is optional for those dynamic module has no origin
+        # such as numpy._typing._ufunc or torch._C._autograd
+        # TODO: numpy._typing has stmt like `if TYPE_CHECKING...else...`
+        # so we need to directly update copied globalns rather than ChainMap
         self.manager = manager
-
-        # Find submodules
-        self.submodules: Optional[Dict[str, Module]] = None
-        if self.is_package:
-            self.submodules = {}
-            for finder, name, ispkg in iter_modules(
-                self.obj.__path__, prefix=self.name + "."
-            ):
-                self.submodules[name] = Module(name, self.manager, _package=self)
+        self.py = py
+        self.pyi = pyi
 
     def __repr__(self) -> str:
         return f"<{'Package' if self.is_package else 'Module'} {self.name!r}>"
 
     def _evaluate(self, s: str) -> Any:
-        return eval(s, self._analyzer.globalns)
+        # TODO: use ChainMap namespace order: __dict__ > TYPE_CHECKING
+        return eval(s, self.obj.__dict__)
 
     @property
     def __autodoc__(self) -> Dict[str, Union[bool, str]]:
@@ -239,11 +238,15 @@ class Module(Doc):
 
     @property
     def is_package(self) -> bool:
-        return self.submodules is not None
+        return hasattr(self.obj, "__path__")
 
     @property
     def prepared(self) -> bool:
         return hasattr(self, "members")
+
+    @classmethod
+    def create(cls) -> "Module":
+        obj = super().__new__(cls)
 
     def list_modules(self) -> List["Module"]:
         res: List[Module] = [self]
@@ -278,8 +281,8 @@ class Module(Doc):
             self.name,
             package,
             self.file,
-            globalns=self.obj.__dict__.copy(),
         )
+        self._analyzer.analyze()
         for name, obj in self.obj.__dict__.items():
             if name in self._externals:
                 self.members[name] = self._externals.pop(name)
@@ -287,7 +290,7 @@ class Module(Doc):
             if name in self._library_attrs:
                 self.members[name] = self._library_attrs.pop(name)
                 continue
-            if "<locals>" in safe_getattr(obj, "__qualname__", ""):
+            if "<locals>" in getattr(obj, "__qualname__", ""):
                 if name in self._analyzer.var_comments:
                     self.members[name] = DynamicClassFunction(name, obj, self)
                 continue
@@ -295,9 +298,9 @@ class Module(Doc):
             module = getattr(obj, "__module__", None)
             if module == self.name:
                 refname = f"{module}.{name}"
-                if refname in self.context.blacklist:
+                if refname in self.manager.ctx.blacklist:
                     continue
-                if name.startswith("_") and refname not in self.context.whitelist:
+                if name.startswith("_") and refname not in self.manager.ctx.whitelist:
                     continue
                 if isinstance(obj, type):
                     self.members[name] = Class(name, obj, self)
@@ -418,7 +421,7 @@ class Variable(Doc):
         elif self.name in self.cls.annotations:
             return self.cls.annotations[self.name]
         elif self.name in self.cls.inst_vars:
-            return self.module._analyzer.var_annotations.get(self.refname, NULL)
+            return self.module._analyzer.annotations.get(self.refname, NULL)
 
     @cached_property
     def annotation(self) -> str:
@@ -444,7 +447,7 @@ class Variable(Doc):
         elif isinstance(annot, Tp_GenericAlias):
             annot = eval_annot_as_possible(
                 annot,
-                self.module._analyzer.globalns,
+                self.module.obj.__dict__,
                 f"failed evaluating annotation {self.refname}",
             )
             annot = formatannotation(annot, {})

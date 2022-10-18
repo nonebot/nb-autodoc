@@ -284,13 +284,13 @@ class ModuleFinder(_Finder):
             # user should check this
             submodule, stubresult = modules.get(name), stubs.get(name)
             # depart this line because pylance blame on NamedTuple
-            stubmodule = None
+            submodule_stub = None
             if stubresult:
-                stubmodule = create_module_from_stub_result(stubresult)
+                submodule_stub = create_module_from_stub_result(stubresult)
             yield (  # type: ignore  # mypy
                 name,
                 submodule and create_mps(submodule),
-                stubmodule and create_mps(stubmodule),
+                submodule_stub and create_mps(submodule_stub),
             )
 
 
