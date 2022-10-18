@@ -12,7 +12,7 @@ import sys
 import types
 import typing as t
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from fnmatch import fnmatchcase
 from importlib import import_module
@@ -59,8 +59,8 @@ class ModuleProperties:
     sm_name: str
     # sm_path: t.Optional[t.List[str]]  # copied list but not Iterable
     sm_file: t.Optional[str]  # None if namespace or dynamic module
-    sm_dict: types.MappingProxyType[str, t.Any]
-    sm_annotations: types.MappingProxyType[str, t.Any]
+    sm_dict: types.MappingProxyType[str, t.Any] = field(repr=False)
+    sm_annotations: types.MappingProxyType[str, t.Any] = field(repr=False)
 
     loader_type: _LoaderType
 
@@ -112,11 +112,13 @@ class _Finder:
 
     @t.final
     def __init__(self, config: "Config") -> None:
-        ...
+        self.is_exclude_module: _Filter = _Finder._build_filter(
+            config["skip_import_modules"]
+        )
 
     @t.final
     @staticmethod
-    def _build_filter(*patterns: str) -> _Filter:
+    def _build_filter(patterns: t.Iterable[str]) -> _Filter:
         return lambda x: any(fnmatchcase(x, pt) for pt in patterns)
 
 
@@ -162,6 +164,8 @@ class ModuleFinder(_Finder):
         Different from `pkgutil.iter_modules`, this function import and yield
         all submodules, and support PEP420 implicit namespace package.
         Namespace module is not included in result.
+
+        This function return modules that have original file (except namespace).
         """
         # # check because find_spec on NamespacePath wants package __path__
         # assert fullname in sys.modules, f"module {fullname} must be imported"
@@ -176,9 +180,12 @@ class ModuleFinder(_Finder):
             dircontents.sort(key=os.DirEntry.is_file)
             for itementry in dircontents:
                 item = itementry.name
+                found_mod = None
                 if itementry.is_dir():
+                    # modname validation
                     if not item.isidentifier():
                         continue
+                    # check stub
                     stub_path = os.path.join(itementry.path, "__init__.pyi")
                     if os.path.isfile(stub_path) and item not in seen_stubs:
                         childfullname = fullname + "." + item
@@ -187,20 +194,18 @@ class ModuleFinder(_Finder):
                         )
                         seen_stubs.add(item)
                         # no continue here because dir can also be real module
+                    # validate and check package
                     if item in _special_exclude_dirs or item in seen:
                         continue
-                    # is package, import and get __path__
                     if _looks_like_package(itementry.path):
-                        childfullname = fullname + "." + item
-                        module = import_module(childfullname)
-                        modules[childfullname] = module
-                        seen.add(item)
-                        self.scan_modules(childfullname, module.__path__, ctx)
-                    # is implicit namespace, record it but not import
+                        # is package, import and get __path__
+                        found_mod = (item, True)
                     else:
+                        # is implicit namespace, record it but not import
                         namespace_path[item].append(itementry.path)
                 elif itementry.is_file():
                     modname: t.Optional[str]
+                    # check stub roughly
                     modname, ext = os.path.splitext(item)
                     if ext == ".pyi":
                         if (
@@ -214,6 +219,7 @@ class ModuleFinder(_Finder):
                             )
                             seen_stubs.add(modname)
                         continue
+                    # modname validation and check
                     modname = getmodulename(item)
                     if (
                         not modname
@@ -221,10 +227,18 @@ class ModuleFinder(_Finder):
                         or modname in seen
                     ):
                         continue
-                    childfullname = fullname + "." + modname
-                    module = import_module(childfullname)
-                    modules[childfullname] = module
-                    seen.add(modname)
+                    found_mod = (modname, False)
+                if found_mod is None:
+                    continue
+                modname, is_package = found_mod
+                childfullname = fullname + "." + modname
+                if self.is_exclude_module(childfullname):
+                    continue
+                module = import_module(childfullname)
+                modules[childfullname] = module
+                seen.add(modname)
+                if is_package:
+                    self.scan_modules(childfullname, module.__path__, ctx)
         # search portions in namespace_path
         for item, path in namespace_path.items():
             if item in seen:
@@ -269,12 +283,14 @@ class ModuleFinder(_Finder):
             # here stubs maybe inconsistent namespace but we don't announce
             # user should check this
             submodule, stubresult = modules.get(name), stubs.get(name)
+            # depart this line because pylance blame on NamedTuple
+            stubmodule = None
+            if stubresult:
+                stubmodule = create_module_from_stub_result(stubresult)
             yield (  # type: ignore  # mypy
                 name,
                 submodule and create_mps(submodule),
-                create_mps(create_module_from_stub_result(stubresult))
-                if stubresult
-                else None,  # this line use if..else because pylance break on NamedTuple
+                stubmodule and create_mps(stubmodule),
             )
 
 
