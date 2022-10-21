@@ -57,7 +57,8 @@ class ModuleProperties:
 
     # the property startswith `sm_` is special member of ModuleType
     sm_name: str
-    # sm_path: t.Optional[t.List[str]]  # copied list but not Iterable
+    sm_doc: t.Optional[str]
+    sm_package: t.Optional[str]
     sm_file: t.Optional[str]  # None if namespace or dynamic module
     sm_dict: types.MappingProxyType[str, t.Any] = field(repr=False)
     sm_annotations: types.MappingProxyType[str, t.Any] = field(repr=False)
@@ -98,7 +99,9 @@ class ModuleProperties:
                 loader_type = _LoaderType.OTHER
         return cls(
             sm_name=module.__name__,
-            sm_file=module.__file__,
+            sm_doc=module.__doc__,
+            sm_package=module.__package__,
+            sm_file=getattr(module, "__file__", None),  # some module sourceless
             sm_dict=types.MappingProxyType(module.__dict__),
             sm_annotations=types.MappingProxyType(
                 getattr(module, "__annotations__", {})

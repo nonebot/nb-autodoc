@@ -8,6 +8,7 @@ class DocumentMeta(type):
     def __init__(
         cls, name: str, bases: tuple[type, ...], namespace: dict[str, Any]
     ) -> None:
+        # TODO: add slots support
         super().__init__(name, bases, namespace)
         annotations = getattr(cls, "__annotations__", {})
         # create _fields implicitly
@@ -19,19 +20,15 @@ class DocumentMeta(type):
 
     def __call__(cls, *args: Any, **kwargs: Any) -> Any:
         """Special dataclass implementation by hooking instance creation."""
-        self: type = super().__call__()
-        for k, v in kwargs.items():
-            setattr(self, k, v)
+        self: object = type.__call__(cls)
         if len(args) > len(cls._fields):
             raise TypeError(
                 f"{cls.__name__} constructor takes at most "
                 f"{len(cls._fields)} positional arguments"
             )
-        for i, v in enumerate(args):
-            setattr(self, cls._fields[i], v)
-        for name in cls._fields:
-            if not hasattr(cls, name):
-                setattr(cls, name, None)
+        obj_dict = self.__dict__ = dict.fromkeys(cls._fields)
+        obj_dict.update(zip(cls._fields, args))
+        obj_dict.update(kwargs)
         return self
 
 
