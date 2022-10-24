@@ -355,31 +355,32 @@ def create_module_from_sourcefile(
     return module
 
 
+_commonprefix = os.path.commonprefix
+
+
 def _fix_inconsistent_modules(
     modules: t.Dict[str, types.ModuleType]
 ) -> t.Dict[str, types.ModuleType]:
-    """Order modules and fix intermediate missing module.
+    """Fix intermediate missing module (ordered).
 
     Missing value is possibly namespace which skipped by `ModuleFinder.scan_modules`.
+    `import_module` is used to perform importation.
     """
     if len(modules) <= 1:
         return modules
     modules_unpack = sorted(modules.items())
     for index in range(len(modules_unpack) - 2, -1, -1):
         # implicit copy and reversed because size changes
-        (name, _), (nextname, _) = modules_unpack[index : index + 2]
-        if nextname.startswith(name + "."):
-            rightname = nextname[len(name) + 1 :]
-            if "." in rightname:
-                modules_unpack[index + 1 : index + 1] = [
-                    (modulename, import_module(modulename))
-                    for modulename in islice(
-                        accumulate(
-                            ["." + i for i in rightname.split(".")][:-1],
-                            initial=name,
-                        ),
-                        1,
-                        None,
-                    )
-                ]
+        name_parts = modules_unpack[index][0].split(".")
+        rname_parts = modules_unpack[index + 1][0].split(".")  # right name
+        common_parts = _commonprefix((name_parts, rname_parts))
+        if len(rname_parts) - len(common_parts) > 1:
+            prefix = ".".join(common_parts)
+            grouped = ["." + i for i in rname_parts[len(common_parts) :]]
+            # reversed insert
+            modules_unpack[index + 1 : index + 1] = (
+                (modulename, import_module(modulename))
+                for modulename in islice(accumulate(grouped, initial=prefix), 1, None)
+            )
+    # maybe bisect finally
     return dict(modules_unpack)

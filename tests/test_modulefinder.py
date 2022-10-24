@@ -35,3 +35,18 @@ class TestModuleFinder:
         assert stubs["simplepkg.sub"].is_package == True
         assert stubs["simplepkg.sub"].origin.endswith("__init__.pyi")
         assert stubs["simplepkg.foo"].origin.endswith("foo.pyi")
+
+    def test_find_all_modules_wrapped(self):
+        with uncache_import(_PATH, "simplepkg"):
+            finder = ModuleFinder(default_config)
+            modules, stubs = finder.find_all_modules_wrapped("simplepkg")
+        assert list(modules.keys()) == [
+            "simplepkg",
+            "simplepkg.foo",
+            "simplepkg.simplenamespace",
+            "simplepkg.simplenamespace.portion1",
+            "simplepkg.simplenamespace.portion2",
+            "simplepkg.sub",
+            "simplepkg.sub.a",
+        ]
+        assert modules["simplepkg.sub"].is_package == True
