@@ -21,7 +21,7 @@ from importlib.util import module_from_spec, spec_from_loader
 from itertools import accumulate, islice
 
 from nb_autodoc.log import logger
-from nb_autodoc.utils import getmodulename
+from nb_autodoc.utils import getmodulename, transform_dict_value
 
 if t.TYPE_CHECKING:
     from nb_autodoc.config import Config
@@ -59,9 +59,13 @@ class ModuleProperties:
     sm_name: str
     sm_doc: t.Optional[str]
     sm_package: t.Optional[str]
+    # name, doc, package, loader, spec are the fields from ModuleType
     sm_file: t.Optional[str]  # None if namespace or dynamic module
+    sm_path: t.Optional[t.Iterable[str]]
     sm_dict: types.MappingProxyType[str, t.Any] = field(repr=False)
+    """Read-only attribute dict of module."""
     sm_annotations: types.MappingProxyType[str, t.Any] = field(repr=False)
+    """Read-only annotations of module."""
 
     loader_type: _LoaderType
 
@@ -79,7 +83,7 @@ class ModuleProperties:
 
     @property
     def is_package(self) -> bool:
-        return "__path__" in self.sm_dict
+        return self.sm_path is not None
 
     @classmethod
     def from_module(cls, module: types.ModuleType) -> "ModuleProperties":
@@ -101,7 +105,13 @@ class ModuleProperties:
             sm_name=module.__name__,
             sm_doc=module.__doc__,
             sm_package=module.__package__,
-            sm_file=getattr(module, "__file__", None),  # some module sourceless
+            # future: maybe infer name and package from spec
+            sm_file=spec.origin if spec else getattr(module, "__file__", None),
+            sm_path=(
+                spec.submodule_search_locations
+                if spec
+                else getattr(module, "__path__", None)
+            ),
             sm_dict=types.MappingProxyType(module.__dict__),
             sm_annotations=types.MappingProxyType(
                 getattr(module, "__annotations__", {})
@@ -148,12 +158,33 @@ class StubFoundResult(t.NamedTuple):
     origin: str
     is_package: bool
 
+    def create_exec_module(self) -> types.ModuleType:
+        return create_module_from_sourcefile(
+            self.name, self.origin, is_package=self.is_package
+        )
+
 
 _ModuleScanResult = t.Tuple[t.Dict[str, types.ModuleType], t.Dict[str, StubFoundResult]]
-_ModuleBoundResult = t.Tuple[
-    str, t.Optional[ModuleProperties], t.Optional[ModuleProperties]
-]
-"""Module bound result. Tuple of module name, real module, stub module."""
+
+
+class ModuleFoundResult(t.NamedTuple):
+    module: ModuleProperties
+    stub: t.Optional[ModuleProperties]
+    submodules: t.Dict[str, ModuleProperties]
+    substubs: t.Dict[str, ModuleProperties]
+
+    def gen_bounded_module(
+        self,
+    ) -> t.Iterator[
+        t.Tuple[str, t.Optional[ModuleProperties], t.Optional[ModuleProperties]]
+    ]:
+        """
+        Returns:
+            Tuple of module name, real module, stub module.
+        """
+        yield self.module.sm_name, self.module, self.stub
+        for name in sorted(self.submodules.keys() | self.substubs.keys()):
+            yield name, self.submodules.get(name), self.substubs.get(name)
 
 
 class ModuleFinder(_Finder):
@@ -164,8 +195,8 @@ class ModuleFinder(_Finder):
     ) -> _ModuleScanResult:
         """Scan all modules from `__path__` recursively.
 
-        Different from `pkgutil.iter_modules`, this function import and yield
-        all submodules, and support PEP420 implicit namespace package.
+        Different from `pkgutil.iter_modules`, this function import all submodules,
+        and support PEP420 implicit namespace package.
         Namespace module is not included in result.
 
         This function return modules that have original file (except namespace).
@@ -250,57 +281,47 @@ class ModuleFinder(_Finder):
                 self.scan_modules(fullname + "." + item, path, ctx)
         return ctx
 
-    def find_iter(
+    def find_all_modules(
         self, module: t.Union[str, types.ModuleType]
-    ) -> t.Iterator[_ModuleBoundResult]:
+    ) -> ModuleFoundResult:
         if isinstance(module, str):
             module = import_module(module)
         # top-level needs a special treat because we don't want to
         # search in parent path or sys path
         create_mps = ModuleProperties.from_module
-        file = module.__file__
-        if file is None:
-            yield (module.__name__, create_mps(module), None)
-            return
-        file_dir, basename = os.path.split(file)
-        stub_path = os.path.join(file_dir, basename.split(".", 1)[0] + ".pyi")
-        module_stub = None
-        if os.path.isfile(stub_path):
-            # top module has stub
-            module_stub = create_module_from_sourcefile(
-                module.__name__,
-                module.__name__,
-                is_package=hasattr(module, "__path__"),
-            )
-        yield (  # type: ignore  # mypy blames and operator
-            module.__name__,
-            create_mps(module),
-            module_stub and create_mps(module_stub),
-        )
-        path = getattr(module, "__path__", None)
+        module_ps = create_mps(module)
+        file = module_ps.sm_file
+        stub = None
+        # assert file, f"module {module} has no file location"
+        if file is not None:
+            file_dir, basename = os.path.split(file)
+            stub_path = os.path.join(file_dir, basename.split(".", 1)[0] + ".pyi")
+            if os.path.isfile(stub_path):
+                # top module has stub
+                stub = create_module_from_sourcefile(
+                    module_ps.sm_name,
+                    stub_path,
+                    is_package=module_ps.is_package,
+                )
+        path = module_ps.sm_path
         if path is None:
-            return
-        modules, stubs = self.scan_modules(module.__name__, path, ({}, {}))
-        modules = _fix_inconsistent_modules(modules)
-        for name in sorted(modules.keys() | stubs.keys()):
-            # here stubs maybe inconsistent namespace but we don't announce
-            # user should check this
-            submodule, stubresult = modules.get(name), stubs.get(name)
-            # depart this line because pylance blame on NamedTuple
-            submodule_stub = None
-            if stubresult:
-                submodule_stub = create_module_from_stub_result(stubresult)
-            yield (  # type: ignore  # mypy
-                name,
-                submodule and create_mps(submodule),
-                submodule_stub and create_mps(submodule_stub),
+            submodules = {}
+            substubs = {}
+        else:
+            scan_result = self.scan_modules(module_ps.sm_name, path, ({}, {}))
+            submodules = transform_dict_value(
+                _fix_inconsistent_modules(scan_result[0]), create_mps
             )
-
-
-def create_module_from_stub_result(res: StubFoundResult) -> types.ModuleType:
-    return create_module_from_sourcefile(
-        res.name, res.origin, is_package=res.is_package
-    )
+            # stub maybe inconsistent namespace but we don't announce
+            substubs = transform_dict_value(
+                scan_result[1], lambda x: create_mps(x.create_exec_module())
+            )
+        return ModuleFoundResult(
+            module_ps,
+            stub and create_mps(stub),  # type: ignore  # mypy blames "and" operator
+            submodules,
+            substubs,
+        )
 
 
 def create_module_from_sourcefile(

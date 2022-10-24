@@ -12,6 +12,7 @@ from nb_autodoc.typing import T_Annot, T_GenericAlias, Tp_GenericAlias
 
 T = t.TypeVar("T")
 TT = t.TypeVar("TT")
+KT = t.TypeVar("KT")
 
 
 _NULL: t.Any = object()
@@ -225,6 +226,15 @@ def eval_annot_as_possible(
         else:
             return t.copy_with(ev_args)  # type: ignore
     return t  # Ellipsis
+
+
+# Utilities
+
+
+def transform_dict_value(
+    dct: t.Dict[KT, T], transformer: t.Callable[[T], TT]
+) -> t.Dict[KT, TT]:
+    return dict(zip(dct.keys(), map(transformer, dct.values())))
 
 
 def dedent(s: str) -> str:
