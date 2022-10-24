@@ -167,11 +167,9 @@ class StubFoundResult(t.NamedTuple):
 _ModuleScanResult = t.Tuple[t.Dict[str, types.ModuleType], t.Dict[str, StubFoundResult]]
 
 
-class ModuleFoundResult(t.NamedTuple):
-    module: ModuleProperties
-    stub: t.Optional[ModuleProperties]
-    submodules: t.Dict[str, ModuleProperties]
-    substubs: t.Dict[str, ModuleProperties]
+class ModuleFoundResultProxy(t.NamedTuple):
+    modules: t.Dict[str, ModuleProperties]
+    stubs: t.Dict[str, ModuleProperties]
 
     def gen_bounded_module(
         self,
@@ -182,9 +180,8 @@ class ModuleFoundResult(t.NamedTuple):
         Returns:
             Tuple of module name, real module, stub module.
         """
-        yield self.module.sm_name, self.module, self.stub
-        for name in sorted(self.submodules.keys() | self.substubs.keys()):
-            yield name, self.submodules.get(name), self.substubs.get(name)
+        for name in sorted(self.modules.keys() | self.stubs.keys()):
+            yield name, self.modules.get(name), self.stubs.get(name)
 
 
 class ModuleFinder(_Finder):
@@ -283,15 +280,15 @@ class ModuleFinder(_Finder):
 
     def find_all_modules(
         self, module: t.Union[str, types.ModuleType]
-    ) -> ModuleFoundResult:
+    ) -> t.Tuple[t.Dict[str, types.ModuleType], t.Dict[str, types.ModuleType]]:
         if isinstance(module, str):
             module = import_module(module)
         # top-level needs a special treat because we don't want to
         # search in parent path or sys path
-        create_mps = ModuleProperties.from_module
-        module_ps = create_mps(module)
-        file = module_ps.sm_file
-        stub = None
+        modules = {module.__name__: module}
+        stubs = {}
+        file = module.__dict__.get("__file__")  # type: str | None
+        path = module.__dict__.get("__path__")  # type: t.Iterable[str] | None
         # assert file, f"module {module} has no file location"
         if file is not None:
             file_dir, basename = os.path.split(file)
@@ -299,28 +296,29 @@ class ModuleFinder(_Finder):
             if os.path.isfile(stub_path):
                 # top module has stub
                 stub = create_module_from_sourcefile(
-                    module_ps.sm_name,
+                    module.__name__,
                     stub_path,
-                    is_package=module_ps.is_package,
+                    is_package=hasattr(module, "__path__"),
                 )
-        path = module_ps.sm_path
-        if path is None:
-            submodules = {}
-            substubs = {}
-        else:
-            scan_result = self.scan_modules(module_ps.sm_name, path, ({}, {}))
-            submodules = transform_dict_value(
-                _fix_inconsistent_modules(scan_result[0]), create_mps
-            )
+                stubs[stub.__name__] = stub
+        if path is not None:
+            scan_result = self.scan_modules(module.__name__, path, ({}, {}))
+            submodules = _fix_inconsistent_modules(scan_result[0])
             # stub maybe inconsistent namespace but we don't announce
             substubs = transform_dict_value(
-                scan_result[1], lambda x: create_mps(x.create_exec_module())
+                scan_result[1], StubFoundResult.create_exec_module
             )
-        return ModuleFoundResult(
-            module_ps,
-            stub and create_mps(stub),  # type: ignore  # mypy blames "and" operator
-            submodules,
-            substubs,
+            modules.update(submodules)
+            stubs.update(substubs)
+        return modules, stubs
+
+    def find_all_modules_wrapped(
+        self, module: t.Union[str, types.ModuleType]
+    ) -> ModuleFoundResultProxy:
+        modules, stubs = self.find_all_modules(module)
+        return ModuleFoundResultProxy(
+            transform_dict_value(modules, ModuleProperties.from_module),
+            transform_dict_value(stubs, ModuleProperties.from_module),
         )
 
 
@@ -349,7 +347,11 @@ def create_module_from_sourcefile(
     # maybe exec after init namespace from TYPE_CHECKING
     # but currently we disallow writing importable stmt in TYPE_CHECKING
     # module.__dict__.update(init_attrs)
-    loader.exec_module(module)
+    try:
+        loader.exec_module(module)
+    except Exception:
+        # wrap exception to determind the original file
+        raise RuntimeError(f"executating <module {fullname!r} from {path!r}> failed")
     return module
 
 
