@@ -376,7 +376,7 @@ def _fix_inconsistent_modules(
         common_parts = _commonprefix((name_parts, rname_parts))
         if len(rname_parts) - len(common_parts) > 1:
             prefix = ".".join(common_parts)
-            grouped = ["." + i for i in rname_parts[len(common_parts) :]]
+            grouped = ["." + i for i in rname_parts[len(common_parts) : -1]]
             # reversed insert
             modules_unpack[index + 1 : index + 1] = (
                 (modulename, import_module(modulename))
