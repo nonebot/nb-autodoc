@@ -5,7 +5,6 @@ import sys
 import types
 import typing as t
 from importlib.machinery import all_suffixes
-from importlib.util import resolve_name as imp_resolve_name
 
 from nb_autodoc.log import logger
 from nb_autodoc.typing import T_Annot, T_GenericAlias, Tp_GenericAlias
@@ -48,27 +47,19 @@ class TypeCheckingClass:
 
 @t.overload
 def frozendict() -> t.Dict[t.Any, t.Any]:
-    ...
+    """Return empty MappingProxyType object."""
 
 
 @t.overload
 def frozendict(dct: T) -> T:
-    ...
+    """Return MappingProxyType object."""
 
 
 def frozendict(dct: T = _NULL) -> T:
-    """Get MappingProxyType and correct typing (for TypedDict)."""
+    """Get MappingProxyType object and correct typing (for TypedDict)."""
     if dct is _NULL:
         return types.MappingProxyType({})  # type: ignore
     return types.MappingProxyType(dct)  # type: ignore
-
-
-def resolve_name(
-    name_or_import: t.Union[ast.ImportFrom, str], package: t.Optional[str] = None
-) -> str:
-    if isinstance(name_or_import, ast.ImportFrom):
-        name_or_import = "." * name_or_import.level + (name_or_import.module or "")
-    return imp_resolve_name(name_or_import, package)
 
 
 # inspect
@@ -272,6 +263,14 @@ def cleandoc(s: str, strict: bool = False) -> str:
     for i in range(1, len(lines)):
         lines[i] = lines[i][margin:]
     return "\n".join(lines)
+
+
+def typed_lru_cache(maxsize: int = 128, typed: bool = False) -> t.Callable[[T], T]:
+    ...
+
+
+# `lru_cache` has no type hint, so trick the linter
+typed_lru_cache = __import__("functools").lru_cache
 
 
 class cached_property(t.Generic[T, TT]):

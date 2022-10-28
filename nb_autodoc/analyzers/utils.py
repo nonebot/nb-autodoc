@@ -4,9 +4,9 @@ import itertools
 import sys
 import typing as t
 from contextlib import contextmanager
+from importlib.util import resolve_name as imp_resolve_name
 
 from nb_autodoc.log import logger
-from nb_autodoc.utils import resolve_name
 
 T = t.TypeVar("T")
 
@@ -53,14 +53,19 @@ def ast_unparse(node: ast.AST, _default: t.Optional[str] = None) -> str:
 # It's not good idea to fixup and return correct node
 def is_constant_node(node: ast.expr) -> bool:
     if sys.version_info >= (3, 8):
-        return isinstance(node, ast.Constant)
-    return isinstance(
-        node, (ast.Num, ast.Str, ast.Bytes, ast.NameConstant, ast.Ellipsis)
+        # some duck check
+        return node.__class__.__name__ == "Constant"
+    return node.__class__.__name__ in (
+        "Num",
+        "Str",
+        "Bytes",
+        "NameConstant",
+        "Ellipsis",
     )
 
 
 def get_constant_value(node: ast.expr) -> t.Any:
-    if sys.version_info < (3, 8) and isinstance(node, ast.Ellipsis):
+    if node.__class__.__name__ == "Ellipsis":
         return ...
     return getattr(node, node._fields[0])  # generic
 
@@ -73,25 +78,52 @@ def get_assign_targets(node: t.Union[ast.Assign, ast.AnnAssign]) -> t.List[ast.e
         return [node.target]
 
 
-def get_target_names(node: ast.expr, self: str = "") -> t.List[str]:
-    """Get `[a, b, c]` from a target `(a, (b, c))`."""
-    if self:
+def get_target_names(
+    node: ast.expr, self_id: t.Optional[str] = None
+) -> t.Tuple[str, ...]:
+    """Get `(a, b, c)` from a target `(a, (b, c))`."""
+    if self_id:
         if isinstance(node, ast.Attribute):
             # Get `attr` from a target `self.attr`
-            if isinstance(node.value, ast.Name) and node.value.id == self:
-                return [node.attr]
-        return []  # Error docstring in class.__init__
-    if isinstance(node, ast.Name):
-        return [node.id]
+            if isinstance(node.value, ast.Name) and node.value.id == self_id:
+                return (node.attr,)
+        return ()
+    elif isinstance(node, ast.Name):
+        return (node.id,)
     elif isinstance(node, (ast.List, ast.Tuple)):
-        return list(
-            itertools.chain.from_iterable(get_target_names(elt) for elt in node.elts)
+        return tuple(
+            itertools.chain.from_iterable(
+                get_target_names(elt, self_id) for elt in node.elts
+            )
         )
     # Not new variable creation
-    return []
+    return ()
+
+
+# @typed_lru_cache(1)
+def get_assign_names(
+    node: t.Union[ast.Assign, ast.AnnAssign], self_id: t.Optional[str] = None
+) -> t.Tuple[str, ...]:
+    """Get names `(a, b, c, d)` from complex assignment `a, b = c, d = 1, 2`.
+
+    This function is `cache_size=1`.
+    """
+    return tuple(
+        itertools.chain.from_iterable(
+            get_target_names(i, self_id) for i in get_assign_targets(node)
+        )
+    )
 
 
 ### For components
+
+
+def resolve_name(
+    name_or_import: t.Union[ast.ImportFrom, str], package: t.Optional[str] = None
+) -> str:
+    if isinstance(name_or_import, ast.ImportFrom):
+        name_or_import = "." * name_or_import.level + (name_or_import.module or "")
+    return imp_resolve_name(name_or_import, package)
 
 
 class ImportFailed(t.NamedTuple):

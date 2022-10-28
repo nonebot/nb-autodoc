@@ -83,18 +83,14 @@ class Class(root):
     body: list[root]
 
 
-# parser store
+# Abstract Docstring for Builder
+
+
 class docstring(Document):
     lineno: int
     col: int
     end_lineno: int
     end_col: int
-
-
-class Role(docstring):
-    name: _identifier
-    text: str | None
-    content: str
 
 
 class Docstring(docstring):
@@ -103,6 +99,12 @@ class Docstring(docstring):
     descr: str
     long_descr: str
     sections: list[section]
+
+
+class Role(docstring):
+    name: _identifier
+    text: str | None
+    content: str
 
 
 class ColonArg(docstring):

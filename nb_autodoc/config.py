@@ -16,7 +16,7 @@ class Config(TypedDict):
 
     # Filter pattern for finder
     skip_import_modules: frozenset[str]
-    """Module names that do not wanted import, wildcard(*) is OK.
+    """Module names that skip importation and analysis, wildcard(*) is OK.
 
     Carefully add this option on a dependent module because we want to
     analyze python object relationship.
