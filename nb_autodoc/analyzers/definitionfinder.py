@@ -2,7 +2,6 @@ import ast
 import itertools
 import sys
 from dataclasses import dataclass, field
-from inspect import Signature
 from typing import Any, Dict, List, Optional
 
 from .utils import get_assign_names, get_constant_value, is_constant_node, resolve_name
@@ -30,7 +29,7 @@ class FunctionDefData:
 class ClassDefData:
     order: int
     name: str
-    freevars: Dict[str, Any] = field(default_factory=dict)
+    scope: Dict[str, Any] = field(default_factory=dict)
     # instance vars is only picked from `class.__init__`
     # class decl is stored in `class.__annotations__`
     instance_vars: Dict[str, AssignData] = field(default_factory=dict)
@@ -45,13 +44,9 @@ class ImportFromData:
     orig_name: str
 
 
-def signature_from_ast(node: ast.FunctionDef) -> Signature:
-    ...
-
-
 # class VariableCommentMixin:
 #     previous: Optional[ast.stmt]
-#     freevars: Dict[str, Any]
+#     scope: Dict[str, Any]
 #     current_classes: List[ClassDefData]
 
 #     def visit(self, node: ast.AST) -> None:
@@ -74,16 +69,11 @@ class DefinitionFinder:
     - compound statement body (if, while, for, try, with, match)
     - See: https://docs.python.org/3/reference/executionmodel.html#naming-and-binding
 
-    We bind names on `from...import`, `new variable assignment`, `function or class`
-
-    A name can be classified into:
-
-    - definition: assign, function and class
-    - external: ImportFrom matches user module
+    We bind names on `from...import`, `new variable declaration`, `function or class`
 
     **Variable comment:**
 
-    In pyright, variable comment is bound on its first decl (maybe definition).
+    In pyright, variable comment is bound on its first decl (even None).
     But we bind comment that first appears in multiple definitions.
 
     Just like:
@@ -99,21 +89,18 @@ class DefinitionFinder:
     See: https://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html
     Now it is deprecated for implicit meaning and irregular syntax.
 
-    If assign has multiple target like `a, b = 1, 2`, its docstring and type comment
+    If assignment has multiple names like `a, b = 1, 2`, its docstring and type comment
     will be assigned to each name.
     """
 
     def __init__(self, *, package: Optional[str]) -> None:
-        # arg should all be optional (as analysis feature)
-        # self.name = name
-        # """Module name. Determind external import."""
         self.package = package  # maybe null
         """Package name. Resolve relative import."""
         self.next_stmt: Optional[ast.stmt] = None
         self.current_classes: List[ClassDefData] = []
         self.current_function: Optional[ast.FunctionDef] = None
         self.counter = itertools.count()
-        self.freevars: Dict[str, Any] = {}
+        self.scope: Dict[str, Any] = {}
         """The global names binding."""
         # special import namespace context
         self.imp_typing: List[str] = []
@@ -121,9 +108,9 @@ class DefinitionFinder:
 
     def get_current_scope(self) -> Dict[str, Any]:
         if self.current_classes:
-            return self.current_classes[-1].freevars
+            return self.current_classes[-1].scope
         else:
-            return self.freevars
+            return self.scope
 
     def get_self(self) -> Optional[str]:
         """Return the first argument name in a method if exists."""

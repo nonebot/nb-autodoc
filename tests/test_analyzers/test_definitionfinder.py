@@ -22,7 +22,7 @@ class TestDefinitionFinder:
         visitor = DefinitionFinder(package="mypkg.pkg.pkg")
         visitor.visit(module)
         del code, module
-        module_freevars = visitor.freevars
+        module_freevars = visitor.scope
         # duplicated from repr(module_freevars)
         # notice that AssignData.annotation is uncomparable `ast.Expression`
         # so until unparser implement (maybe py3.8), annotation test is unavailable
@@ -78,7 +78,7 @@ class TestDefinitionFinder:
             "A": ClassDefData(
                 order=18,
                 name="A",
-                freevars={
+                scope={
                     "a": AssignData(
                         order=19, name="a", type_comment=None, docstring=None
                     )
@@ -89,7 +89,7 @@ class TestDefinitionFinder:
             "B": ClassDefData(
                 order=20,
                 name="B",
-                freevars={
+                scope={
                     "a": AssignData(
                         order=21, name="a", type_comment=None, docstring="B.a docstring"
                     )
@@ -100,7 +100,7 @@ class TestDefinitionFinder:
             "B1": ClassDefData(
                 order=22,
                 name="B1",
-                freevars={
+                scope={
                     "a": AssignData(
                         order=23, name="a", type_comment=None, docstring=None
                     ),
@@ -113,7 +113,7 @@ class TestDefinitionFinder:
             "C": ClassDefData(
                 order=26,
                 name="C",
-                freevars={
+                scope={
                     "a": AssignData(
                         order=27,
                         name="a",
@@ -124,7 +124,7 @@ class TestDefinitionFinder:
                     "_A": ClassDefData(
                         order=33,
                         name="_A",
-                        freevars={
+                        scope={
                             "_a": AssignData(
                                 order=34,
                                 name="_a",
@@ -168,7 +168,7 @@ class TestDefinitionFinder:
         module = ast_parse(code)
         visitor = DefinitionFinder(package="<test>")
         visitor.visit(module)
-        module_freevars = visitor.freevars
+        module_freevars = visitor.scope
         assert module_freevars == {
             "a": AssignData(
                 order=0, name="a", type_comment=None, docstring="a first docstring"
