@@ -2,10 +2,10 @@
 # fmt: off
 
 import os
-from pathlib import Path
+from pathlib import Path as Path_rename
 
-# give module and package name for DefinitionFinder to analyze following import stmt
-from mypkg import ext_A, ext_fa
+# give package name to DefinitionFinder to analyze following import stmt
+from mypkg import ext_A as ext_A_rename, ext_fa
 from mypkg.pkg import ext_B, ext_fb
 
 from .util import ext_fc

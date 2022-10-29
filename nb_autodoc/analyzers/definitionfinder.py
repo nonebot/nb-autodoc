@@ -38,11 +38,11 @@ class ClassDefData:
 
 
 @dataclass
-class External:
+class ImportFromData:
     order: int
-    varname: str
+    name: str  # import asname
     module: str
-    name: str
+    orig_name: str
 
 
 def signature_from_ast(node: ast.FunctionDef) -> Signature:
@@ -67,17 +67,19 @@ class DefinitionFinder:
 
     The following patterns bind names:
 
-        - class or function definition
-        - assignment expression (:=)
-        - targets that create new variable
-        - import statement
-        - compound statement body (if, while, for, try, with, match)
-        - See: https://docs.python.org/3/reference/executionmodel.html#naming-and-binding
+    - class or function definition
+    - assignment expression (:=)
+    - targets that create new variable
+    - import statement
+    - compound statement body (if, while, for, try, with, match)
+    - See: https://docs.python.org/3/reference/executionmodel.html#naming-and-binding
+
+    We bind names on `from...import`, `new variable assignment`, `function or class`
 
     A name can be classified into:
 
-        - definition: assign, function and class
-        - external: ImportFrom matches user module
+    - definition: assign, function and class
+    - external: ImportFrom matches user module
 
     **Variable comment:**
 
@@ -101,11 +103,11 @@ class DefinitionFinder:
     will be assigned to each name.
     """
 
-    def __init__(self, name: str, package: Optional[str]) -> None:
+    def __init__(self, *, package: Optional[str]) -> None:
         # arg should all be optional (as analysis feature)
-        self.name = name
-        """Module name. Determind external import."""
-        self.package = package
+        # self.name = name
+        # """Module name. Determind external import."""
+        self.package = package  # maybe null
         """Package name. Resolve relative import."""
         self.next_stmt: Optional[ast.stmt] = None
         self.current_classes: List[ClassDefData] = []
@@ -207,10 +209,15 @@ class DefinitionFinder:
         return self.visit_Assign(node)  # type: ignore
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if self.current_function:
+            return
         absoluate_module = resolve_name(node, self.package)
-        if absoluate_module.split(".", 1)[0] == self.name.split(".", 1):
-            for alias in node.names:
-                varname = alias.asname or alias.name
+        scope = self.get_current_scope()
+        for alias in node.names:
+            varname = alias.asname or alias.name
+            scope[varname] = ImportFromData(
+                next(self.counter), varname, absoluate_module, alias.name
+            )
 
     # def visit_Expr(self, node: ast.Expr) -> None:
     #     # bound docstring on previous assign

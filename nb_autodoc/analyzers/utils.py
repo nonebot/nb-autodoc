@@ -121,6 +121,7 @@ def get_assign_names(
 def resolve_name(
     name_or_import: t.Union[ast.ImportFrom, str], package: t.Optional[str] = None
 ) -> str:
+    """Resolve a relative module name to an absolute one."""
     if isinstance(name_or_import, ast.ImportFrom):
         name_or_import = "." * name_or_import.level + (name_or_import.module or "")
     return imp_resolve_name(name_or_import, package)

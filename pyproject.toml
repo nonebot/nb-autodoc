@@ -30,6 +30,7 @@ target-version = ["py37"]
 profile = "black"
 extra_standard_library = ["typing_extensions"]
 skip_gitignore = true
+skip_glob = ["tests/analyzerdata/*"]
 
 [tool.pytest.ini_options]
 log_cli = true  # for temporary debug

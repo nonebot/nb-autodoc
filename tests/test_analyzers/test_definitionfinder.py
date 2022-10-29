@@ -6,19 +6,20 @@ from nb_autodoc.analyzers.definitionfinder import (
     ClassDefData,
     DefinitionFinder,
     FunctionDefData,
+    ImportFromData,
 )
 from nb_autodoc.analyzers.utils import ast_parse
 
 
 def get_analyzer_data(filename: str) -> str:
-    return open(Path(__file__).parent / "analyzerdata" / filename).read()
+    return open(Path(__file__).parent.parent / "analyzerdata" / filename).read()
 
 
 class TestDefinitionFinder:
     def test_simple_data(self):
         code = get_analyzer_data("simple-definition-ast.py")
         module = ast_parse(code)
-        visitor = DefinitionFinder("mypkg.pkg", "mypkg.pkg.pkg")
+        visitor = DefinitionFinder(package="mypkg.pkg.pkg")
         visitor.visit(module)
         del code, module
         module_freevars = visitor.freevars
@@ -26,88 +27,106 @@ class TestDefinitionFinder:
         # notice that AssignData.annotation is uncomparable `ast.Expression`
         # so until unparser implement (maybe py3.8), annotation test is unavailable
         assert module_freevars == {
+            "Path_rename": ImportFromData(
+                order=0, name="Path_rename", module="pathlib", orig_name="Path"
+            ),
+            "ext_A_rename": ImportFromData(
+                order=1, name="ext_A_rename", module="mypkg", orig_name="ext_A"
+            ),
+            "ext_fa": ImportFromData(
+                order=2, name="ext_fa", module="mypkg", orig_name="ext_fa"
+            ),
+            "ext_B": ImportFromData(
+                order=3, name="ext_B", module="mypkg.pkg", orig_name="ext_B"
+            ),
+            "ext_fb": ImportFromData(
+                order=4, name="ext_fb", module="mypkg.pkg", orig_name="ext_fb"
+            ),
+            "ext_fc": ImportFromData(
+                order=5, name="ext_fc", module="mypkg.pkg.pkg.util", orig_name="ext_fc"
+            ),
             "a": AssignData(
-                order=0, name="a", type_comment="int", docstring="a docstring"
+                order=6, name="a", type_comment="int", docstring="a docstring"
             ),
-            "a2": AssignData(order=1, name="a2", type_comment="int", docstring=None),
-            "a3": AssignData(order=2, name="a3", type_comment=None, docstring=None),
+            "a2": AssignData(order=7, name="a2", type_comment="int", docstring=None),
+            "a3": AssignData(order=8, name="a3", type_comment=None, docstring=None),
             "b": AssignData(
-                order=3, name="b", type_comment="int", docstring="b docstring"
+                order=9, name="b", type_comment="int", docstring="b docstring"
             ),
-            "fa": FunctionDefData(order=4, name="fa"),
+            "fa": FunctionDefData(order=10, name="fa"),
             "c": AssignData(
-                order=5, name="c", type_comment=None, docstring="c and d docstring"
+                order=11, name="c", type_comment=None, docstring="c and d docstring"
             ),
             "d": AssignData(
-                order=6, name="d", type_comment=None, docstring="c and d docstring"
+                order=12, name="d", type_comment=None, docstring="c and d docstring"
             ),
             "a1": AssignData(
-                order=7, name="a1", type_comment=None, docstring="abcde11111 docstring"
+                order=13, name="a1", type_comment=None, docstring="abcde11111 docstring"
             ),
             "b1": AssignData(
-                order=8, name="b1", type_comment=None, docstring="abcde11111 docstring"
+                order=14, name="b1", type_comment=None, docstring="abcde11111 docstring"
             ),
             "c1": AssignData(
-                order=9, name="c1", type_comment=None, docstring="abcde11111 docstring"
+                order=15, name="c1", type_comment=None, docstring="abcde11111 docstring"
             ),
             "d1": AssignData(
-                order=10, name="d1", type_comment=None, docstring="abcde11111 docstring"
+                order=16, name="d1", type_comment=None, docstring="abcde11111 docstring"
             ),
             "e1": AssignData(
-                order=11, name="e1", type_comment=None, docstring="abcde11111 docstring"
+                order=17, name="e1", type_comment=None, docstring="abcde11111 docstring"
             ),
             "A": ClassDefData(
-                order=12,
+                order=18,
                 name="A",
                 freevars={
                     "a": AssignData(
-                        order=13, name="a", type_comment=None, docstring=None
+                        order=19, name="a", type_comment=None, docstring=None
                     )
                 },
                 instance_vars={},
                 methods={},
             ),
             "B": ClassDefData(
-                order=14,
+                order=20,
                 name="B",
                 freevars={
                     "a": AssignData(
-                        order=15, name="a", type_comment=None, docstring="B.a docstring"
+                        order=21, name="a", type_comment=None, docstring="B.a docstring"
                     )
                 },
                 instance_vars={},
                 methods={},
             ),
             "B1": ClassDefData(
-                order=16,
+                order=22,
                 name="B1",
                 freevars={
                     "a": AssignData(
-                        order=17, name="a", type_comment=None, docstring=None
+                        order=23, name="a", type_comment=None, docstring=None
                     ),
-                    "__init__": FunctionDefData(order=18, name="__init__"),
-                    "b": FunctionDefData(order=19, name="b"),
+                    "__init__": FunctionDefData(order=24, name="__init__"),
+                    "b": FunctionDefData(order=25, name="b"),
                 },
                 instance_vars={},
                 methods={},
             ),
             "C": ClassDefData(
-                order=20,
+                order=26,
                 name="C",
                 freevars={
                     "a": AssignData(
-                        order=21,
+                        order=27,
                         name="a",
                         type_comment=None,
                         docstring="C.a classvar docstring",
                     ),
-                    "__init__": FunctionDefData(order=22, name="__init__"),
+                    "__init__": FunctionDefData(order=28, name="__init__"),
                     "_A": ClassDefData(
-                        order=27,
+                        order=33,
                         name="_A",
                         freevars={
                             "_a": AssignData(
-                                order=28,
+                                order=34,
                                 name="_a",
                                 type_comment=None,
                                 docstring="nested OK",
@@ -119,22 +138,22 @@ class TestDefinitionFinder:
                 },
                 instance_vars={
                     "a": AssignData(
-                        order=23,
+                        order=29,
                         name="a",
                         type_comment="int | None",
                         docstring="C instance var a/b docstring",
                     ),
                     "b": AssignData(
-                        order=24,
+                        order=30,
                         name="b",
                         type_comment="int | None",
                         docstring="C instance var a/b docstring",
                     ),
                     "c": AssignData(
-                        order=25, name="c", type_comment=None, docstring=None
+                        order=31, name="c", type_comment=None, docstring=None
                     ),
                     "d": AssignData(
-                        order=26,
+                        order=32,
                         name="d",
                         type_comment=None,
                         docstring="C instance var d docstring",
@@ -147,7 +166,7 @@ class TestDefinitionFinder:
     def test_assigndata_override(self):
         code = get_analyzer_data("assigndata-override-ast.py")
         module = ast_parse(code)
-        visitor = DefinitionFinder("<test>", "<test>")
+        visitor = DefinitionFinder(package="<test>")
         visitor.visit(module)
         module_freevars = visitor.freevars
         assert module_freevars == {
