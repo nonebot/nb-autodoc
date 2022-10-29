@@ -5,6 +5,7 @@ import sys
 import typing as t
 from contextlib import contextmanager
 from importlib.util import resolve_name as imp_resolve_name
+from inspect import Parameter, Signature
 
 from nb_autodoc.log import logger
 
@@ -175,14 +176,76 @@ def eval_import_stmts(
     return imported, failed_from_import
 
 
+def signature_from_ast(node: ast.FunctionDef) -> Signature:
+    """Signature from ast. Stores original annotation expr in `Parameter.annotation`."""
+    args = node.args
+    params = []
+    defaults = args.defaults
+    kwdefaults = args.kw_defaults
+    non_default_count = len(args.args) - len(defaults)
+    _empty = Parameter.empty
+    if sys.version_info >= (3, 8):
+        for arg in args.posonlyargs:
+            params.append(
+                Parameter(
+                    arg.arg,
+                    Parameter.POSITIONAL_ONLY,
+                    annotation=arg.annotation or _empty,
+                )
+            )
+    for index, arg in enumerate(args.args):
+        params.append(
+            Parameter(
+                arg.arg,
+                Parameter.POSITIONAL_OR_KEYWORD,
+                default=(
+                    _empty
+                    if index < non_default_count
+                    else defaults[index - non_default_count]
+                ),
+                annotation=arg.annotation or _empty,
+            )
+        )
+    if args.vararg:
+        arg = args.vararg
+        params.append(
+            Parameter(
+                arg.arg,
+                Parameter.VAR_POSITIONAL,
+                annotation=arg.annotation or _empty,
+            )
+        )
+    for i, arg in enumerate(args.kwonlyargs):
+        params.append(
+            Parameter(
+                arg.arg,
+                kind=Parameter.KEYWORD_ONLY,
+                default=kwdefaults[i] or _empty,
+                annotation=arg.annotation or _empty,
+            )
+        )
+    if args.kwarg:
+        arg = args.kwarg
+        params.append(
+            Parameter(
+                arg.arg,
+                kind=Parameter.VAR_KEYWORD,
+                annotation=arg.annotation or _empty,
+            )
+        )
+    # TODO: add type comment feature
+    # in pyright, annotation has higher priority that type comment
+    # https://peps.python.org/pep-0484/#suggested-syntax-for-python-2-7-and-straddling-code
+    return Signature(params, return_annotation=node.returns or _empty)
+
+
 class Unparser(ast.NodeVisitor):
     """Utilities like `ast._Unparser` in py3.9+.
 
     Subclassing this class and implement the unparse method.
     """
 
-    def __init__(self) -> None:
-        self._source: t.List[str] = []
+    _source: t.List[str]
 
     def traverse(self, node: ast.AST) -> None:
         """Alternative call for `super().visit()` since `visit` is overridden.
