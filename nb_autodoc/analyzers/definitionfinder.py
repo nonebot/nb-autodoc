@@ -153,12 +153,13 @@ class DefinitionFinder:
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         if self.current_function:
             return
-        scope = self.get_current_scope()
-        scope[node.name] = FunctionDefData(next(self.counter), node.name)
+        function_data = FunctionDefData(next(self.counter), node.name)
         self.current_function = node
         if self.current_classes and node.name == "__init__":
             self.visit_body(node.body)
         self.current_function = None
+        scope = self.get_current_scope()
+        scope[node.name] = function_data
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         return self.visit_FunctionDef(node)  # type: ignore
