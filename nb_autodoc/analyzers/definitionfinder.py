@@ -8,23 +8,25 @@ from typing import Any, Dict, List, Optional
 from .utils import get_assign_names, get_constant_value, is_constant_node, resolve_name
 
 
-@dataclass(eq=False)
+@dataclass
 class AssignData:
     # store both ast.Assign and ast.AnnAssign
     order: int
     name: str
-    annotation: Optional[ast.Expression] = None
+    annotation: Optional[ast.Expression] = field(
+        default=None, repr=False, compare=False
+    )
     type_comment: Optional[str] = None
     docstring: Optional[str] = None
 
 
-@dataclass(eq=False)
+@dataclass
 class FunctionDefData:
     order: int
     name: str
 
 
-@dataclass(eq=False)
+@dataclass
 class ClassDefData:
     order: int
     name: str
@@ -35,7 +37,7 @@ class ClassDefData:
     methods: Dict[str, "FunctionDefData"] = field(default_factory=dict)
 
 
-@dataclass(eq=False)
+@dataclass
 class External:
     order: int
     varname: str
@@ -163,11 +165,11 @@ class DefinitionFinder:
         if self.current_function:
             return
         class_data = ClassDefData(next(self.counter), node.name)
-        scope = self.get_current_scope()
-        scope[node.name] = class_data
         self.current_classes.append(class_data)
         self.visit_body(node.body)
         self.current_classes.pop()
+        scope = self.get_current_scope()
+        scope[node.name] = class_data
 
     def visit_Assign(self, node: ast.Assign) -> None:
         self_id = self.get_self()

@@ -1,11 +1,10 @@
 # type: ignore
 # fmt: off
 
-# autodoc: test_DefinitionFinder on
-
 import os
 from pathlib import Path
 
+# give module and package name for DefinitionFinder to analyze following import stmt
 from mypkg import ext_A, ext_fa
 from mypkg.pkg import ext_B, ext_fb
 
@@ -18,12 +17,12 @@ a3: "A" = 1
 b = 2  # type: int
 """b docstring"""
 """bad"""
-def a(): ...
+def fa(): ...
 """bad"""
 c = d = 3
 """c and d docstring"""
 x['_'], x.attr = 1, 2
-"""bad"""
+"""no new variable so bad"""
 
 (
     x['_'], (a1, b1)
@@ -41,31 +40,27 @@ class B:
 
 class B1:
     a = 1
-    # no error even no self
+    # no self check, and no staticmethod check
     def __init__(): ...
-    def b(): ...
+    @staticmethod
+    def b(arg):
+        # treat as instance var, but no visitor for it
+        arg.a = 1
+        a = 1  # type: bad
+        """bad"""
 
 class C:
     a = 1
-    """C.a docstring"""
-    @classmethod  # no check
-    def ma(cls, a, b):
-        a = 1  # type: bad
-        """bad"""
+    """C.a classvar docstring"""
     def __init__(slf, a, b):
         self.badattr1: int = 1
         self.badattr2 = 1  # type: bad
         """bad"""
-        slf.a = slf.b = 1  # type: str | None
-        """C.__init__.a/b docstring"""
+        slf.a = slf.b = 1  # type: int | None
+        """C instance var a/b docstring"""
         slf.c: int = 1
         slf.d: str = 'foo'
-        """C.__init__.d docstring"""
+        """C instance var d docstring"""
     class _A:
         _a = 1
-        """bad"""
-
-# autodoc: test_DefinitionFinder off
-
-
-# fmt: on
+        """nested OK"""
