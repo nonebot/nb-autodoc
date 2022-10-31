@@ -5,6 +5,14 @@ perform import. `ImportError` raises properly.
 
 Directory or module name that not an identifier will not be imported. Those are thinked
 as other module's search path.
+
+**Stub file:**
+
+Stub files are written in normal Python 3 syntax, but generally leaving out
+runtime logic like variable initializers, function bodies, and default arguments. (mypy said)
+
+So normal stub files are safety to execute. Additional, we give `CO_FUTURE_ANNOTATIONS` flag
+to compiler before execute stub code.
 """
 
 import os
