@@ -31,6 +31,10 @@ if sys.version_info < (3, 11):
 else:
     from importlib.machinery import NamespaceLoader
 
+import __future__ as _future
+
+_co_future_flags = {"annotations": _future.annotations.compiler_flag}
+
 
 _Filter = t.Callable[[str], bool]
 
@@ -322,6 +326,18 @@ class ModuleFinder(_Finder):
         )
 
 
+class _StubSourceFileLoader(SourceFileLoader):
+    def exec_module(self, module: types.ModuleType) -> None:
+        # custom implementation because we don't want to cache bytecode
+        # and need to give `annotations` flag to code compilation
+        code = open(self.path).read()
+        # current cpython only has feature `annotations`
+        # if there has more features in future, we should extract them and bitwise OR them
+        flags = _co_future_flags["annotations"]
+        code_object = compile(code, self.path, "exec", flags=flags, dont_inherit=True)
+        exec(code_object, module.__dict__)
+
+
 def create_module_from_sourcefile(
     fullname: str, path: str, *, is_package: t.Optional[bool] = None
 ) -> types.ModuleType:
@@ -336,7 +352,8 @@ def create_module_from_sourcefile(
             "expect suffixes '.py' or '.pyi' to create source file module, "
             f"got {path!r} with suffix {ext!r}"
         )
-    loader = SourceFileLoader(fullname, path)
+    loader_cls = SourceFileLoader if ext != ".pyi" else _StubSourceFileLoader
+    loader = loader_cls(fullname, path)
     if is_package is None:
         is_package = modname == "__init__"
     # spec_from_file_location without loader argument will skip invalid file extension
@@ -349,9 +366,11 @@ def create_module_from_sourcefile(
     # module.__dict__.update(init_attrs)
     try:
         loader.exec_module(module)
-    except Exception:
+    except Exception as e:
         # wrap exception to determind the original file
-        raise RuntimeError(f"executating <module {fullname!r} from {path!r}> failed")
+        raise RuntimeError(
+            f"executating module {fullname!r} from {path!r} failed"
+        ) from e
     return module
 
 
