@@ -287,7 +287,11 @@ class ModuleFinder(_Finder):
             if item in seen:
                 continue
             if path:
-                self.scan_modules(fullname + "." + item, path, ctx)
+                childfullname = fullname + "." + item
+                if self.is_exclude_module(childfullname):
+                    # for pattern "pkg", ignore all pkg.*
+                    continue
+                self.scan_modules(childfullname, path, ctx)
         return ctx
 
     def find_all_modules(
