@@ -13,16 +13,6 @@ var2: int = ...
 var3: T_Checktyping = ...
 """var3 override docstring"""
 
-#: connect--
-#: comment ahead
-comment_ahead: int
-
-comment_after: Set[int]
-#: comment after
-#: --connect
-
-comment_inline: Callable[[], int]  #: comment inline
-
 def func(arg: int) -> T_Checktyping: ...
 
 class A:
@@ -40,7 +30,7 @@ class A:
         """pingelse override docstring
 
         参数:
-            name (Union[test_pkg.api.Api, test_pkg.overload.A]): common desc
+            name (Union[int, str]): common desc
         """
         ...
     @property

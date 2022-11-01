@@ -11,15 +11,9 @@ var2: int = 1
 var3: T_Checktyping
 """only annotation variable in real module"""
 
-comment_ahead = "e"
-
-comment_after = "f"
-
-comment_inline = "g"
-
 
 def func(arg):
-    """dummy func"""
+    """simple func"""
     return 1
 
 

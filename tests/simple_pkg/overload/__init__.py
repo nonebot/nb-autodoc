@@ -1,5 +1,5 @@
 def func(arg, **kwargs):
-    """main docstring. (only document this description!)"""
+    """the impl docstring will be ignored."""
     return 1
 
 

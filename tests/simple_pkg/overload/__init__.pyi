@@ -6,15 +6,17 @@ from .typing import T_Type
 @overload
 def func(arg: ContextVar[int]) -> T_Type:
     """
-    docstring overload 1.
+    docstring overload 1. the main docstring.
 
     Args:
         arg: the context var of type int.
 
     Returns:
         T_Type: str or none.
+
+    Example:
+        xxx
     """
-    ...
 
 @overload
 def func(arg: int) -> int:
@@ -27,7 +29,6 @@ def func(arg: int) -> int:
     Returns:
         int: the calculated arg.
     """
-    ...
 
 class A:
     @overload

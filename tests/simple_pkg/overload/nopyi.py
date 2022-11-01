@@ -7,7 +7,7 @@ from .typing import T_Type
 @overload
 def func(arg: ContextVar[int]) -> T_Type:
     """
-    docstring overload 1.
+    docstring overload 1. main docstring
 
     Args:
         arg: the context var of type int.
@@ -34,9 +34,7 @@ def func(arg: int) -> int:
 
 def func(arg: Union[ContextVar[int], int]) -> Union[T_Type, int]:
     """
-    docstring overload 3.
-
-    this should not documented.
+    docstring overload 3. this should not documented.
     """
     ...
 
@@ -51,4 +49,5 @@ class A:
         ...
 
     def foo(self, s: Union[T_Type, str]) -> str:
+        """Should this documented?"""
         ...
