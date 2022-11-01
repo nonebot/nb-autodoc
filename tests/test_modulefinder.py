@@ -1,4 +1,5 @@
 from typing import Any
+
 import pytest
 
 from nb_autodoc.config import default_config

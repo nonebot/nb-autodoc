@@ -20,9 +20,7 @@ class AssignData:
     # store both ast.Assign and ast.AnnAssign
     order: int
     name: str
-    annotation: Optional[ast.Expression] = field(
-        default=None, repr=False, compare=False
-    )
+    annotation: Optional[ast.Expression] = field(default=None, compare=False)
     type_comment: Optional[str] = None
     docstring: Optional[str] = None
 
@@ -36,7 +34,9 @@ class _overload(NamedTuple):
 class FunctionDefData:
     order: int
     name: str
-    signature: Optional[Signature] = None  # None if function has no impl
+    # signature equality is ambitious
+    # None if function has no impl
+    signature: Optional[Signature] = field(default=None, compare=False)
     overloads: List[_overload] = field(default_factory=list)
     # don't pick docstring from ast because unreliable
 

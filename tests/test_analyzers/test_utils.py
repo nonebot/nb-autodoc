@@ -23,7 +23,7 @@ def test_signature_from_ast():
     node = get_node(
         "(a: www, b: _^w^_ = '<test>', *c: QAQ, d: QuQ, e: dict = {}, f: O.o, **g:-D) -> None"
     )
-    signature = signature_from_ast(node)
+    signature = signature_from_ast(node.args, node.returns)
     params = dict(signature.parameters)
     kinds = [p.kind for p in params.values()]
     annotations = [p.annotation for p in params.values()]
@@ -49,7 +49,7 @@ def test_signature_from_ast():
     # posonly test for py3.8+
     if sys.version_info >= (3, 8):
         node = get_node("(a, /, b, c=1)")
-        signature = signature_from_ast(node)
+        signature = signature_from_ast(node.args, node.returns)
         params = dict(signature.parameters)
         kinds = [p.kind for p in params.values()]
         assert list(params.keys()) == list("abc")
