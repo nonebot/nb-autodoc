@@ -27,8 +27,10 @@ class T_GenericAlias(Protocol):
     __origin__: Any
 
 
-T_Annot = Any
-"""`Union[typing._GenericAlias, types.GenericAlias, type, str, None]`."""
+class T_Annot:  # for type hints
+    """`Union[typing._GenericAlias, types.GenericAlias, type, str, None]`."""
+
+
 T_ModuleMember = Union[
     "Class", "Function", "Variable", "External", "LibraryAttr", "DynamicClassFunction"
 ]

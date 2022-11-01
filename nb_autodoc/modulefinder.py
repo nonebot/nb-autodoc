@@ -69,11 +69,11 @@ class ModuleProperties:
 
     # the property startswith `sm_` is special member of ModuleType
     sm_name: str
-    sm_doc: t.Optional[str]
+    sm_doc: t.Optional[str] = field(repr=False)
     sm_package: t.Optional[str]
     # name, doc, package, loader, spec are the fields from ModuleType
     sm_file: t.Optional[str]  # None if namespace or dynamic module
-    sm_path: t.Optional[t.Iterable[str]]
+    sm_path: t.Optional[t.Iterable[str]] = field(repr=False)
     sm_dict: types.MappingProxyType[str, t.Any] = field(repr=False)
     """Read-only attribute dict of module."""
     sm_annotations: types.MappingProxyType[str, t.Any] = field(repr=False)

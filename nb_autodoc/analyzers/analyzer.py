@@ -1,4 +1,7 @@
+"""Python code analyzer by parsing and analyzing AST."""
+
 import ast
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -45,16 +48,12 @@ class Analyzer:
 
     @property
     def filename(self) -> str:
-        return Path(self.path).name
+        return os.path.basename(self.path)
 
     def analyze(self) -> None:
-        visitor = DefinitionFinder(self.name, self.package)
+        visitor = DefinitionFinder(package=self.package)
         visitor.visit(self.tree)
-        self.definitions = visitor.definitions
-        self.externals = visitor.externals
-        self.var_comments = visitor.var_comments
-        self.type_comments = visitor.type_comments
-        self.annotations = visitor.annotations
+        self.definitions = visitor.scope
 
     def _first_traverse_module(self) -> None:
         """Find module metadata like `TYPE_CHECKING` or `from __future__ import ...`."""
@@ -80,8 +79,12 @@ class Analyzer:
                         type_checking_body.extend(stmt.body)
         if type_checking_body is not None:
             self.type_checking_imported, self.type_checking_failed = eval_import_stmts(
-                type_checking_body
+                type_checking_body, self.package
             )
+
+    # def refine_autodoc(self, context: Dict[str, "Analyzer"]) -> None:
+    #     """Refine `__autodoc__` across all analyzers."""
+    #     ...
 
     def get_autodoc_literal(self) -> Dict[str, str]:
         """Get `__autodoc__` using `ast.literal_eval`."""

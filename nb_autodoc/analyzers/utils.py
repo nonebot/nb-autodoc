@@ -176,9 +176,24 @@ def eval_import_stmts(
     return imported, failed_from_import
 
 
-def signature_from_ast(node: ast.FunctionDef) -> Signature:
+def get_docstring(
+    node: t.Union[ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef]
+) -> t.Optional[str]:
+    """Return node raw docstring."""
+    stmt = node.body[0]
+    if isinstance(stmt, ast.Expr) and is_constant_node(stmt.value):
+        docstring = get_constant_value(stmt.value)
+        if isinstance(docstring, str):
+            return docstring
+        # elif isinstance(docstring, bytes):
+        #     return docstring.decode()
+    return None
+
+
+def signature_from_ast(
+    args: ast.arguments, returns: t.Optional[ast.expr] = None
+) -> Signature:
     """Signature from ast. Stores original annotation expr in `Parameter.annotation`."""
-    args = node.args
     params = []
     defaults = args.defaults
     kwdefaults = args.kw_defaults
@@ -236,7 +251,7 @@ def signature_from_ast(node: ast.FunctionDef) -> Signature:
     # TODO: add type comment feature
     # in pyright, annotation has higher priority that type comment
     # https://peps.python.org/pep-0484/#suggested-syntax-for-python-2-7-and-straddling-code
-    return Signature(params, return_annotation=node.returns or _empty)
+    return Signature(params, return_annotation=returns or _empty)
 
 
 class Unparser(ast.NodeVisitor):

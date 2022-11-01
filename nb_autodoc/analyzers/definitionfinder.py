@@ -2,9 +2,17 @@ import ast
 import itertools
 import sys
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from inspect import Signature
+from typing import Any, Dict, List, NamedTuple, Optional
 
-from .utils import get_assign_names, get_constant_value, is_constant_node, resolve_name
+from .utils import (
+    get_assign_names,
+    get_constant_value,
+    get_docstring,
+    is_constant_node,
+    resolve_name,
+    signature_from_ast,
+)
 
 
 @dataclass
@@ -19,10 +27,18 @@ class AssignData:
     docstring: Optional[str] = None
 
 
+class _overload(NamedTuple):
+    signature: Signature
+    docstring: Optional[str]
+
+
 @dataclass
 class FunctionDefData:
     order: int
     name: str
+    signature: Optional[Signature] = None  # None if function has no impl
+    overloads: List[_overload] = field(default_factory=list)
+    # don't pick docstring from ast because unreliable
 
 
 @dataclass
@@ -121,6 +137,24 @@ class DefinitionFinder:
                 return self.current_function.args.args[0].arg
         return None
 
+    def is_overload(self, node: ast.FunctionDef) -> bool:
+        if len(node.decorator_list) != 1:
+            return False
+        deco = node.decorator_list[0]
+        deco_str = None
+        # simply unparse ast.Name or ast.Attribute
+        if isinstance(deco, ast.Name):
+            deco_str = deco.id
+        elif isinstance(deco, ast.Attribute) and isinstance(deco.value, ast.Name):
+            deco_str = deco.value.id + "." + deco.attr
+        if deco_str is not None:
+            overload_ids = [
+                i + ".overload" for i in self.imp_typing
+            ] + self.imp_typing_overload
+            if deco_str in overload_ids:
+                return True
+        return False
+
     def visit(self, node: ast.AST) -> None:
         """Visit a concrete node."""
         method = "visit_" + node.__class__.__name__
@@ -140,7 +174,17 @@ class DefinitionFinder:
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         if self.current_function:
             return
-        function_data = FunctionDefData(next(self.counter), node.name)
+        function_data = self.get_current_scope().get(node.name)
+        if function_data is None:
+            function_data = FunctionDefData(next(self.counter), node.name)
+        if self.is_overload(node):
+            function_data.overloads.append(
+                _overload(
+                    signature_from_ast(node.args, node.returns), get_docstring(node)
+                )
+            )
+        else:
+            function_data.signature = signature_from_ast(node.args, node.returns)
         self.current_function = node
         if self.current_classes and node.name == "__init__":
             self.visit_body(node.body)
@@ -174,9 +218,9 @@ class DefinitionFinder:
         next_stmt = self.next_stmt
         if isinstance(next_stmt, ast.Expr) and is_constant_node(next_stmt.value):
             docstring = get_constant_value(next_stmt.value)
-            if isinstance(docstring, bytes):
-                docstring = docstring.decode()
-            elif not isinstance(docstring, str):
+            # if isinstance(docstring, bytes):
+            #     docstring = docstring.decode()
+            if not isinstance(docstring, str):
                 docstring = None
         for name in names:
             assign_data = scope.get(name)
@@ -196,10 +240,25 @@ class DefinitionFinder:
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         return self.visit_Assign(node)  # type: ignore
 
+    def visit_Import(self, node: ast.Import) -> None:
+        if self.current_function or self.current_classes:
+            # only analyze module-level import
+            return
+        # do not add definition
+        for alias in node.names:
+            if alias.name == "typing":
+                self.imp_typing.append(alias.asname or alias.name)
+
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         if self.current_function:
             return
+        if not self.current_classes and node.module == "typing":
+            # only analyze module-level from...import
+            for alias in node.names:
+                if alias.name == "overload":
+                    self.imp_typing_overload.append(alias.asname or alias.name)
         absoluate_module = resolve_name(node, self.package)
+        # add definition
         scope = self.get_current_scope()
         for alias in node.names:
             varname = alias.asname or alias.name
