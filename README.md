@@ -16,7 +16,7 @@
 
 3. stub 和 real
 
-    stub 会被执行，如果使用了 3.10 Union 或者 3.11 FunctionType，请保证模块有 `from __future__ import annotations` 语句
+    stub 会以 CO_FUTURE_ANNOTATIONS flag compile 并执行。
 
     当存在 stub 和 real 时，real 仅用于获取 docstring（可能是 c extension）
 
@@ -45,12 +45,8 @@ external/
 
 internal 有个 Foo 类，包括成员 a 和 b，需要在 external 控制 Foo 和其成员要怎么做？
 
-- external 写 `__autodoc__` 违反了原则: 只能允许控制子模块和当前模块
-- internal 写 `__autodoc__` 造成文档和模块不一致，属于 implicit problem
 
-希望 `__autodoc__` 和静态代码分析无关（目前做不到）
-
-解决方案: 首先为每个模块初始化 definition finder，然后 resolve autodoc。"Foo.a" 则解析 Foo definition 得到 internal.A，将 internal.A.a 加入黑白名单（转交给 class 处理）
+解决方案：根据 ast from...import 进行链式解析。
 
 ### Literal annotation
 
