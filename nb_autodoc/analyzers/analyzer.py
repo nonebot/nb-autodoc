@@ -53,7 +53,7 @@ class Analyzer:
     def analyze(self) -> None:
         visitor = DefinitionFinder(package=self.package)
         visitor.visit(self.tree)
-        self.definitions = visitor.scope
+        self.scope = visitor.scope
 
     def _first_traverse_module(self) -> None:
         """Find module metadata like `TYPE_CHECKING` or `from __future__ import ...`."""

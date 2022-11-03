@@ -183,15 +183,12 @@ class ModuleFoundResultProxy(t.NamedTuple):
     modules: t.Dict[str, ModuleProperties]
     stubs: t.Dict[str, ModuleProperties]
 
-    def gen_bounded_module(
+    def gen_bound_module(
         self,
     ) -> t.Iterator[
         t.Tuple[str, t.Optional[ModuleProperties], t.Optional[ModuleProperties]]
     ]:
-        """
-        Returns:
-            Tuple of module name, real module, stub module.
-        """
+        """Return Tuple of module name, real module, stub module."""
         for name in sorted(self.modules.keys() | self.stubs.keys()):
             yield name, self.modules.get(name), self.stubs.get(name)
 

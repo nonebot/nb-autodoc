@@ -103,5 +103,9 @@ class Foo:
         """Internal."""
         ...
 
+    def __call__(self) -> None:
+        """Public __call__."""
+        ...
 
-__autodoc__ = {"Foo.privatefunc": False}
+
+__autodoc__ = {"Foo.__call__": True, "Foo.privatefunc": False}

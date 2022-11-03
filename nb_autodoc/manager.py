@@ -1,15 +1,15 @@
 """Inspect and analyze module from runtime and AST."""
 
 import types
-from collections import ChainMap, UserDict
+from collections import ChainMap
 from contextvars import ContextVar
-from typing import Any, Dict, List, Optional, Set, TypeVar, Union
+from typing import Any, Dict, NamedTuple, Optional, Set, TypeVar, Union, cast
 
-# from nb_autodoc.analyzer import Analyzer, convert_annot
+from nb_autodoc.analyzers.analyzer import Analyzer
+from nb_autodoc.analyzers.definitionfinder import ImportFromData
 from nb_autodoc.config import Config, default_config
 from nb_autodoc.log import logger
 from nb_autodoc.modulefinder import ModuleFinder, ModuleProperties
-from nb_autodoc.nodes import Page
 from nb_autodoc.typing import T_Annot, T_ClassMember, T_ModuleMember, Tp_GenericAlias
 from nb_autodoc.utils import (
     cached_property,
@@ -21,32 +21,54 @@ from nb_autodoc.utils import (
 
 T = TypeVar("T")
 TT = TypeVar("TT")
-TD = TypeVar("TD", bound="Doc")
+
+T_Definition = Union["Class", "Function", "Variable"]
+T_Autodoc = Dict[str, Union[bool, str]]
 
 
-modules: Dict[str, "Module"] = {}
 current_module: ContextVar["Module"] = ContextVar("current_module")
-# maybe useful in builder
 # NOTE: isfunction not recognize the C extension function (builtin), maybe isroutine and callable
 
 
-class Context(UserDict[str, TD]):
-    """Store definitions.
-
-    Equals to all members except Module, External and LibraryAttr.
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        # Store object refname retrieve from __autodoc__
-        self.whitelist: Set[str] = set()
-        self.blacklist: Set[str] = set()
-        self.override_docstring: Dict[str, str] = {}
-        self.skip_modules: Set[str] = set()
+class AutodocRefineResult(NamedTuple):
+    module: str
+    attr: str
+    is_ref: bool
+    is_library: bool
 
 
-# Source Module Manager 和 Extension Module Manager
-# 主要区别在于 build_node 方法，保证每个模块 build 一个 page，key 为模块名
+def _refine_autodoc_from_ast(
+    module: "Module", name: str
+) -> Optional[AutodocRefineResult]:
+    """Return source module where has name definition."""
+    # should be circular guarded?
+    chain = []
+    attrs = []
+    while True:
+        analyzer = module.pyi_analyzer or module.py_analyzer
+        assert analyzer, "found '__autodoc__' on non-source file"
+        ast_obj = analyzer.scope.get(name)
+        if ast_obj is None:
+            return None
+        if isinstance(ast_obj, ImportFromData):
+            # found reference or library
+            modules = module.manager.modules
+            if ast_obj.module in modules:
+                chain.append(module.name)
+                attrs.append(name)
+                module = modules[ast_obj.module]
+                name = ast_obj.orig_name  # original name
+            else:
+                # if chain:  # ref should not be library
+                #     return AutodocRefineResult(module.name, name, True, True)
+                return AutodocRefineResult(module.name, name, False, True)
+        else:
+            # found definition
+            if chain:
+                return AutodocRefineResult(module.name, name, True, False)
+            return AutodocRefineResult(module.name, name, False, False)
+
+
 class ModuleManager:
     """Manager shares the state for module and submodules.
 
@@ -56,199 +78,237 @@ class ModuleManager:
         * value bool: True for whitelist, False for blacklist
         * value str: override target object's docstring
 
-    `iter_modules` is used to find submodule of the pass-in module (Path entry finder).
-    `import_module` is used to import submodules. Namespace package is disallowed.
-
     Args:
-        module: module name
-        skip_modules: the module names to skip documentation
+        module: module or package
     """
 
     def __init__(
-        self, module: Union[str, types.ModuleType], *, config: Config = default_config
+        self,
+        module: Union[str, types.ModuleType],
+        *,
+        config: Config = default_config,
     ) -> None:
-        self.ctx: Context[Doc] = Context()
-        # TODO: use ChainMap
-        self.nodes: Dict[str, Page]
-        """data bus for all module analyzer to add node."""
-        self.module = Module(self)
-        self.name = self.module.name
-        self.config = config.copy()
-        self.modules = {module.name: module for module in self.module.list_modules()}
-        modules.update(self.modules)
+        self.context: ChainMap[str, Any] = ChainMap()
+        self.config: Config = config
+        self.name = module if isinstance(module, str) else module.__name__
+        module_found_result = ModuleFinder(config).find_all_modules_wrapped(module)
+        self.modules: Dict[str, Module] = {
+            name: Module(self, name, py=m, pyi=ms)
+            for name, m, ms in module_found_result.gen_bound_module()
+        }
+        self.whitelist: Set[str] = set()
+        """Whitelist fullname refined from `__autodoc__`."""
+        self.blacklist: Set[str] = set()
+        """Blacklist fullname refined from `__autodoc__`."""
+        # generate whitelist / blacklist, module reference / libraryattr
+        # refine autodoc before prepare
+        self.refine_autodoc(self.modules)
+        # for dmodule in self.modules.values():
+        #     dmodule.prepare()
 
-        for dmodule in self.modules.values():
-            self.resolve_autodoc(dmodule)
-        for dmodule in self.modules.values():
-            dmodule.prepare()
-
-    def resolve_autodoc(self, module: "Module") -> None:
-        module._externals = {}
-        module._library_attrs = {}
-        for key, value in module.__autodoc__.items():
-            name, _, attr = key.partition(".")
-            # Leave attr (if exists) to its class to resolve
-            try:
-                objbody = module.obj.__dict__[name]
-            except KeyError:
-                logger.error(
-                    f"{module.name} | __autodoc__[{key!r}] is "
-                    "not found in globals, skip"
-                )
-                continue
-            if not isinstance(objbody, (type, types.FunctionType, types.MethodType)):
-                # Could not introspect builtins data or instance
-                # TODO: analyze import stmt to find out module
-                logger.error(
-                    f"{module.name} | __autodoc__[{key!r}] {name!r} is "
-                    f"expected to be class, method or function, "
-                    f"got {type(objbody)!r}, skip. "
-                    "Re-export a variable is currently not supported. "
-                    "Setting docstring to variable if you want to force-export it."
-                )
-                continue
-            # intrespect is unreliable (e.g. dynamic class or function)
-            if "<locals>" in objbody.__qualname__:
-                continue
-            refname = f"{objbody.__module__}.{objbody.__qualname__}"
-            if attr:
-                refname += "." + attr
-            # User library
-            if objbody.__module__ not in self.modules:
-                logger.info(
-                    f"{module.name} | __autodoc__[{key!r}] reference to "
-                    f"user library {refname!r}"
-                )
-                if not isinstance(value, str):
-                    raise ValueError(
-                        f"{module.name}.__autodoc__[{key!r}] is a user library "
-                        f"and expects docstring, got value {type(value)}"
+    def refine_autodoc(self, modules: Dict[str, "Module"]) -> None:
+        # clear manager context
+        self.whitelist.clear()
+        self.blacklist.clear()
+        for module in modules.values():
+            # clear module context
+            module.exist_reference.clear()
+            module.exist_libraryattr.clear()
+            autodoc = module.get__autodoc__(sort=False)
+            for key, value in autodoc.items():
+                name, _, attr = key.partition(".")
+                result = _refine_autodoc_from_ast(module, name)
+                if result is None:
+                    logger.error(f"__autodoc__[{key!r}] not found")
+                    continue
+                if result.is_ref:
+                    module.exist_reference[name] = Reference(
+                        self, result.module, result.attr
                     )
-                # Key must be identifier
-                module._library_attrs[key] = LibraryAttr(key, value)
-                continue
-            # External
-            if module.name != objbody.__module__ and not attr:
-                logger.info(
-                    f"{module.name} | __autodoc__[{key!r}] reference to "
-                    f"external {refname!r}"
-                )
-                module._externals[key] = External(refname)
-            if value is True:
-                module.manager.ctx.whitelist.add(refname)
-            elif value is False:
-                module.manager.ctx.blacklist.add(refname)
-            elif isinstance(value, str):
-                module.manager.ctx.override_docstring[refname] = value
-            else:
-                logger.error(
-                    f"{module.name}.__autodoc__[{key!r}] "
-                    f"expects value bool or str, got {type(value)}"
-                )
+                elif result.is_library:
+                    if result.module != module.name:
+                        logger.error(
+                            f"__autodoc__[{key!r}] is external import "
+                            "but ends as library attribute"
+                        )
+                        continue
+                    if attr:
+                        logger.error(
+                            f"__autodoc__[{key!r}] is library attribute "
+                            f"with ambitious attr {attr!r}"
+                        )
+                        continue
+                    if not isinstance(value, str):
+                        logger.error(
+                            f"__autodoc__[{key!r}] is library attribute "
+                            f"and expects string value to override, got {type(value)}"
+                        )
+                        continue
+                    module.exist_libraryattr[name] = LibraryAttr(name, value)
+                refname = result.module + "." + result.attr
+                if attr:  # no check attr existence
+                    refname += "." + attr
+                if value is True or isinstance(value, str):
+                    self.whitelist.add(refname)
+                elif value is False:
+                    self.blacklist.add(refname)
+                else:
+                    logger.error(f"__autodoc__[{key!r}] got unexpected value {value}")
+
+    def push_context(self, d: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Push context. Like inplace `ChainMap.new_child`."""
+        if d is None:
+            d = {}
+        self.context.maps.insert(0, d)
+        return d
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} {self.name!r}>"
 
 
-class Doc:
-    docstring: Optional[str]
+# external has two type "Reference" and "LibraryAttr"
+class Reference:
+    """External reference."""
+
+    __slots__ = ("manager", "module", "attr")
+
+    def __init__(self, manager: ModuleManager, module: str, attr: str) -> None:
+        self.manager = manager
+        self.module = module
+        self.attr = attr
+
+    def get(self) -> Optional[T_ModuleMember]:
+        module = self.manager.modules.get(self.module)
+        if module is None:
+            return None
+        return module.members.get(self.attr)
+
+    def __repr__(self) -> str:
+        return (
+            f"{self.__class__.__name__}(manager={self.manager!r}, "
+            f"module={self.module!r}, attr={self.attr!r})"
+        )
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Reference):
+            return False
+        return (
+            self.manager is other.manager
+            and self.module == other.module
+            and self.attr == other.attr
+        )
 
 
-class Module(Doc):
+class LibraryAttr:
+    """External library attribute."""
+
+    __slots__ = ("name", "docstring")
+
+    def __init__(self, name: str, doc: str) -> None:
+        self.name: str = name
+        self.docstring: str = cleandoc(doc)
+
+    def __repr__(self) -> str:
+        return (
+            f"{self.__class__.__name__}(name={self.name!r}, "
+            f"docstring={self.docstring!r})"
+        )
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, LibraryAttr):
+            return False
+        return self.name == other.name and self.docstring == other.docstring
+
+
+class Module:
     """Analyze module."""
-
-    # Slots that not setting instantly
-    members: Dict[str, T_ModuleMember]
-    _externals: Dict[str, "External"]
-    _library_attrs: Dict[str, "LibraryAttr"]
-    _dynamic_class_or_function: Set[str]
 
     def __init__(
         self,
         manager: "ModuleManager",
+        name: str,
         *,
         py: Optional[ModuleProperties] = None,
         pyi: Optional[ModuleProperties] = None,
     ) -> None:
-        # source file is optional for those dynamic module has no origin
-        # such as numpy._typing._ufunc or torch._C._autograd
-        # TODO: numpy._typing has stmt like `if TYPE_CHECKING...else...`
-        # so we need to directly update copied globalns rather than ChainMap
         self.manager = manager
+        self.members = manager.push_context()
+        self.name = name
+        # if py and pyi both exist, then py (include extension) is only used to extract docstring
+        # if one of them exists, then analyze that one
+        # if py is not sourcefile, pyi must be specified (find definition), otherwise skip
+        # such as numpy._typing._ufunc or torch._C._autograd
+        if py is None and pyi is None:
+            raise RuntimeError
         self.py = py
         self.pyi = pyi
+        self.prepared = False
+        py_analyzer = pyi_analyzer = None
+        if py and py.is_source:
+            py_analyzer = Analyzer(self.name, self.package, cast(str, py.sm_file))
+        if pyi:  # pyi always sourcefile
+            pyi_analyzer = Analyzer(self.name, self.package, cast(str, pyi.sm_file))
+        self.py_analyzer = py_analyzer
+        self.pyi_analyzer = pyi_analyzer
 
-    def __repr__(self) -> str:
-        return f"<{'Package' if self.is_package else 'Module'} {self.name!r}>"
-
-    def _evaluate(self, s: str) -> Any:
-        # TODO: use ChainMap namespace order: __dict__ > TYPE_CHECKING
-        return eval(s, self.obj.__dict__)
-
-    @property
-    def __autodoc__(self) -> Dict[str, Union[bool, str]]:
-        return getattr(self.obj, "__autodoc__", {})
-
-    @property
-    def annotations(self) -> Dict[str, T_Annot]:
-        return getattr(self.obj, "__annotations__", {})
+        self.exist_reference: Dict[str, Reference] = {}
+        self.exist_libraryattr: Dict[str, LibraryAttr] = {}
 
     @property
-    def name(self) -> str:
-        return self.obj.__name__
+    def is_pure_c_extension(self) -> bool:
+        if self.pyi is None and self.py is not None:
+            return self.py.is_c_module
+        return False
 
     @property
-    def file(self) -> str:
-        # No check for <string> or <unknown> or None
-        return self.obj.__file__  # type: ignore
+    def package(self) -> Optional[str]:
+        if self.py:
+            return self.py.sm_package
+        if self.pyi:
+            return self.pyi.sm_package
+        raise RuntimeError
 
-    @property
-    def is_package(self) -> bool:
-        return hasattr(self.obj, "__path__")
-
-    @property
-    def prepared(self) -> bool:
-        return hasattr(self, "members")
-
-    @classmethod
-    def create(cls) -> "Module":
-        obj = super().__new__(cls)
-
-    def list_modules(self) -> List["Module"]:
-        res: List[Module] = [self]
-        if self.submodules is None:
-            return res
-        for module in self.submodules.values():
-            if module.is_package:
-                res.extend(module.list_modules())
-            else:
-                res.append(module)
+    def get__autodoc__(self, sort: bool = True) -> T_Autodoc:
+        """Retrieve `__autodoc__` bound on current module."""
+        res: T_Autodoc = {}
+        if self.py:
+            res.update(self.py.sm_dict.get("__autodoc__", ()))
+        if self.pyi:
+            res.update(self.pyi.sm_dict.get("__autodoc__", ()))
+        assert all(
+            all(name.isidentifier() for name in qualname.split(".")) for qualname in res
+        ), f"bad '__autodoc__': {res}"
+        if sort:
+            return {k: res[k] for k in sorted(res)}
         return res
 
+    def _evaluate(self, s: str) -> Any:
+        # numpy._typing has stmt like `if TYPE_CHECKING...else...`
+        # so we need to directly update copied globalns rather than ChainMap
+        return eval(s, self.obj.__dict__)
+
+    def is_include(self, name: str) -> bool:
+        return self.name + "." + name in self.manager.whitelist
+
+    def is_exclude(self, name: str) -> bool:
+        if name.startswith("_") or self.name + "." + name in self.manager.blacklist:
+            return True
+        return False
+
     def prepare(self) -> None:
-        """Construct the module members.
+        """Build module members.
 
         Create definition namespace, create placeholder for external.
         Ensure `__autodoc__` has been resolved before calling this method.
         """
         if not hasattr(self, "_externals") or not hasattr(self, "_library_attrs"):
             raise ValueError(f"unable to prepare {self.name}")
-        if self.prepared:
+        if self.prepared or self.is_pure_c_extension:
             return
-        self.members = {}
-        package = self.package.name if self.package is not None else None
-        if package is None and "." in self.name:
-            # Self is top module and submodule of unknown package
-            if self.is_package:
-                package = self.name
-            else:
-                package = self.name.rsplit(".", 1)[0]
-        self._analyzer = Analyzer(
-            self.name,
-            package,
-            self.file,
-        )
-        self._analyzer.analyze()
+        self.members.clear()
+        py = self.py
+        pyi = self.pyi
+
         for name, obj in self.obj.__dict__.items():
             if name in self._externals:
                 self.members[name] = self._externals.pop(name)
@@ -283,8 +343,15 @@ class Module(Doc):
                     f"{self.name} | unused _library_attrs {self._library_attrs}"
                 )
 
+    def __repr__(self) -> str:
+        return (
+            f"<{self.__class__.__name__} {self.name!r} "
+            f"py from {self.py and self.py.sm_file!r} "
+            f"pyi from {self.pyi and self.pyi.sm_file!r}>"
+        )
 
-class Class(Doc):
+
+class Class:
     """Analyze class."""
 
     def __init__(self, name: str, obj: type, module: Module) -> None:
@@ -299,6 +366,7 @@ class Class(Doc):
                 f"runtime module {obj.__module__!r} or qualname {obj.__qualname__!r}. "
                 "This is possibly caused by dynamic class creation."
             )
+        # solve ClassVar declaration
 
     @property
     def annotations(self) -> Dict[str, T_Annot]:
@@ -323,8 +391,16 @@ class Enum(Class):
     """Analyze enum class."""
 
 
-class Function(Doc):
-    """Analyze function."""
+# TODO: add MethodType support on module-level, those are alias of bound method
+class Function:
+    """Analyze function.
+
+    **Overloads:**
+
+    In py3.11+, `typing.get_overloads` is implemented based on overload registry dict
+    like `{module: {qualname: {firstlineno: func}}}`, so stub evaluation will cover
+    the potential overloads. We do not take care of this implementation.
+    """
 
     def __init__(
         self,
@@ -344,9 +420,12 @@ class Function(Doc):
                 f"runtime module {obj.__module__!r} or qualname {obj.__qualname__!r}. "
                 "This is possibly caused by dynamic function creation."
             )
+        # evaluate signature_from_ast `expr | str` using globals and class locals
+        # __text_signature__ should be respected
+        # https://github.com/python/cpython/blob/5cf317ade1e1b26ee02621ed84d29a73181631dc/Objects/typeobject.c#L8597
 
     @property
-    def docstring(self) -> Optional[str]:  # type: ignore[override]
+    def docstring(self) -> Optional[str]:
         doc = self.module._analyzer.var_comments.get(self.qualname, self.obj.__doc__)
         if doc is None and hasattr(self.obj, "__func__"):
             doc = getattr(self.obj, "__func__").__doc__
@@ -366,7 +445,7 @@ class Function(Doc):
 NULL = object()
 
 
-class Variable(Doc):
+class Variable:
     """Analyze variable."""
 
     def __init__(
@@ -447,7 +526,7 @@ class Property(Variable):
     """Analyze property."""
 
 
-class DynamicClassFunction(Doc):
+class DynamicClassFunction:
     """Analyze dynamic class or function."""
 
     def __init__(self, name: str, obj: Any, module: Module) -> None:
@@ -458,18 +537,3 @@ class DynamicClassFunction(Doc):
     @property
     def comment(self) -> str:
         return self.module._analyzer.var_comments[self.name]
-
-
-class External(Doc):
-    """Placeholder for external."""
-
-    def __init__(self, refname: str) -> None:
-        self.refname = refname
-
-
-class LibraryAttr(Doc):
-    """Storage for user library attribute."""
-
-    def __init__(self, docname: str, doc: str) -> None:
-        self.docname: str = docname
-        self.docstring: str = cleandoc(doc)
