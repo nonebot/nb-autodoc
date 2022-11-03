@@ -1,6 +1,6 @@
 # nb-autodoc
 
-![Python Version](https://img.shields.io/badge/Python-3.9%2B-%233eca5f)
+![Python Version](https://img.shields.io/badge/Python-3.7%2B-%233eca5f)
 
 ### Module 处理标准
 
