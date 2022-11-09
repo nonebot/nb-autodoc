@@ -29,7 +29,7 @@ from importlib.util import module_from_spec, spec_from_loader
 from itertools import accumulate, islice
 
 from nb_autodoc.log import logger
-from nb_autodoc.utils import getmodulename, transform_dict_value
+from nb_autodoc.utils import frozendict, getmodulename, transform_dict_value
 
 if t.TYPE_CHECKING:
     from nb_autodoc.config import Config
@@ -74,9 +74,9 @@ class ModuleProperties:
     # name, doc, package, loader, spec are the fields from ModuleType
     sm_file: t.Optional[str]  # None if namespace or dynamic module
     sm_path: t.Optional[t.Iterable[str]] = field(repr=False)
-    sm_dict: types.MappingProxyType[str, t.Any] = field(repr=False)
+    sm_dict: t.Dict[str, t.Any] = field(repr=False)
     """Read-only attribute dict of module."""
-    sm_annotations: types.MappingProxyType[str, t.Any] = field(repr=False)
+    sm_annotations: t.Dict[str, t.Any] = field(repr=False)
     """Read-only annotations of module."""
 
     loader_type: _LoaderType
@@ -124,8 +124,8 @@ class ModuleProperties:
                 if spec
                 else getattr(module, "__path__", None)
             ),
-            sm_dict=types.MappingProxyType(module.__dict__),
-            sm_annotations=types.MappingProxyType(
+            sm_dict=frozendict(module.__dict__),
+            sm_annotations=frozendict(
                 getattr(module, "__annotations__", {})
             ),
             loader_type=loader_type,

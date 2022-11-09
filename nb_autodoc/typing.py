@@ -1,17 +1,20 @@
-import sys
-import types
-from typing import _GenericAlias  # type: ignore
 from typing import TYPE_CHECKING, Any, Tuple, Union
-from typing_extensions import Protocol
+from typing_extensions import Protocol, TypeAlias
 
 if TYPE_CHECKING:
+    from nb_autodoc.analyzers.definitionfinder import (
+        AssignData,
+        ClassDefData,
+        FunctionDefData,
+        ImportFromData,
+    )
     from nb_autodoc.manager import (
         Class,
-        DynamicClassFunction,
-        External,
+        EnumMember,
         Function,
         LibraryAttr,
         Variable,
+        WeakReference,
     )
 
 
@@ -27,16 +30,19 @@ class T_GenericAlias(Protocol):
     __origin__: Any
 
 
-class T_Annot:  # for type hints
-    """`Union[typing._GenericAlias, types.GenericAlias, type, str, None]`."""
+T_Annot = Union[T_GenericAlias, type, str, None]
 
 
+T_ValidMember = Union["T_ModuleMember", "T_ClassMember"]
 T_ModuleMember = Union[
-    "Class", "Function", "Variable", "External", "LibraryAttr", "DynamicClassFunction"
+    "Class",
+    "Function",
+    "Variable",
+    "WeakReference",
+    "LibraryAttr",
 ]
-T_ClassMember = Union["Function", "Variable"]
+T_ClassMember = Union["Function", "Variable", "EnumMember"]
 
-if sys.version_info >= (3, 9):
-    Tp_GenericAlias = (_GenericAlias, types.GenericAlias)
-else:
-    Tp_GenericAlias = _GenericAlias
+T_ASTMember = Union["AssignData", "FunctionDefData", "ClassDefData", "ImportFromData"]
+
+T_Autodoc: TypeAlias = "dict[str, bool | str]"

@@ -34,7 +34,6 @@ class _overload(NamedTuple):
 class FunctionDefData:
     order: int
     name: str
-    # signature equality is ambitious
     # None if function has no impl
     signature: Optional[Signature] = field(default=None, compare=False)
     overloads: List[_overload] = field(default_factory=list)
@@ -49,7 +48,7 @@ class ClassDefData:
     # instance vars is only picked from `class.__init__`
     # class decl is stored in `class.__annotations__`
     instance_vars: Dict[str, AssignData] = field(default_factory=dict)
-    methods: Dict[str, "FunctionDefData"] = field(default_factory=dict)
+    methods: Dict[str, FunctionDefData] = field(default_factory=dict)
 
 
 @dataclass
@@ -58,19 +57,6 @@ class ImportFromData:
     name: str  # import asname
     module: str
     orig_name: str
-
-
-# class VariableCommentMixin:
-#     previous: Optional[ast.stmt]
-#     scope: Dict[str, Any]
-#     current_classes: List[ClassDefData]
-
-#     def visit(self, node: ast.AST) -> None:
-#         # bound visit method that searchs visitor on current class and bases
-#         method = "visit_" + node.__class__.__name__
-#         visitor = getattr(VariableCommentMixin, method, None)
-#         if visitor is not None:
-#             visitor(self, node)
 
 
 class DefinitionFinder:
@@ -89,7 +75,7 @@ class DefinitionFinder:
 
     **Variable comment:**
 
-    In pyright, variable comment is bound on its first decl (even None).
+    In pyright, variable comment is bound on its first definition (or decl).
     But we bind comment that first appears in multiple definitions.
 
     Just like:
@@ -163,7 +149,7 @@ class DefinitionFinder:
             visitor(node)
 
     def visit_body(self, body: List[ast.stmt]) -> None:
-        """Traversal visit node and record previous node."""
+        """Traversal visit node and record peek next node."""
         for index in range(len(body)):
             self.next_stmt = body[index + 1] if index + 1 < len(body) else None
             self.visit(body[index])
@@ -224,8 +210,10 @@ class DefinitionFinder:
                 docstring = None
         for name in names:
             assign_data = scope.get(name)
-            # if assign_data exists, then update, otherwise create and cover it
-            if not isinstance(assign_data, AssignData):
+            # if exists overloads, then ignore, otherwise create and cover
+            if isinstance(assign_data, FunctionDefData) and assign_data.overloads:
+                continue
+            elif not isinstance(assign_data, AssignData):
                 assign_data = AssignData(next(self.counter), name)
                 scope[name] = assign_data
             # bind annotation and type_comment to its last declaration
@@ -239,6 +227,10 @@ class DefinitionFinder:
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         return self.visit_Assign(node)  # type: ignore
+
+    def visit_If(self, node: ast.If) -> None:
+        # aim to support some class definition in `if` body
+        self.visit_body(node.body)
 
     def visit_Import(self, node: ast.Import) -> None:
         if self.current_function or self.current_classes:

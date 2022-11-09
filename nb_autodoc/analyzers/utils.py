@@ -136,16 +136,12 @@ class ImportFailed(t.NamedTuple):
 
 def eval_import_stmts(
     stmts: t.List[ast.stmt], package: t.Optional[str] = None
-) -> t.Tuple[t.Dict[str, t.Any], t.Dict[str, ImportFailed]]:
+) -> t.Dict[str, t.Any]:
     """Evaluate `ast.Import` or `ast.ImportFrom` using importlib.
 
-    Return is tuple of imported namespace and failed namespace.
-
-    This function will catch all ImportError and pass, and return failed namespace
-    specially for ImportFrom.
+    This function will catch ImportError and create `ImportFailed` instance.
     """
     imported: t.Dict[str, t.Any] = {}
-    failed_from_import: t.Dict[str, ImportFailed] = {}
     for stmt in stmts:
         if isinstance(stmt, ast.Import):
             for alias in stmt.names:
@@ -170,10 +166,10 @@ def eval_import_stmts(
                             from_module_name + "." + alias.name
                         )
                 except ImportError:
-                    failed_from_import[varname] = ImportFailed(
+                    imported[varname] = ImportFailed(
                         from_module_name, alias.name, alias.asname
                     )
-    return imported, failed_from_import
+    return imported
 
 
 def get_docstring(

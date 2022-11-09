@@ -32,6 +32,9 @@ extra_standard_library = ["typing_extensions"]
 skip_gitignore = true
 skip_glob = ["tests/analyzerdata/*"]
 
+[tool.pyright]
+reportTypedDictNotRequiredAccess = false
+
 [tool.pytest.ini_options]
 log_cli = true  # for temporary debug
 

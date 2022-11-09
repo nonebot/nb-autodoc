@@ -1,33 +1,58 @@
 """Inspect and analyze module from runtime and AST."""
 
-import types
-from collections import ChainMap
+from __future__ import annotations
+
+from collections import ChainMap, defaultdict
 from contextvars import ContextVar
-from typing import Any, Dict, NamedTuple, Optional, Set, TypeVar, Union, cast
+from enum import Enum
+from types import (
+    BuiltinFunctionType,
+    FunctionType,
+    MappingProxyType,
+    MethodType,
+    ModuleType,
+)
+from typing import Any, NamedTuple, TypeVar, cast
+from typing_extensions import Literal
 
 from nb_autodoc.analyzers.analyzer import Analyzer
-from nb_autodoc.analyzers.definitionfinder import ImportFromData
+from nb_autodoc.analyzers.definitionfinder import (
+    AssignData,
+    ClassDefData,
+    FunctionDefData,
+    ImportFromData,
+)
+from nb_autodoc.analyzers.utils import ImportFailed
 from nb_autodoc.config import Config, default_config
 from nb_autodoc.log import logger
 from nb_autodoc.modulefinder import ModuleFinder, ModuleProperties
-from nb_autodoc.typing import T_Annot, T_ClassMember, T_ModuleMember, Tp_GenericAlias
+from nb_autodoc.typing import (
+    T_Annot,
+    T_ASTMember,
+    T_Autodoc,
+    T_ClassMember,
+    T_ModuleMember,
+    T_ValidMember,
+)
 from nb_autodoc.utils import (
+    TypeCheckingClass,
     cached_property,
     cleandoc,
-    eval_annot_as_possible,
-    formatannotation,
+    isextbuiltin,
+    isnamedtuple,
+    overload_dummy,
     safe_getattr,
 )
 
 T = TypeVar("T")
 TT = TypeVar("TT")
 
-T_Definition = Union["Class", "Function", "Variable"]
-T_Autodoc = Dict[str, Union[bool, str]]
-
 
 current_module: ContextVar["Module"] = ContextVar("current_module")
 # NOTE: isfunction not recognize the C extension function (builtin), maybe isroutine and callable
+
+
+_NULL: Any = object()
 
 
 class AutodocRefineResult(NamedTuple):
@@ -37,15 +62,14 @@ class AutodocRefineResult(NamedTuple):
     is_library: bool
 
 
-def _refine_autodoc_from_ast(
-    module: "Module", name: str
-) -> Optional[AutodocRefineResult]:
+def _refine_autodoc_from_ast(module: "Module", name: str) -> AutodocRefineResult | None:
     """Return source module where has name definition."""
     # should be circular guarded?
     chain = []
     attrs = []
     while True:
         analyzer = module.pyi_analyzer or module.py_analyzer
+        # maybe reexport c extension? but it always appear in stub file
         assert analyzer, "found '__autodoc__' on non-source file"
         ast_obj = analyzer.scope.get(name)
         if ast_obj is None:
@@ -70,7 +94,7 @@ def _refine_autodoc_from_ast(
 
 
 class ModuleManager:
-    """Manager shares the state for module and submodules.
+    """Analyze all modules and store the context.
 
     To control module's documentable object, setting `__autodoc__` respects to:
         * module-level dict variable
@@ -84,37 +108,33 @@ class ModuleManager:
 
     def __init__(
         self,
-        module: Union[str, types.ModuleType],
+        module: str | ModuleType,
         *,
-        config: Config = default_config,
+        config: Config | None = None,
     ) -> None:
-        self.context: ChainMap[str, Any] = ChainMap()
-        self.config: Config = config
+        self.context: ChainMap[str, T_ValidMember] = ChainMap()
+        """Context all members. Key is `module:qualname`."""
+        self.config: Config = default_config.copy()
+        if config is not None:
+            self.config.update(config)
         self.name = module if isinstance(module, str) else module.__name__
-        module_found_result = ModuleFinder(config).find_all_modules_wrapped(module)
-        self.modules: Dict[str, Module] = {
+        module_found_result = ModuleFinder(self.config).find_all_modules_wrapped(module)
+        modules = {
             name: Module(self, name, py=m, pyi=ms)
             for name, m, ms in module_found_result.gen_bound_module()
         }
-        self.whitelist: Set[str] = set()
-        """Whitelist fullname refined from `__autodoc__`."""
-        self.blacklist: Set[str] = set()
-        """Blacklist fullname refined from `__autodoc__`."""
-        # generate whitelist / blacklist, module reference / libraryattr
-        # refine autodoc before prepare
-        self.refine_autodoc(self.modules)
-        # for dmodule in self.modules.values():
-        #     dmodule.prepare()
+        self.modules: dict[str, Module] = modules
+        for m in modules.values():
+            m.prepare()
 
-    def refine_autodoc(self, modules: Dict[str, "Module"]) -> None:
+    def refine_autodoc(self, modules: dict[str, "Module"]) -> None:
         # clear manager context
         self.whitelist.clear()
         self.blacklist.clear()
         for module in modules.values():
             # clear module context
-            module.exist_reference.clear()
-            module.exist_libraryattr.clear()
-            autodoc = module.get__autodoc__(sort=False)
+            module.exist_external.clear()
+            autodoc = module.py__autodoc__
             for key, value in autodoc.items():
                 name, _, attr = key.partition(".")
                 result = _refine_autodoc_from_ast(module, name)
@@ -122,9 +142,7 @@ class ModuleManager:
                     logger.error(f"__autodoc__[{key!r}] not found")
                     continue
                 if result.is_ref:
-                    module.exist_reference[name] = Reference(
-                        self, result.module, result.attr
-                    )
+                    module.exist_external[name] = Reference(result.module, result.attr)
                 elif result.is_library:
                     if result.module != module.name:
                         logger.error(
@@ -144,8 +162,8 @@ class ModuleManager:
                             f"and expects string value to override, got {type(value)}"
                         )
                         continue
-                    module.exist_libraryattr[name] = LibraryAttr(name, value)
-                refname = result.module + "." + result.attr
+                    module.exist_external[name] = LibraryAttr(module.name, name, value)
+                refname = f"{result.module}:{result.attr}"
                 if attr:  # no check attr existence
                     refname += "." + attr
                 if value is True or isinstance(value, str):
@@ -155,7 +173,9 @@ class ModuleManager:
                 else:
                     logger.error(f"__autodoc__[{key!r}] got unexpected value {value}")
 
-    def push_context(self, d: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def push_context(
+        self, d: dict[str, T_ValidMember] | None = None
+    ) -> dict[str, T_ValidMember]:
         """Push context. Like inplace `ChainMap.new_child`."""
         if d is None:
             d = {}
@@ -166,47 +186,36 @@ class ModuleManager:
         return f"<{self.__class__.__name__} {self.name!r}>"
 
 
-# external has two type "Reference" and "LibraryAttr"
-class Reference:
+# external has two type "WeakReference" and "LibraryAttr"
+class WeakReference:
     """External reference."""
 
-    __slots__ = ("manager", "module", "attr")
+    __slots__ = ("module", "attrs")
 
-    def __init__(self, manager: ModuleManager, module: str, attr: str) -> None:
-        self.manager = manager
+    def __init__(self, module: str, attrs: str) -> None:
         self.module = module
-        self.attr = attr
-
-    def get(self) -> Optional[T_ModuleMember]:
-        module = self.manager.modules.get(self.module)
-        if module is None:
-            return None
-        return module.members.get(self.attr)
+        self.attrs = attrs
 
     def __repr__(self) -> str:
         return (
-            f"{self.__class__.__name__}(manager={self.manager!r}, "
-            f"module={self.module!r}, attr={self.attr!r})"
+            f"{self.__class__.__name__}(module={self.module!r}, attrs={self.attrs!r})"
         )
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Reference):
+        if not isinstance(other, WeakReference):
             return False
-        return (
-            self.manager is other.manager
-            and self.module == other.module
-            and self.attr == other.attr
-        )
+        return self.module == other.module and self.attrs == other.attrs
 
 
 class LibraryAttr:
     """External library attribute."""
 
-    __slots__ = ("name", "docstring")
+    __slots__ = ("module", "name", "docstring")
 
-    def __init__(self, name: str, doc: str) -> None:
-        self.name: str = name
-        self.docstring: str = cleandoc(doc)
+    def __init__(self, module: str, name: str, doc: str) -> None:
+        self.module = module  # the user module, not library
+        self.name = name
+        self.docstring = cleandoc(doc)
 
     def __repr__(self) -> str:
         return (
@@ -228,11 +237,12 @@ class Module:
         manager: "ModuleManager",
         name: str,
         *,
-        py: Optional[ModuleProperties] = None,
-        pyi: Optional[ModuleProperties] = None,
+        py: ModuleProperties | None = None,
+        pyi: ModuleProperties | None = None,
     ) -> None:
         self.manager = manager
-        self.members = manager.push_context()
+        self.context = manager.push_context()
+        self.members: dict[str, T_ModuleMember] = {}
         self.name = name
         # if py and pyi both exist, then py (include extension) is only used to extract docstring
         # if one of them exists, then analyze that one
@@ -242,7 +252,6 @@ class Module:
             raise RuntimeError
         self.py = py
         self.pyi = pyi
-        self.prepared = False
         py_analyzer = pyi_analyzer = None
         if py and py.is_source:
             py_analyzer = Analyzer(self.name, self.package, cast(str, py.sm_file))
@@ -250,27 +259,63 @@ class Module:
             pyi_analyzer = Analyzer(self.name, self.package, cast(str, pyi.sm_file))
         self.py_analyzer = py_analyzer
         self.pyi_analyzer = pyi_analyzer
-
-        self.exist_reference: Dict[str, Reference] = {}
-        self.exist_libraryattr: Dict[str, LibraryAttr] = {}
+        self.whitelist: set[str] = set()
+        """Module member whitelist."""
+        self.blacklist: set[str] = set()
+        """Module member blacklist."""
+        # dotted whitelist/blacklist consumed by class, the remaining item must be reference
+        self.dotted_whitelist: dict[str, set[str]] = defaultdict(set)
+        self.dotted_blacklist: dict[str, set[str]] = defaultdict(set)
+        for name, val in self.py__autodoc__.items():
+            if "." in name:
+                name, _, attrs = name.partition(".")
+                if val:
+                    self.dotted_whitelist[name].add(attrs)
+                else:
+                    self.dotted_blacklist[name].add(attrs)
+            else:
+                if val:
+                    self.whitelist.add(name)
+                else:
+                    self.blacklist.add(name)
 
     @property
-    def is_pure_c_extension(self) -> bool:
+    def is_bare_c_extension(self) -> bool:
         if self.pyi is None and self.py is not None:
             return self.py.is_c_module
         return False
 
     @property
-    def package(self) -> Optional[str]:
+    def has_source(self) -> bool:
+        return self.pyi is not None or (self.py is not None and self.py.is_source)
+
+    @property
+    def package(self) -> str | None:
         if self.py:
             return self.py.sm_package
         if self.pyi:
             return self.pyi.sm_package
         raise RuntimeError
 
-    def get__autodoc__(self, sort: bool = True) -> T_Autodoc:
+    @property
+    def prime_analyzer(self) -> Analyzer:
+        prime = self.pyi_analyzer or self.py_analyzer
+        if prime is not None:
+            return prime
+        raise RuntimeError
+
+    @property
+    def prime_runtime_dict(self) -> dict[str, Any]:
+        """Return runtime module dict."""
+        prime = self.pyi or self.py
+        if prime is not None:
+            return prime.sm_dict
+        raise RuntimeError
+
+    @property
+    def py__autodoc__(self) -> T_Autodoc:
         """Retrieve `__autodoc__` bound on current module."""
-        res: T_Autodoc = {}
+        res = {}
         if self.py:
             res.update(self.py.sm_dict.get("__autodoc__", ()))
         if self.pyi:
@@ -278,70 +323,83 @@ class Module:
         assert all(
             all(name.isidentifier() for name in qualname.split(".")) for qualname in res
         ), f"bad '__autodoc__': {res}"
-        if sort:
-            return {k: res[k] for k in sorted(res)}
         return res
 
-    def _evaluate(self, s: str) -> Any:
-        # numpy._typing has stmt like `if TYPE_CHECKING...else...`
-        # so we need to directly update copied globalns rather than ChainMap
-        return eval(s, self.obj.__dict__)
+    @cached_property
+    def tglobals(self) -> dict[str, Any]:
+        """Return type checking globals.
 
-    def is_include(self, name: str) -> bool:
-        return self.name + "." + name in self.manager.whitelist
+        Symbol import are replaced by `Type[TypeCheckingClass]`.
+        """
+        res = self.prime_runtime_dict.copy()
+        tc = self.prime_analyzer.type_checking_imported
+        if not tc:
+            return res
+        for key, val in tc.items():
+            if isinstance(val, ImportFailed):
+                val = TypeCheckingClass.create(val.module, val.name)
+            res[key] = val
+        return res
 
-    def is_exclude(self, name: str) -> bool:
-        if name.startswith("_") or self.name + "." + name in self.manager.blacklist:
-            return True
-        return False
+    def add_member(self, name: str, obj: T_ModuleMember) -> None:
+        self.members[name] = self.context[f"{self.name}:{name}"] = obj
 
     def prepare(self) -> None:
-        """Build module members.
-
-        Create definition namespace, create placeholder for external.
-        Ensure `__autodoc__` has been resolved before calling this method.
-        """
-        if not hasattr(self, "_externals") or not hasattr(self, "_library_attrs"):
-            raise ValueError(f"unable to prepare {self.name}")
-        if self.prepared or self.is_pure_c_extension:
-            return
+        """Build module members."""
         self.members.clear()
+        if not self.has_source:
+            return
         py = self.py
         pyi = self.pyi
+        ast_scope = self.prime_analyzer.scope
+        runtime_dict = self.prime_runtime_dict
+        libdocs = {k: v for k, v in self.py__autodoc__.items() if isinstance(v, str)}
+        for name, astobj in ast_scope.items():
+            pyobj = runtime_dict.get(name, _NULL)
+            if pyobj is _NULL:
+                # explicitly deleted by `del name`. just pass
+                continue
+            if isinstance(astobj, ImportFromData):
+                # lazy reference. resolve on whitelisting
+                if astobj.module in self.manager.modules:
+                    self.add_member(
+                        name, WeakReference(astobj.module, astobj.orig_name)
+                    )
+                elif name in libdocs:
+                    self.add_member(
+                        name, LibraryAttr(self.name, name, libdocs.pop(name))
+                    )
+            elif isinstance(astobj, ClassDefData):
+                # pass if class is decorated as function or other types
+                if not isinstance(pyobj, type):
+                    continue
+                self.add_member(name, Class(name, pyobj, astobj, module=self))
+            elif isinstance(pyobj, (FunctionType, BuiltinFunctionType)):
+                if isinstance(pyobj, BuiltinFunctionType):
+                    # check is user c extension function
+                    if not isextbuiltin(pyobj, self.manager.name):
+                        continue
+                # if stub has no function impl, then obj is `typing._overload_dummy`
+                if pyobj is overload_dummy and py and pyi and name in py.sm_dict:
+                    pyobj = py.sm_dict[name]
+                if pyobj.__name__ == "<lambda>" and isinstance(astobj, AssignData):
+                    self.add_member(name, Variable(name, pyobj, astobj, module=self))
+                    continue
+                astobj = astobj if isinstance(astobj, FunctionDefData) else None
+                self.add_member(name, Function(name, pyobj, astobj, module=self))
+            elif isinstance(astobj, AssignData):
+                astobj = astobj if isinstance(astobj, AssignData) else None
+                self.add_member(name, Variable(name, pyobj, astobj, module=self))
+            else:
+                logger.warning(f"skip analyze {name!r} in module {self.name!r}")
+        if libdocs:
+            logger.warning(f"cannot solve autodoc item {libdocs}")
 
-        for name, obj in self.obj.__dict__.items():
-            if name in self._externals:
-                self.members[name] = self._externals.pop(name)
-                continue
-            if name in self._library_attrs:
-                self.members[name] = self._library_attrs.pop(name)
-                continue
-            if "<locals>" in getattr(obj, "__qualname__", ""):
-                if name in self._analyzer.var_comments:
-                    self.members[name] = DynamicClassFunction(name, obj, self)
-                continue
-            # None if getattr overrided or builtins instance
-            module = getattr(obj, "__module__", None)
-            if module == self.name:
-                refname = f"{module}.{name}"
-                if refname in self.manager.ctx.blacklist:
-                    continue
-                if name.startswith("_") and refname not in self.manager.ctx.whitelist:
-                    continue
-                if isinstance(obj, type):
-                    self.members[name] = Class(name, obj, self)
-                elif isinstance(obj, (types.FunctionType, types.MethodType)):
-                    self.members[name] = Function(name, obj, self)
-                continue
-            elif name in self._analyzer.var_comments:
-                self.members[name] = Variable(name, self)
-        else:
-            if self._externals:
-                logger.warning(f"{self.name} | unused _externals {self._externals}")
-            if self._library_attrs:
-                logger.warning(
-                    f"{self.name} | unused _library_attrs {self._library_attrs}"
-                )
+    def _evaluate(self, s: str, *, locals: dict[str, Any] | None = None) -> Any:
+        # some library has stmt like `if TYPE_CHECKING...else...`
+        # so we need to create type_checking namespace rather than ChainMap
+        # for class method, give class namespace as `locals`
+        return eval(s, cast("dict[str, Any]", self.prime_runtime_dict), locals)
 
     def __repr__(self) -> str:
         return (
@@ -351,26 +409,44 @@ class Module:
         )
 
 
+class EnumMember(NamedTuple):
+    name: str
+    value: Any
+    doc: str
+
+
 class Class:
     """Analyze class."""
 
-    def __init__(self, name: str, obj: type, module: Module) -> None:
+    SPECIAL_MEMBERS = ["__get__", "__set__", "__delete__"]
+
+    def __init__(
+        self, name: str, pyobj: type, astobj: ClassDefData, *, module: Module
+    ) -> None:
         self.name = name
-        self.docstring = obj.__doc__ and cleandoc(obj.__doc__)
-        self.obj = obj
+        docstring = pyobj.__doc__
+        if docstring is not None:
+            docstring = cleandoc(docstring)
+        self.doc = docstring
+        self.pyobj = pyobj
+        self.astobj = astobj
         self.module = module
-        self.inst_vars: Set[str] = set()
-        if self.refname != f"{obj.__module__}.{obj.__qualname__}":
-            logger.warning(
-                f"{self.module.name} | {self.qualname!r} has inconsistant "
-                f"runtime module {obj.__module__!r} or qualname {obj.__qualname__!r}. "
-                "This is possibly caused by dynamic class creation."
-            )
+        self.members: dict[str, T_ClassMember] = {}
+        self.inst_vars: set[str] = set()
         # solve ClassVar declaration
 
-    @property
-    def annotations(self) -> Dict[str, T_Annot]:
-        return getattr(self.obj, "__annotations__", {})
+    @cached_property
+    def objtype(self) -> Literal["class", "namedtuple", "enum"]:
+        obj = self.pyobj
+        if isnamedtuple(obj):
+            return "namedtuple"
+        elif issubclass(obj, Enum):
+            return "enum"
+        return "class"
+
+    @cached_property
+    def kind(self) -> str:
+        ...
 
     @property
     def qualname(self) -> str:
@@ -380,15 +456,9 @@ class Class:
     def refname(self) -> str:
         return f"{self.module.name}.{self.name}"
 
-
-class Descriptor(Class):
-    """Analyze descriptor class."""
-
-    SPECIAL_MEMBERS = ["__get__", "__set__", "__delete__"]
-
-
-class Enum(Class):
-    """Analyze enum class."""
+    def add_member(self, name: str, obj: T_ClassMember) -> None:
+        self.members[name] = obj
+        self.module.context[f"{self.module.name}:{self.name}.{name}"] = obj
 
 
 # TODO: add MethodType support on module-level, those are alias of bound method
@@ -405,24 +475,21 @@ class Function:
     def __init__(
         self,
         name: str,
-        obj: Union[types.FunctionType, types.MethodType],
-        module: Module,
+        pyobj: FunctionType | BuiltinFunctionType,
+        astobj: FunctionDefData | None,
         *,
-        cls: Optional[Class] = None,
+        module: Module,
+        cls: Class | None = None,
     ) -> None:
         self.name = name
-        self.obj = obj
+        self.pyobj = pyobj
+        self.astobj = astobj
         self.module = module
         self.cls = cls
-        if self.refname != f"{obj.__module__}.{obj.__qualname__}":
-            logger.warning(
-                f"{self.module.name} | {self.qualname!r} has inconsistant "
-                f"runtime module {obj.__module__!r} or qualname {obj.__qualname__!r}. "
-                "This is possibly caused by dynamic function creation."
-            )
         # evaluate signature_from_ast `expr | str` using globals and class locals
         # __text_signature__ should be respected
         # https://github.com/python/cpython/blob/5cf317ade1e1b26ee02621ed84d29a73181631dc/Objects/typeobject.c#L8597
+        # catch signature ValueError if is BuiltinFunctionType
 
     @property
     def docstring(self) -> Optional[str]:
@@ -442,20 +509,21 @@ class Function:
         return f"{self.module.name}.{self.qualname}"
 
 
-NULL = object()
-
-
 class Variable:
     """Analyze variable."""
 
     def __init__(
         self,
         name: str,
-        module: Module,
+        pyobj: Any,
+        astobj: AssignData | None,
         *,
-        cls: Optional[Class] = None,
+        module: Module,
+        cls: Class | None = None,
     ) -> None:
         self.name = name
+        self.pyobj = pyobj
+        self.astobj = astobj
         self.module = module
         self.cls = cls
 
@@ -520,20 +588,3 @@ class Variable:
 
     def replace_annot_refs(self, s: str) -> str:
         return s
-
-
-class Property(Variable):
-    """Analyze property."""
-
-
-class DynamicClassFunction:
-    """Analyze dynamic class or function."""
-
-    def __init__(self, name: str, obj: Any, module: Module) -> None:
-        self.name = name
-        self.obj = obj
-        self.module = module
-
-    @property
-    def comment(self) -> str:
-        return self.module._analyzer.var_comments[self.name]

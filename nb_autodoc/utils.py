@@ -1,13 +1,10 @@
-import ast
 import os
-import re
 import sys
-import types
 import typing as t
 from importlib.machinery import all_suffixes
+from types import BuiltinFunctionType, FunctionType, MappingProxyType
 
 from nb_autodoc.log import logger
-from nb_autodoc.typing import T_Annot, T_GenericAlias, Tp_GenericAlias
 
 T = t.TypeVar("T")
 TT = t.TypeVar("TT")
@@ -40,6 +37,10 @@ class TypeCheckingClass:
     def __init__(self) -> None:
         raise TypeError(f"cannot instantiate {self}")
 
+    @classmethod
+    def create(cls, module: str, qualname: str) -> t.Type["TypeCheckingClass"]:
+        return type("_", (cls,), {}, module=module, qualname=qualname)
+
     def __init_subclass__(cls, module: str, qualname: str) -> None:
         cls.__module__ = module
         cls.__qualname__ = qualname
@@ -58,11 +59,28 @@ def frozendict(dct: T) -> T:
 def frozendict(dct: T = _NULL) -> T:
     """Get MappingProxyType object and correct typing (for TypedDict)."""
     if dct is _NULL:
-        return types.MappingProxyType({})  # type: ignore
-    return types.MappingProxyType(dct)  # type: ignore
+        return MappingProxyType({})  # type: ignore
+    return MappingProxyType(dct)  # type: ignore
 
 
 # inspect
+
+
+overload_dummy = t.overload(lambda: ...)
+
+
+def isnamedtuple(typ: type) -> bool:
+    """Check if class is explicit `typing.NamedTuple`."""
+    if not isinstance(typ, type):
+        return False
+    if t.NamedTuple in getattr(typ, "__orig_bases__", ()):
+        return True
+    return False
+
+
+def isextbuiltin(obj: BuiltinFunctionType, name: str) -> bool:
+    module = obj.__module__  # maybe None
+    return bool(module and module.partition(".")[0] == name.partition(".")[0])
 
 
 def getmodulename(path: str) -> t.Optional[str]:
@@ -81,7 +99,7 @@ def find_name_in_mro(cls: type, name: str, default: t.Any) -> t.Any:
     return default
 
 
-def determind_varname(obj: t.Union[type, types.FunctionType, types.MethodType]) -> str:
+def determind_varname(obj: t.Union[type, FunctionType]) -> str:
     # Maybe implement in AST analysis
     module = sys.modules[obj.__module__]
     for name, value in module.__dict__.items():
@@ -91,132 +109,6 @@ def determind_varname(obj: t.Union[type, types.FunctionType, types.MethodType]) 
         "could not determine where the object located. "
         f"object: {obj!r} __module__: {obj.__module__} __qualname__: {obj.__qualname__}"
     )
-
-
-def _remove_typing_prefix(s: str) -> str:
-    # see: https://github.com/python/cpython/issues/96073
-    def repl(match: re.Match[str]) -> str:
-        text = match.group()
-        if text.startswith("typing."):
-            return text[len("typing.") :]
-        return text
-
-    return re.sub(r"[\w\.]+", repl, s)
-
-
-def _type_repr(
-    obj: t.Any, type_alias: t.Dict[T_GenericAlias, str], msg: str = ""
-) -> str:
-    if obj in type_alias:
-        return type_alias[obj]
-    if obj is ...:  # Arg ellipsis is OK
-        return "..."
-    elif obj is type(None) or obj is None:
-        return "None"
-    elif isinstance(obj, str):
-        # Possible in types.GenericAlias
-        logger.warning(f"found bare string {obj!r} in __args__")
-        return obj
-    elif isinstance(obj, Tp_GenericAlias):
-        # Annotated do not give a name
-        if sys.version_info >= (3, 9) and isinstance(
-            obj, getattr(t, "_AnnotatedAlias")
-        ):
-            return _type_repr(obj.__origin__, type_alias)
-        if isinstance(obj.__origin__, t._SpecialForm):
-            name = obj.__origin__._name  # type: ignore
-        else:
-            # Most ABCs and concrete type alias
-            # Getattr to trick types.GenericAlias
-            name = getattr(obj, "_name", None) or obj.__origin__.__name__
-        if name == "Union":
-            args = obj.__args__
-            if len(args) == 2:
-                if args[0] is type(None):
-                    return f"Optional[{_type_repr(args[1], type_alias)}]"
-                elif args[1] is type(None):
-                    return f"Optional[{_type_repr(args[0], type_alias)}]"
-        elif name == "Callable":
-            if len(obj.__args__) == 2 and obj.__args__[0] is Ellipsis:
-                return f"Callable[..., {_type_repr(obj.__args__[1], type_alias)}]"
-            args = ", ".join(_type_repr(a, type_alias) for a in obj.__args__[:-1])
-            rt = _type_repr(obj.__args__[-1], type_alias)
-            return f"Callable[[{args}], {rt}]"
-        args = ", ".join([_type_repr(a, type_alias) for a in obj.__args__])
-        return f"{name}[{args}]"
-    # The isinstance type should behind the types.GenericAlias check
-    # Because list[int] is both type and GenericAlias subclass
-    elif isinstance(obj, type):
-        if obj.__module__ == "builtins":
-            return obj.__qualname__
-        if "<locals>" in obj.__qualname__:
-            return f"{obj.__module__}.{determind_varname(obj)}"
-        else:
-            return f"{obj.__module__}.{obj.__qualname__}"
-    elif isinstance(obj, t.TypeVar):
-        return repr(obj)
-    elif isinstance(obj, t.ForwardRef):
-        logger.warning(msg + f"found unevaluated {obj}")
-        return obj.__forward_arg__
-    module = getattr(obj, "__module__", "")
-    qualname = getattr(obj, "__qualname__", "")
-    if module == "typing":
-        if qualname == "NewType.<locals>.new_type":
-            return obj.__name__
-        logger.warning(msg + "unknown typing object, maybe a bug on nb_autodoc")
-        return _remove_typing_prefix(repr(obj))
-    raise TypeError(f"unexpected annotation type {type(obj)}")
-
-
-def formatannotation(
-    annot: T_Annot, type_alias: t.Dict[T_GenericAlias, str], msg: str = ""
-) -> str:
-    """Traverse __args__ and specify the type to represent.
-
-    Give `type_alias` to specify the type's original reference.
-
-    Raises:
-        TypeError: annotation is invalid
-    """
-    if annot is ...:
-        raise TypeError("ellipsis annotation is invalid")
-    elif isinstance(annot, t.ForwardRef):
-        logger.warning(msg + f"expect GenericAlias, got {annot}")
-        return annot.__forward_arg__
-    elif isinstance(annot, str):
-        logger.warning(msg + f"expect GenericAlias, got bare string {annot!r}")
-        return annot
-    module = getattr(annot, "__module__", "")
-    top_module = module.split(".", 1)[0]
-    if top_module == "nptyping":
-        return repr(annot)
-    return _type_repr(annot, type_alias, msg)
-
-
-def eval_annot_as_possible(
-    tp: t.Union[t.ForwardRef, T_GenericAlias, t.Any],
-    globalns: t.Optional[t.Dict[str, t.Any]] = None,
-    msg: str = "",
-) -> t.Any:
-    if globalns is None:
-        globalns = {}
-    if isinstance(tp, t.ForwardRef):
-        # _eval_type and _evaluate is breaking too much, just try eval
-        try:
-            return eval(tp.__forward_code__, globalns)
-        except Exception:
-            logger.error(f"on {t}: {msg}")
-        return tp
-    if isinstance(tp, Tp_GenericAlias):
-        tp = t.cast(T_GenericAlias, tp)
-        ev_args = tuple(eval_annot_as_possible(a, globalns) for a in tp.__args__)
-        if ev_args == tp.__args__:
-            return t
-        if sys.version_info >= (3, 9) and isinstance(t, types.GenericAlias):
-            return types.GenericAlias(t.__origin__, ev_args)
-        else:
-            return t.copy_with(ev_args)  # type: ignore
-    return t  # Ellipsis
 
 
 # Utilities

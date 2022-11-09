@@ -3,19 +3,21 @@
 import ast
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from nb_autodoc.log import logger
 
 from .definitionfinder import DefinitionFinder
 from .utils import (
-    ImportFailed,
     ast_parse,
     eval_import_stmts,
     get_assign_targets,
     get_constant_value,
     is_constant_node,
 )
+
+if TYPE_CHECKING:
+    from .utils import ImportFailed
 
 
 class Analyzer:
@@ -40,8 +42,9 @@ class Analyzer:
         code = open(self.path, "r").read()
         self.tree = ast_parse(code, self.path)
 
-        self.type_checking_imported: Optional[Dict[str, Any]] = None
-        self.type_checking_failed: Optional[Dict[str, ImportFailed]] = None
+        self.type_checking_imported: Optional[
+            Dict[str, Union[Any, ImportFailed]]
+        ] = None
         self._first_traverse_module()
 
         self.analyze()
@@ -78,13 +81,9 @@ class Analyzer:
                     else:
                         type_checking_body.extend(stmt.body)
         if type_checking_body is not None:
-            self.type_checking_imported, self.type_checking_failed = eval_import_stmts(
+            self.type_checking_imported = eval_import_stmts(
                 type_checking_body, self.package
             )
-
-    # def refine_autodoc(self, context: Dict[str, "Analyzer"]) -> None:
-    #     """Refine `__autodoc__` across all analyzers."""
-    #     ...
 
     def get_autodoc_literal(self) -> Dict[str, str]:
         """Get `__autodoc__` using `ast.literal_eval`."""

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from inspect import Signature
 from typing import Any, Callable, ClassVar
 
 
@@ -61,26 +62,39 @@ class Module(root):
     doc: Docstring | None
 
 
-class Variable(root):
-    name: _identifier
-    kind: str
-    annotation: str  # "untyped" if not exists
-    doc: Docstring | None
-
-
 class Function(root):
     name: _identifier
     kind: str
-    p_signature: str  # type-removed parameter signature
+    signature: Signature
     doc: Docstring | None
+
+
+class EnumType(root):
+    name: str
+    body: list[Variable]
+
+
+class NamedTupleType(root):
+    name: str
+    signature: Signature
+    doc: Docstring | None
+    body: list[Variable | Function]
 
 
 class Class(root):
     name: _identifier
     kind: str
-    p_signature: str
+    signature: Signature
     doc: Docstring | None
     body: list[root]
+
+
+class Variable(root):
+    name: _identifier
+    # var, class-var, instance-var, property. specially class or lambda
+    kind: str
+    annotation: str  # "untyped" if not exists
+    doc: Docstring | None
 
 
 # Abstract Docstring for Builder
