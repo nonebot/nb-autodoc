@@ -1,7 +1,7 @@
 import ast
 import itertools
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from inspect import Signature
 from typing import Any, Dict, List, NamedTuple, Optional
 
@@ -23,6 +23,17 @@ class AssignData:
     annotation: Optional[ast.Expression] = field(default=None, compare=False)
     type_comment: Optional[str] = None
     docstring: Optional[str] = None
+
+    def merge(self, other: "AssignData") -> "AssignData":
+        # used in merging `__init__` level AssignData into class-level AssignData
+        new = replace(self)
+        if not new.docstring and other.docstring:
+            new.docstring = other.docstring
+        if other.annotation:
+            new.annotation = other.annotation
+        if other.type_comment:
+            new.type_comment = other.type_comment
+        return new
 
 
 class _overload(NamedTuple):

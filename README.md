@@ -26,6 +26,8 @@
 
     以上信息由 Module 解析提供，Module 仅向外部提供可访问的 definition 和 external
 
+4. docstring 绑定则不可变，annotation 重复出现则覆盖
+
 ### Class 处理标准
 
 待定，估计有一些 type parameter 和成员类型的问题。
