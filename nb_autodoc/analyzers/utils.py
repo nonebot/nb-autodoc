@@ -128,48 +128,48 @@ def resolve_name(
     return imp_resolve_name(name_or_import, package)
 
 
-class ImportFailed(t.NamedTuple):
+class ImportFromFailed(t.NamedTuple):
     module: str
     name: str
     asname: t.Optional[str]  # useless as it always represents in key
 
 
-def eval_import_stmts(
-    stmts: t.List[ast.stmt], package: t.Optional[str] = None
-) -> t.Dict[str, t.Any]:
+def eval_import_stmt(
+    stmt: t.Union[ast.Import, ast.ImportFrom], package: t.Optional[str] = None
+) -> t.Dict[str, t.Union[t.Any, ImportFromFailed]]:
     """Evaluate `ast.Import` or `ast.ImportFrom` using importlib.
 
-    This function will catch ImportError and create `ImportFailed` instance.
+    This function will catch `from...import` ImportError and create
+    `ImportFromFailed` instance. Pass `import` ImportError.
     """
-    imported: t.Dict[str, t.Any] = {}
-    for stmt in stmts:
-        if isinstance(stmt, ast.Import):
-            for alias in stmt.names:
-                try:
-                    imported[alias.asname or alias.name.split(".")[0]] = __import__(
-                        alias.name
+    imports: t.Dict[str, t.Union[t.Any, ImportFromFailed]] = {}
+    if isinstance(stmt, ast.Import):
+        for alias in stmt.names:
+            try:
+                imports[alias.asname or alias.name.split(".")[0]] = __import__(
+                    alias.name
+                )
+            except ImportError:
+                pass
+    elif isinstance(stmt, ast.ImportFrom):
+        for alias in stmt.names:
+            if alias.name == "*":
+                break
+            from_module_name = resolve_name(stmt, package)
+            varname = alias.asname or alias.name
+            try:
+                from_module = importlib.import_module(from_module_name)
+                if alias.name in from_module.__dict__:
+                    imports[varname] = from_module.__dict__[alias.name]
+                else:
+                    imports[varname] = importlib.import_module(
+                        from_module_name + "." + alias.name
                     )
-                except ImportError:
-                    pass
-        elif isinstance(stmt, ast.ImportFrom):
-            for alias in stmt.names:
-                if alias.name == "*":
-                    break
-                from_module_name = resolve_name(stmt, package)
-                varname = alias.asname or alias.name
-                try:
-                    from_module = importlib.import_module(from_module_name)
-                    if alias.name in from_module.__dict__:
-                        imported[varname] = from_module.__dict__[alias.name]
-                    else:
-                        imported[varname] = importlib.import_module(
-                            from_module_name + "." + alias.name
-                        )
-                except ImportError:
-                    imported[varname] = ImportFailed(
-                        from_module_name, alias.name, alias.asname
-                    )
-    return imported
+            except ImportError:
+                imports[varname] = ImportFromFailed(
+                    from_module_name, alias.name, alias.asname
+                )
+    return imports
 
 
 def get_docstring(
@@ -248,6 +248,16 @@ def signature_from_ast(
     # in pyright, annotation has higher priority that type comment
     # https://peps.python.org/pep-0484/#suggested-syntax-for-python-2-7-and-straddling-code
     return Signature(params, return_annotation=returns or _empty)
+
+
+def unparse_attribute_or_name(node: ast.expr) -> t.Optional[str]:
+    """Unparse `name.attr` or `name`."""
+    if isinstance(node, ast.Attribute):
+        return f"{unparse_attribute_or_name(node.value)}.{node.attr}"
+    elif isinstance(node, ast.Name):
+        return node.id
+    else:
+        return None
 
 
 class Unparser(ast.NodeVisitor):

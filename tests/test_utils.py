@@ -1,4 +1,3 @@
-# type: ignore
 import ast
 import inspect
 import os
@@ -21,7 +20,7 @@ from typing import (
 
 import pytest
 
-from nb_autodoc.utils import cleandoc, dedent, formatannotation, getmodulename
+from nb_autodoc.utils import cleandoc, dedent, getmodulename
 
 T = TypeVar("T")
 TT = TypeVar("TT")

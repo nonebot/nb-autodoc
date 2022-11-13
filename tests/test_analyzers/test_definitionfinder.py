@@ -22,11 +22,10 @@ class TestDefinitionFinder:
         visitor = DefinitionFinder(package="mypkg.pkg.pkg")
         visitor.visit(module)
         del code, module
-        module_freevars = visitor.scope
-        # duplicated from repr(module_freevars)
+        # duplicated from repr
         # notice that AssignData.annotation is uncomparable `ast.Expression`
         # so until unparser implement (maybe py3.8), annotation test is unavailable
-        assert module_freevars == {
+        assert visitor.module.scope == {
             "Path_rename": ImportFromData(
                 order=0, name="Path_rename", module="pathlib", orig_name="Path"
             ),
@@ -168,8 +167,7 @@ class TestDefinitionFinder:
         module = ast_parse(code)
         visitor = DefinitionFinder(package="<test>")
         visitor.visit(module)
-        module_freevars = visitor.scope
-        assert module_freevars == {
+        assert visitor.module.scope == {
             "a": AssignData(
                 order=0, name="a", type_comment=None, docstring="a first docstring"
             ),
@@ -177,4 +175,32 @@ class TestDefinitionFinder:
                 order=1, name="b", type_comment=None, docstring="b first docstring"
             ),
         }
-        assert isinstance(module_freevars["b"].annotation.body, ast.Name)
+        assert isinstance(visitor.module.scope["b"].annotation.body, ast.Name)
+
+    def test_type_checking(self):
+        code = get_analyzer_data("type-checking-ast.py")
+        module = ast_parse(code)
+        visitor = DefinitionFinder(package="<test>")
+        visitor.visit(module)
+        assert visitor.module.scope == {
+            "TYPE_CHECKING": ImportFromData(
+                0, "TYPE_CHECKING", "typing", "TYPE_CHECKING"
+            ),
+            "A": ImportFromData(1, "A", "mypkg", "A"),
+            "A_": ClassDefData(2, "A_"),
+            "a": FunctionDefData(3, "a"),
+            "B": ClassDefData(
+                4,
+                "B",
+                scope={
+                    "f": ImportFromData(5, "f", "mypkg", "f"),
+                    "B_": ClassDefData(6, "B_"),
+                    "B__": ClassDefData(7, "B__"),
+                    "f2": ImportFromData(8, "f2", "mypkg", "f2"),
+                },
+            ),
+        }
+        tc_classes = [i.__class__ for i in visitor.module.type_checking_body]
+        assert tc_classes == [ast.ImportFrom, ast.ClassDef]
+        tc_classes = [i.__class__ for i in visitor.module.scope["B"].type_checking_body]
+        assert tc_classes == [ast.ImportFrom, ast.ClassDef, ast.If, ast.ImportFrom]

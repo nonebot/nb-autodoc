@@ -5,13 +5,7 @@ from __future__ import annotations as _
 from collections import ChainMap, defaultdict
 from contextvars import ContextVar
 from enum import Enum
-from types import (
-    BuiltinFunctionType,
-    FunctionType,
-    MappingProxyType,
-    MethodType,
-    ModuleType,
-)
+from types import BuiltinFunctionType, FunctionType, ModuleType
 from typing import Any, NamedTuple, TypeVar, cast
 from typing_extensions import Literal
 
@@ -22,7 +16,7 @@ from nb_autodoc.analyzers.definitionfinder import (
     FunctionDefData,
     ImportFromData,
 )
-from nb_autodoc.analyzers.utils import ImportFailed
+from nb_autodoc.analyzers.utils import ImportFromFailed
 from nb_autodoc.config import Config, default_config
 from nb_autodoc.log import logger
 from nb_autodoc.modulefinder import ModuleFinder, ModuleProperties
@@ -38,7 +32,9 @@ from nb_autodoc.utils import (
     TypeCheckingClass,
     cached_property,
     cleandoc,
+    find_name_in_mro,
     isextbuiltin,
+    ismetaclass,
     isnamedtuple,
     overload_dummy,
     safe_getattr,
@@ -214,23 +210,20 @@ class WeakReference:
 class LibraryAttr:
     """External library attribute."""
 
-    __slots__ = ("module", "name", "docstring")
+    __slots__ = ("module", "name", "doc")
 
-    def __init__(self, module: str, name: str, doc: str) -> None:
+    def __init__(self, module: str, name: str, docstring: str) -> None:
         self.module = module  # the user module, not library
         self.name = name
-        self.docstring = cleandoc(doc)
+        self.doc = cleandoc(docstring)
 
     def __repr__(self) -> str:
-        return (
-            f"{self.__class__.__name__}(name={self.name!r}, "
-            f"docstring={self.docstring!r})"
-        )
+        return f"{self.__class__.__name__}(name={self.name!r}, docstring={self.doc!r})"
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, LibraryAttr):
             return False
-        return self.name == other.name and self.docstring == other.docstring
+        return self.name == other.name and self.doc == other.doc
 
 
 class Module:
@@ -265,8 +258,10 @@ class Module:
         py_analyzer = pyi_analyzer = None
         if py and py.is_source:
             py_analyzer = Analyzer(self.name, self.package, cast(str, py.sm_file))
+            py_analyzer.analyze()
         if pyi:  # pyi always sourcefile
             pyi_analyzer = Analyzer(self.name, self.package, cast(str, pyi.sm_file))
+            pyi_analyzer.analyze()
         self.py_analyzer = py_analyzer
         self.pyi_analyzer = pyi_analyzer
         self.whitelist: set[str] = set()
@@ -309,7 +304,7 @@ class Module:
 
     @property
     def annotations(self) -> dict[str, T_Annot]:
-        return self.prime_runtime_dict.get("__annotations__", {})
+        return self.prime_module_dict.get("__annotations__", {})
 
     @property
     def prime_analyzer(self) -> Analyzer:
@@ -319,7 +314,7 @@ class Module:
         raise RuntimeError
 
     @property
-    def prime_runtime_dict(self) -> dict[str, Any]:
+    def prime_module_dict(self) -> dict[str, Any]:
         """Return runtime module dict."""
         prime = self.pyi or self.py
         if prime is not None:
@@ -340,20 +335,16 @@ class Module:
         return res
 
     @cached_property
-    def tglobals(self) -> dict[str, Any]:
-        """Return type checking globals.
+    def t_namespace(self) -> dict[str, Any]:
+        """Return type checking namespace.
 
-        Symbol import are replaced by `Type[TypeCheckingClass]`.
+        Stub-only imports are replaced by `Type[TypeCheckingClass]`.
         """
-        res = self.prime_runtime_dict.copy()
-        tc = self.prime_analyzer.type_checking_imported
-        if not tc:
-            return res
-        for key, val in tc.items():
-            if isinstance(val, ImportFailed):
-                val = TypeCheckingClass.create(val.module, val.name)
-            res[key] = val
-        return res
+        globals = self.prime_module_dict.copy()
+        self.prime_analyzer.exec_type_checking_body(
+            self.prime_analyzer.module.type_checking_body, globals
+        )
+        return globals
 
     def add_member(self, name: str, obj: T_ModuleMember) -> None:
         self.members[name] = self.context[f"{self.name}:{name}"] = obj
@@ -365,13 +356,14 @@ class Module:
             return
         py = self.py
         pyi = self.pyi
-        ast_scope = self.prime_analyzer.scope
-        runtime_dict = self.prime_runtime_dict
+        ast_scope = self.prime_analyzer.module.scope
         libdocs = {k: v for k, v in self.py__autodoc__.items() if isinstance(v, str)}
         for name, astobj in ast_scope.items():
-            pyobj = runtime_dict.get(name, _NULL)
+            pyobj = self.t_namespace.get(name, _NULL)
             if pyobj is _NULL:
+                # TODO: _NULL and pyi, then get from py dict
                 # explicitly deleted by `del name`. just pass
+                logger.info(f"ignore {self.name}:{name}")
                 continue
             if isinstance(astobj, ImportFromData):
                 # libdoc maybe import from user module, check it first
@@ -391,17 +383,32 @@ class Module:
                 self.add_member(name, Class(name, pyobj, astobj, module=self))
             elif isinstance(pyobj, (FunctionType, BuiltinFunctionType)):
                 if isinstance(pyobj, BuiltinFunctionType):
-                    # check is user c extension function
-                    if not isextbuiltin(pyobj, self.manager.name):
-                        continue
+                    # is import user c extension function and redefine by assignment
+                    # if not isextbuiltin(pyobj, self.manager.name):
+                    #     continue
+                    # TODO: add c extension support
+                    # support for c extension function or reexport class (ambitious member)
+                    # we needs another config for this
+                    continue
                 # if stub has no function impl, then obj is `typing._overload_dummy`
                 if pyobj is overload_dummy and py and pyi and name in py.sm_dict:
                     pyobj = py.sm_dict[name]
                 if pyobj.__name__ == "<lambda>" and isinstance(astobj, AssignData):
                     self.add_member(name, Variable(name, pyobj, astobj, module=self))
                     continue
-                astobj = astobj if isinstance(astobj, FunctionDefData) else None
-                self.add_member(name, Function(name, pyobj, astobj, module=self))
+                assign_doc = None
+                if isinstance(astobj, AssignData) and astobj.docstring:
+                    assign_doc = cleandoc(astobj.docstring)
+                self.add_member(
+                    name,
+                    Function(
+                        name,
+                        pyobj,
+                        astobj if isinstance(astobj, FunctionDefData) else None,
+                        module=self,
+                        assign_doc=assign_doc,
+                    ),
+                )
             elif isinstance(astobj, AssignData):
                 # maybe dynamic class creation
                 self.add_member(name, Variable(name, pyobj, astobj, module=self))
@@ -414,7 +421,7 @@ class Module:
         # some library has stmt like `if TYPE_CHECKING...else...`
         # so we need to create type_checking namespace rather than ChainMap
         # for class method, give class namespace as `locals`
-        return eval(s, cast("dict[str, Any]", self.prime_runtime_dict), locals)
+        return eval(s, cast("dict[str, Any]", self.prime_module_dict), locals)
 
     def __repr__(self) -> str:
         return (
@@ -442,35 +449,47 @@ class Class:
         self.members: dict[str, T_ClassMember] = {}
         self.instvars: dict[str, Variable] = {}
         # solve ClassVar declaration
+        self.prepare()
 
-    @cached_property
-    def objtype(self) -> Literal["class", "namedtuple", "enum"]:
+    @property
+    def objtype(self) -> Literal["class", "metaclass", "namedtuple", "enum"]:
         # objtype maybe relate to object indicator
         obj = self.pyobj
         if isnamedtuple(obj):
             return "namedtuple"
         elif issubclass(obj, Enum):
             return "enum"
+        if ismetaclass(obj):
+            return "metaclass"
         return "class"
 
-    @cached_property
+    @property
     def kind(self) -> str:
         # kind is documentation prefix
         ...
 
     @property
-    def annotations(self) -> dict[str, T_Annot]:
-        return self.pyobj.__dict__.get("__annotations__", {})
+    def fullname(self) -> str:
+        return f"{self.module.name}:{self.name}"
+
+    @cached_property
+    def t_namespace(self) -> dict[str, Any]:
+        globals = self.module.t_namespace
+        locals = self.pyobj.__dict__.copy()
+        self.module.prime_analyzer.exec_type_checking_body(
+            self.astobj.type_checking_body, globals, locals
+        )
+        return locals
 
     def add_member(self, name: str, obj: T_ClassMember) -> None:
         self.members[name] = obj
-        self.module.context[f"{self.module.name}:{self.name}.{name}"] = obj
+        self.module.context[f"{self.fullname}.{name}"] = obj
 
     def prepare(self) -> None:
+        """Build class members."""
         self.members.clear()
         clsobj = self.pyobj
-        runtime_dict = self.pyobj.__dict__
-        annotations = self.annotations
+        annotations = self.t_namespace.get("__annotations__", {})
         ast_scope = self.astobj.scope
         ast_instance_vars = self.astobj.instance_vars
         if issubclass(clsobj, Enum):
@@ -481,29 +500,74 @@ class Class:
                     doc = cleandoc(astobj.docstring)
                 self.add_member(name, EnumMember(name, member.value, doc))
             return
-        slots = runtime_dict.get("__slots__", None)
         instvar_names = []  # type: list[str]
-        if slots is not None:
-            instvar_names.append(slots) if isinstance(
-                slots, str
-            ) else instvar_names.extend(slots)
-        else:
-            instvar_names.extend(annotations.keys() - runtime_dict.keys())
-            instvar_names.extend(ast_instance_vars.keys())
+        # is not metaclass and is created by metaclass
+        # has_meta = not ismetaclass(clsobj) and type(clsobj) is not type
+        # slots = clsobj_dict.get("__slots__", None)
+        # NOTE: now we don't care the `__slots__` on class
+        instvar_names.extend(
+            (
+                k
+                for k in annotations.keys()
+                if find_name_in_mro(clsobj, k, _NULL) is _NULL
+            )
+        )
+        instvar_names.extend(ast_instance_vars.keys())
         for name in dict.fromkeys(instvar_names).keys():
-            astobj = ast_scope.get(name)
-            if name in ast_instance_vars:
-                if astobj:
-                    astobj.merge(ast_instance_vars[name])
-                else:
-                    astobj = ast_instance_vars[name]
-            if not astobj:
-                continue  # something in slots but not declaration
+            cls_inst = ast_scope.get(name)
+            cls_init_inst = ast_instance_vars.get(name)
+            if cls_inst and not isinstance(cls_inst, AssignData):
+                raise RuntimeError(f"instance var {name!r} must be Assign")
+            if cls_inst:
+                astobj = cast(AssignData, cls_inst)  # cast for mypy
+                if cls_init_inst:
+                    astobj.merge(cls_init_inst)
+            elif cls_init_inst:
+                astobj = cls_init_inst
+            else:
+                logger.warning(f"ignore instance var {self.fullname}.{name}")
+                continue
             self.instvars[name] = Variable(
                 name, _NULL, astobj, module=self.module, cls=self, instvar=True
             )
+        # prepare class members
         for name, astobj in ast_scope.items():
-            pyobj = runtime_dict.get(name, _NULL)
+            if name in self.instvars:
+                # maybe also class-var definition but we ignore
+                continue
+            dict_obj = self.t_namespace.get(name, _NULL)
+            if dict_obj is _NULL:
+                # annotation only or deleted or controlled by metaclass
+                logger.info(f"ignore {self.fullname}.{name}")
+                continue
+            if isinstance(dict_obj, type):
+                pass
+            elif isinstance(dict_obj, (staticmethod, classmethod, FunctionType)):
+                assign_doc = None
+                if isinstance(astobj, AssignData) and astobj.docstring:
+                    assign_doc = cleandoc(astobj.docstring)
+                self.add_member(
+                    name,
+                    Function(
+                        name,
+                        dict_obj,
+                        astobj if isinstance(astobj, FunctionDefData) else None,
+                        module=self.module,
+                        cls=self,
+                        assign_doc=assign_doc,
+                    ),
+                )
+            elif isinstance(dict_obj, property):
+                if not isinstance(astobj, (FunctionDefData, AssignData)):
+                    continue
+                self.add_member(
+                    name,
+                    Variable(name, dict_obj, astobj, module=self.module, cls=self),
+                )
+            elif isinstance(astobj, AssignData):
+                self.add_member(
+                    name, Variable(name, dict_obj, astobj, module=self.module, cls=self)
+                )
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} {self.name!r}>"
@@ -529,11 +593,12 @@ class Function:
     def __init__(
         self,
         name: str,
-        pyobj: FunctionType | BuiltinFunctionType,
+        pyobj: FunctionType | staticmethod[Any] | classmethod[Any],
         astobj: FunctionDefData | None,
         *,
         module: Module,
         cls: Class | None = None,
+        assign_doc: str | None = None,
     ) -> None:
         self.name = name
         self.pyobj = pyobj
@@ -559,6 +624,12 @@ class Function:
             return f"{self.cls.name}.{self.name}"
         return self.name
 
+    @property
+    def fullname(self) -> str:
+        if self.cls:
+            return f"{self.cls.fullname}.{self.name}"
+        return f"{self.module.name}:{self.name}"
+
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} {self.qualname!r}>"
 
@@ -569,13 +640,15 @@ class Variable:
     def __init__(
         self,
         name: str,
-        pyobj: Any | object,
-        astobj: AssignData,
+        pyobj: Any | object | property,
+        astobj: AssignData | FunctionDefData,
         *,
         module: Module,
         cls: Class | None = None,
         instvar: bool = False,
     ) -> None:
+        # only ast_function in property
+        # assert not (isinstance(astobj, FunctionDefData) and not isinstance(pyobj, property))
         self.name = name
         self.pyobj = pyobj
         self.astobj = astobj
@@ -628,10 +701,16 @@ class Variable:
     def qualname(self) -> str:
         if self.cls is None:
             return self.name
-        if self.name in self.cls.instvars:
+        if self.instvar:
             return f"{self.cls.name}.__init__.{self.name}"
         else:
             return f"{self.cls.name}.{self.name}"
+
+    @property
+    def fullname(self) -> str:
+        if self.cls:
+            return f"{self.cls.fullname}.{self.name}"
+        return f"{self.module.name}:{self.name}"
 
     def replace_annot_refs(self, s: str) -> str:
         return s

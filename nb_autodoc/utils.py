@@ -1,3 +1,5 @@
+import __future__ as _future
+
 import os
 import sys
 import typing as t
@@ -5,6 +7,9 @@ from importlib.machinery import all_suffixes
 from types import BuiltinFunctionType, FunctionType, MappingProxyType
 
 from nb_autodoc.log import logger
+
+_co_future_flags = {"annotations": _future.annotations.compiler_flag}
+del _future
 
 T = t.TypeVar("T")
 TT = t.TypeVar("TT")
@@ -76,6 +81,10 @@ def isnamedtuple(typ: type) -> bool:
     if t.NamedTuple in getattr(typ, "__orig_bases__", ()):
         return True
     return False
+
+
+def ismetaclass(cls: type) -> bool:
+    return type in cls.__mro__
 
 
 def isextbuiltin(obj: BuiltinFunctionType, name: str) -> bool:

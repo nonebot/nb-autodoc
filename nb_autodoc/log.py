@@ -12,28 +12,12 @@ def logfilter(record: logging.LogRecord) -> bool:
         builder.append(record.name)
     else:
         builder.append(module.name)
-    if record.args:
-        fno, *_ = record.args
-        record.args = None
-        if isinstance(fno, tuple):
-            builder.append(":".join(map(str, fno)))
-        else:
-            raise RuntimeError
     builder.append(record.msg)
     record.msg = " ".join(builder)
     return True
 
 
 logger = logging.getLogger("nb_autodoc")
-"""Logger for each user module if in analysis context.
-
-Example:
-    ```python
-    logger.info("msg", ("util.pyi", 34))
-    logger.info("msg", None)
-    logger.info("msg")
-    ```
-"""
 logger.addFilter(logfilter)
 console_handler = logging.StreamHandler()
 formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S")

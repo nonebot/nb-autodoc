@@ -3,7 +3,7 @@ import itertools
 import sys
 from dataclasses import dataclass, field, replace
 from inspect import Signature
-from typing import Any, Dict, List, NamedTuple, Optional
+from typing import Any, Dict, List, NamedTuple, Optional, Union
 
 from .utils import (
     get_assign_names,
@@ -12,7 +12,25 @@ from .utils import (
     is_constant_node,
     resolve_name,
     signature_from_ast,
+    unparse_attribute_or_name,
 )
+
+_Member = Union["ImportFromData", "AssignData", "FunctionDefData", "ClassDefData"]
+
+
+@dataclass
+class ModuleData:
+    scope: Dict[str, _Member] = field(default_factory=dict)
+    type_checking_body: List[ast.stmt] = field(default_factory=list, compare=False)
+    # type_checking_names: Dict[str, None] = field(default_factory=dict)
+
+
+@dataclass
+class ImportFromData:
+    order: int
+    name: str  # import asname
+    module: str
+    orig_name: str
 
 
 @dataclass
@@ -23,6 +41,8 @@ class AssignData:
     annotation: Optional[ast.Expression] = field(default=None, compare=False)
     type_comment: Optional[str] = None
     docstring: Optional[str] = None
+    # NOTE: field to specify whether a AnnAssign has value can be used to
+    # check instance var, but we check its runtime existence.
 
     def merge(self, other: "AssignData") -> "AssignData":
         # used in merging `__init__` level AssignData into class-level AssignData
@@ -55,19 +75,13 @@ class FunctionDefData:
 class ClassDefData:
     order: int
     name: str
-    scope: Dict[str, Any] = field(default_factory=dict)
+    scope: Dict[str, _Member] = field(default_factory=dict)
     # instance vars is only picked from `class.__init__`
     # class decl is stored in `class.__annotations__`
     instance_vars: Dict[str, AssignData] = field(default_factory=dict)
     methods: Dict[str, FunctionDefData] = field(default_factory=dict)
-
-
-@dataclass
-class ImportFromData:
-    order: int
-    name: str  # import asname
-    module: str
-    orig_name: str
+    type_checking_body: List[ast.stmt] = field(default_factory=list, compare=False)
+    # type_checking_names: Dict[str, None] = field(default_factory=dict)
 
 
 class DefinitionFinder:
@@ -112,18 +126,27 @@ class DefinitionFinder:
         self.next_stmt: Optional[ast.stmt] = None
         self.current_classes: List[ClassDefData] = []
         self.current_function: Optional[ast.FunctionDef] = None
+        self.in_type_checking: bool = False
         self.counter = itertools.count()
-        self.scope: Dict[str, Any] = {}
-        """The global names binding."""
-        # special import namespace context
+        self.module = ModuleData()
+        # namespace context for precious binding
         self.imp_typing: List[str] = []
         self.imp_typing_overload: List[str] = []
+        self.imp_typing_type_checking: List[str] = []
 
     def get_current_scope(self) -> Dict[str, Any]:
         if self.current_classes:
             return self.current_classes[-1].scope
         else:
-            return self.scope
+            return self.module.scope
+
+    # def get_type_checking_names(self) -> Optional[Dict[str, None]]:
+    #     if self.in_type_checking:
+    #         if self.current_classes:
+    #             return self.current_classes[-1].type_checking_names
+    #         else:
+    #             return self.module.type_checking_names
+    #     return None
 
     def get_self(self) -> Optional[str]:
         """Return the first argument name in a method if exists."""
@@ -134,16 +157,17 @@ class DefinitionFinder:
                 return self.current_function.args.args[0].arg
         return None
 
+    # def update_scope(self, scope: Dict[str, Any], name: str, obj: Any) -> None:
+    #     type_checking_names = self.get_type_checking_names()
+    #     if type_checking_names is not None:
+    #         type_checking_names[name] = None
+    #     scope[name] = obj
+
     def is_overload(self, node: ast.FunctionDef) -> bool:
         if len(node.decorator_list) != 1:
             return False
         deco = node.decorator_list[0]
-        deco_str = None
-        # simply unparse ast.Name or ast.Attribute
-        if isinstance(deco, ast.Name):
-            deco_str = deco.id
-        elif isinstance(deco, ast.Attribute) and isinstance(deco.value, ast.Name):
-            deco_str = deco.value.id + "." + deco.attr
+        deco_str = unparse_attribute_or_name(deco)
         if deco_str is not None:
             overload_ids = [
                 i + ".overload" for i in self.imp_typing
@@ -171,8 +195,9 @@ class DefinitionFinder:
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         if self.current_function:
             return
-        function_data = self.get_current_scope().get(node.name)
-        if function_data is None:
+        scope = self.get_current_scope()
+        function_data = scope.get(node.name)
+        if not isinstance(function_data, FunctionDefData):
             function_data = FunctionDefData(next(self.counter), node.name)
         if self.is_overload(node):
             function_data.overloads.append(
@@ -186,7 +211,6 @@ class DefinitionFinder:
         if self.current_classes and node.name == "__init__":
             self.visit_body(node.body)
         self.current_function = None
-        scope = self.get_current_scope()
         scope[node.name] = function_data
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
@@ -240,8 +264,24 @@ class DefinitionFinder:
         return self.visit_Assign(node)  # type: ignore
 
     def visit_If(self, node: ast.If) -> None:
-        # aim to support some class definition in `if` body
+        test = unparse_attribute_or_name(node.test)
+        set_true = False
+        if test:
+            type_checking_ids = [
+                i + ".TYPE_CHECKING" for i in self.imp_typing
+            ] + self.imp_typing_type_checking
+            if test in type_checking_ids and not self.in_type_checking:
+                # don't enter nested TYPE_CHECKING condition
+                self.in_type_checking = True
+                set_true = True
+                if self.current_classes:
+                    type_checking_body = self.current_classes[-1].type_checking_body
+                else:
+                    type_checking_body = self.module.type_checking_body
+                type_checking_body.extend(node.body)
         self.visit_body(node.body)
+        if set_true:
+            self.in_type_checking = False
 
     def visit_Import(self, node: ast.Import) -> None:
         if self.current_function or self.current_classes:
@@ -255,11 +295,12 @@ class DefinitionFinder:
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         if self.current_function:
             return
-        if not self.current_classes and node.module == "typing":
-            # only analyze module-level from...import
+        if node.module == "typing":
             for alias in node.names:
                 if alias.name == "overload":
                     self.imp_typing_overload.append(alias.asname or alias.name)
+                elif alias.name == "TYPE_CHECKING":
+                    self.imp_typing_type_checking.append(alias.asname or alias.name)
         absoluate_module = resolve_name(node, self.package)
         # add definition
         scope = self.get_current_scope()

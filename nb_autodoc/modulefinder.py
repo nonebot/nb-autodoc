@@ -29,7 +29,12 @@ from importlib.util import module_from_spec, spec_from_loader
 from itertools import accumulate, islice
 
 from nb_autodoc.log import logger
-from nb_autodoc.utils import frozendict, getmodulename, transform_dict_value
+from nb_autodoc.utils import (
+    _co_future_flags,
+    frozendict,
+    getmodulename,
+    transform_dict_value,
+)
 
 if t.TYPE_CHECKING:
     from nb_autodoc.config import Config
@@ -38,10 +43,6 @@ if sys.version_info < (3, 11):
     from importlib._bootstrap_external import _NamespaceLoader as NamespaceLoader
 else:
     from importlib.machinery import NamespaceLoader
-
-import __future__ as _future
-
-_co_future_flags = {"annotations": _future.annotations.compiler_flag}
 
 
 _Filter = t.Callable[[str], bool]
@@ -125,9 +126,7 @@ class ModuleProperties:
                 else getattr(module, "__path__", None)
             ),
             sm_dict=frozendict(module.__dict__),
-            sm_annotations=frozendict(
-                getattr(module, "__annotations__", {})
-            ),
+            sm_annotations=frozendict(getattr(module, "__annotations__", {})),
             loader_type=loader_type,
         )
 
