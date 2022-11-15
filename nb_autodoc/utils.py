@@ -3,10 +3,10 @@ import __future__ as _future
 import os
 import sys
 import typing as t
+import typing_extensions as te
 from importlib.machinery import all_suffixes
 from types import BuiltinFunctionType, FunctionType, MappingProxyType
-
-from nb_autodoc.log import logger
+from typing import NamedTuple
 
 _co_future_flags = {"annotations": _future.annotations.compiler_flag}
 del _future
@@ -74,11 +74,16 @@ def frozendict(dct: T = _NULL) -> T:
 overload_dummy = t.overload(lambda: ...)
 
 
-def isnamedtuple(typ: type) -> bool:
+class T_NamedTuple(te.Protocol):
+    _fields: t.Tuple[str, ...]
+    _field_defaults: t.Dict[str, t.Any]
+
+
+def isnamedtuple(typ: type) -> te.TypeGuard[T_NamedTuple]:
     """Check if class is explicit `typing.NamedTuple`."""
     if not isinstance(typ, type):
         return False
-    if t.NamedTuple in getattr(typ, "__orig_bases__", ()):
+    if NamedTuple in getattr(typ, "__orig_bases__", ()):
         return True
     return False
 
@@ -118,6 +123,11 @@ def determind_varname(obj: t.Union[type, FunctionType]) -> str:
         "could not determine where the object located. "
         f"object: {obj!r} __module__: {obj.__module__} __qualname__: {obj.__qualname__}"
     )
+
+
+# TODO: extract function arguments without body
+def findparamsource(obj: FunctionType) -> str:
+    ...
 
 
 # Utilities

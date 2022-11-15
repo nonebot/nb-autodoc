@@ -295,7 +295,8 @@ class DefinitionFinder:
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         if self.current_function:
             return
-        if node.module == "typing":
+        if not self.current_classes and node.module == "typing":
+            # only analyze module-level importfrom
             for alias in node.names:
                 if alias.name == "overload":
                     self.imp_typing_overload.append(alias.asname or alias.name)

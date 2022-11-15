@@ -1,9 +1,13 @@
+import ast
+
 import pytest
 
+from nb_autodoc.analyzers.definitionfinder import AssignData
 from nb_autodoc.manager import (
     AutodocRefineResult,
     LibraryAttr,
     ModuleManager,
+    Variable,
     _refine_autodoc_from_ast,
 )
 
@@ -16,26 +20,26 @@ def _():
         return ModuleManager("simple_pkg")
 
 
-def test__refine_autodoc_from_ast(simple_manager: ModuleManager):
-    module = simple_manager.modules["simple_pkg"]
-    reexport = simple_manager.modules["simple_pkg.reexport"]
-    refine = _refine_autodoc_from_ast
-    assert refine(module, "___") == None
-    assert refine(module, "Foo") == AutodocRefineResult(
-        "simple_pkg", "Foo", False, False
-    )
-    assert refine(module, "Api") == AutodocRefineResult(
-        "simple_pkg.api", "Api", True, False
-    )
-    assert refine(module, "Union") == AutodocRefineResult(
-        "simple_pkg", "Union", False, True
-    )
-    assert refine(reexport, "inter_A") == AutodocRefineResult(
-        "simple_pkg.reexport._sample", "A", True, False
-    )
-    assert refine(reexport, "reexport_inter_A") == AutodocRefineResult(
-        "simple_pkg.reexport._sample", "A", True, False
-    )
+# def test__refine_autodoc_from_ast(simple_manager: ModuleManager):
+#     module = simple_manager.modules["simple_pkg"]
+#     reexport = simple_manager.modules["simple_pkg.reexport"]
+#     refine = _refine_autodoc_from_ast
+#     assert refine(module, "___") == None
+#     assert refine(module, "Foo") == AutodocRefineResult(
+#         "simple_pkg", "Foo", False, False
+#     )
+#     assert refine(module, "Api") == AutodocRefineResult(
+#         "simple_pkg.api", "Api", True, False
+#     )
+#     assert refine(module, "Union") == AutodocRefineResult(
+#         "simple_pkg", "Union", False, True
+#     )
+#     assert refine(reexport, "inter_A") == AutodocRefineResult(
+#         "simple_pkg.reexport._sample", "A", True, False
+#     )
+#     assert refine(reexport, "reexport_inter_A") == AutodocRefineResult(
+#         "simple_pkg.reexport._sample", "A", True, False
+#     )
 
 
 class TestModuleManager:
@@ -82,3 +86,11 @@ class TestModuleManager:
             assert manager.name == "single"
             single = manager.modules["single"]
             assert single.members.keys() == {"foo", "func"}
+
+
+class TestVariable:
+    def test_is_typealias(self):
+        manager = ModuleManager("tests.managerdata.variable_is_typealias")
+        module = manager.modules["tests.managerdata.variable_is_typealias"]
+        assert module.members["a"].is_typealias
+        assert module.members["b"].is_typealias
