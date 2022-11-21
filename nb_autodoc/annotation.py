@@ -118,6 +118,16 @@ class Literal(_annexpr):
         return self.args == other.args
 
 
+class Annotated(_annexpr):
+    def __init__(self, origin: _annexpr) -> None:
+        self.origin = origin
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Annotated):
+            return False
+        return self.origin == other.origin
+
+
 class GASubscript(_annexpr):
     # origin is class. repr class.__name__
     def __init__(
@@ -230,6 +240,9 @@ class AnnotationTransformer(ast.NodeVisitor):  # type hint
                     raise TypeError("Literal requires Constant or enum")
                 new_args.append(annexpr)
         return Literal(new_args)
+
+    def typing_Annotated(self, args: list[ast.expr]) -> Annotated:
+        return Annotated(self.visit(args[0]))
 
     def typing_Callable(self, args: list[ast.expr]) -> CallableType:
         assert len(args) == 2, "Callable must be Callable[[arg, ...], ret]"

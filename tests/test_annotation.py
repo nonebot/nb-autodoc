@@ -11,6 +11,7 @@ from nb_autodoc.annotation import (
     UnionType,
     _annexpr,
     _get_typing_normalizer,
+    Annotated,
 )
 from nb_autodoc.manager import _AnnContext
 
@@ -54,6 +55,10 @@ class TestAnnotationTransformer:
         assert transform(get_expr("t_Literal['^_^', True, enum.A]")) == Literal(
             ["^_^", True, Name("enum.A")]
         )
+        # Annotated test
+        assert transform(
+            get_expr("t.Annotated[A, (1, 2), ctypes('char')]")
+        ) == Annotated(Name("A"))
         # Tuple test
         assert transform(get_expr("Tuple[()]")) == GASubscript(
             TypingName("Tuple", "Tuple"), []
@@ -61,7 +66,7 @@ class TestAnnotationTransformer:
         assert transform(get_expr("t.Tuple[int, str]")) == GASubscript(
             TypingName("t.Tuple", "Tuple"), [Name("int"), Name("str")]
         )
-        assert transform(get_expr("Tuple[str, ...]")) == GASubscript(
+        assert transform(get_expr("Tuple[str, '...']")) == GASubscript(
             TypingName("Tuple", "Tuple"), [Name("str"), ...]
         )
         # Callable test
