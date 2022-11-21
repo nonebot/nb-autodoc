@@ -13,9 +13,6 @@ And function annotation depends on its definition (needs inferer).
 from __future__ import annotations
 
 import ast
-import re
-import sys
-import types
 import typing as t
 import typing_extensions as te
 
@@ -25,12 +22,10 @@ from nb_autodoc.analyzers.utils import (
     is_constant_node,
     unparse_attribute_or_name,
 )
-from nb_autodoc.log import logger
-from nb_autodoc.typing import isgenericalias
 
 if t.TYPE_CHECKING:
     from nb_autodoc.manager import _AnnContext
-    from nb_autodoc.typing import T_Annot, T_Definition, T_GenericAlias
+    from nb_autodoc.typing import T_Annot, T_GenericAlias
 
 
 t_all_definitions = {k: getattr(t, k) for k in t.__all__}
@@ -107,6 +102,7 @@ class UnionType(_annexpr):
         return self.args == other.args
 
 
+# just typing for test
 _literal_tp = t.Union[int, bool, str, bytes, None]
 
 
@@ -124,7 +120,10 @@ class Literal(_annexpr):
 
 class GASubscript(_annexpr):
     # origin is class. repr class.__name__
-    def __init__(self, origin: Name, args: list[_annexpr | None]) -> None:
+    def __init__(
+        self, origin: Name | TypingName, args: list[_annexpr | ellipsis | None]
+    ) -> None:
+        # origin is TypingName don't need evaluation
         self.origin = origin
         self.args = args
 
@@ -134,18 +133,10 @@ class GASubscript(_annexpr):
         return self.origin == other.origin and self.args == other.args
 
 
-class TupleType(_annexpr):
-    def __init__(self, args: list[_annexpr | ellipsis]) -> None:
-        self.args = list(args)
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, TupleType):
-            return False
-        return self.args == other.args
-
-
 class CallableType(_annexpr):
-    def __init__(self, args: list[_annexpr] | ellipsis, ret: _annexpr) -> None:
+    def __init__(
+        self, args: list[_annexpr] | ellipsis | GASubscript, ret: _annexpr
+    ) -> None:
         self.args = args
         self.ret = ret
 
@@ -159,7 +150,7 @@ class AnnotationTransformer(ast.NodeVisitor):  # type hint
     def __init__(self, norm_typing_name: t.Callable[[str], str | None]) -> None:
         self.norm_typing_name = norm_typing_name
 
-    def visit(self, node: ast.expr) -> _annexpr:  # type: ignore[override]
+    def visit(self, node: ast.expr) -> t.Any:  # type: ignore[override]
         method = "visit_" + node.__class__.__name__
         visitor = getattr(self, method, None)
         if visitor:  # disallow generic visit
@@ -173,7 +164,7 @@ class AnnotationTransformer(ast.NodeVisitor):  # type hint
         right = self.visit(node.right)
         return UnionType([left, right])
 
-    def visit_Constant(self, node: ast.Constant) -> _annexpr | None:
+    def visit_Constant(self, node: ast.Constant) -> _annexpr | ellipsis | None:
         """Parse and dispatch string annotation."""
         if is_constant_node(node):
             value = get_constant_value(node)
@@ -181,8 +172,8 @@ class AnnotationTransformer(ast.NodeVisitor):  # type hint
                 # Literal or Annotated may contains quotes
                 # so we can't replace quotes to parse ForwardRef
                 return self.visit(ast.parse(value, mode="eval").body)
-            elif value is None:
-                return None
+            elif value in (None, ...):
+                return value
             raise TypeError(f"unsupported Constant node type {type(value)}")
         raise RuntimeError
 
@@ -211,15 +202,14 @@ class AnnotationTransformer(ast.NodeVisitor):  # type hint
         return GASubscript(origin, [self.visit(i) for i in args])
 
     visit_Str = visit_Constant
-    visit_Ellipsis = visit_Constant
+    visit_Ellipsis = visit_Constant  # maybe string so generic visit
     visit_NameConstant = visit_Constant
 
     def dispatch_typing_subst(self, name: TypingName, args: list[ast.expr]) -> _annexpr:
         method = getattr(self, f"typing_{name.tp_name}", None)
         if method:
             return method(args)
-        # is generic alias, cast Name
-        return GASubscript(Name(name.tp_name), [self.visit(i) for i in args])
+        return GASubscript(name, [self.visit(i) for i in args])
 
     def typing_Union(self, args: list[ast.expr]) -> UnionType:
         return UnionType([self.visit(i) for i in args])
@@ -235,37 +225,33 @@ class AnnotationTransformer(ast.NodeVisitor):  # type hint
             if is_constant_node(expr):
                 new_args.append(get_constant_value(expr))
             else:
-                ann = self.visit(expr)
-                if not isinstance(ann, Name):
+                annexpr = self.visit(expr)
+                if not isinstance(annexpr, Name):
                     raise TypeError("Literal requires Constant or enum")
-                new_args.append(ann)
+                new_args.append(annexpr)
         return Literal(new_args)
-
-    def typing_Tuple(self, args: list[ast.expr]) -> TupleType:
-        new_args = []
-        for expr in args:
-            if is_constant_node(expr):
-                value = get_constant_value(expr)
-                # don't check position
-                assert value is ..., "Tuple can only accept Ellipsis"
-                new_args.append(value)
-            else:
-                new_args.append(self.visit(expr))
-        return TupleType(new_args)
 
     def typing_Callable(self, args: list[ast.expr]) -> CallableType:
         assert len(args) == 2, "Callable must be Callable[[arg, ...], ret]"
-        ret = args[1]
-        call_args: ellipsis | list[_annexpr]
-        if is_constant_node(args[0]):
-            value = get_constant_value(args[0])
-            # don't check position
-            assert value is ..., "Callable can only accept Ellipsis"
-            call_args = ...
-        else:
-            assert isinstance(args[0], ast.List)
+        ret = self.visit(args[1])
+        call_args: ellipsis | list[_annexpr] | GASubscript
+        if isinstance(args[0], ast.List):
             call_args = [self.visit(i) for i in args[0].elts]
-        return CallableType(call_args, self.visit(args[1]))
+        else:
+            concat = self.visit(args[0])
+            if concat is ...:
+                call_args = ...
+            else:
+                if (
+                    not isinstance(concat, GASubscript)
+                    or not isinstance(concat.origin, TypingName)
+                    or concat.origin.tp_name != "Concatenate"
+                ):
+                    raise TypeError(
+                        "Callable[arg, ret] arg requires ellipsis, List or Concatenate"
+                    )
+                call_args = concat
+        return CallableType(call_args, ret)
 
 
 def _get_typing_normalizer(context: _AnnContext) -> t.Callable[[str], str | None]:

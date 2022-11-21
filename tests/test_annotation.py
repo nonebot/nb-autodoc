@@ -7,7 +7,6 @@ from nb_autodoc.annotation import (
     GASubscript,
     Literal,
     Name,
-    TupleType,
     TypingName,
     UnionType,
     _annexpr,
@@ -56,13 +55,23 @@ class TestAnnotationTransformer:
             ["^_^", True, Name("enum.A")]
         )
         # Tuple test
-        assert transform(get_expr("Tuple[()]")) == TupleType([])
-        assert transform(get_expr("Tuple[int, str]")) == TupleType(
-            [Name("int"), Name("str")]
+        assert transform(get_expr("Tuple[()]")) == GASubscript(
+            TypingName("Tuple", "Tuple"), []
         )
-        assert transform(get_expr("Tuple[str, ...]")) == TupleType([Name("str"), ...])
+        assert transform(get_expr("t.Tuple[int, str]")) == GASubscript(
+            TypingName("t.Tuple", "Tuple"), [Name("int"), Name("str")]
+        )
+        assert transform(get_expr("Tuple[str, ...]")) == GASubscript(
+            TypingName("Tuple", "Tuple"), [Name("str"), ...]
+        )
         # Callable test
         assert transform(get_expr("Callable[[], t.Any]")) == CallableType(
             [], TypingName("t.Any", "Any")
         )
         assert transform(get_expr("Callable[..., A]")) == CallableType(..., Name("A"))
+        assert transform(
+            get_expr("Callable[t.Concatenate[int, ...], A]")
+        ) == CallableType(
+            GASubscript(TypingName("t.Concatenate", "Concatenate"), [Name("int"), ...]),
+            Name("A"),
+        )
