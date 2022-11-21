@@ -2,13 +2,12 @@
 
 from __future__ import annotations as _
 
-import re
 from collections import ChainMap, defaultdict
 from contextvars import ContextVar
 from enum import Enum
 from types import BuiltinFunctionType, FunctionType, ModuleType
-from typing import Any, NamedTuple, TypeVar, cast
-from typing_extensions import Literal, TypeAlias
+from typing import Any, Mapping, NamedTuple, TypeVar, cast
+from typing_extensions import Literal
 
 from nb_autodoc.analyzers.analyzer import Analyzer
 from nb_autodoc.analyzers.definitionfinder import (
@@ -17,7 +16,7 @@ from nb_autodoc.analyzers.definitionfinder import (
     FunctionDefData,
     ImportFromData,
 )
-from nb_autodoc.analyzers.utils import unparse_attribute_or_name
+from nb_autodoc.annotation import Annotation
 from nb_autodoc.config import Config, default_config
 from nb_autodoc.log import logger
 from nb_autodoc.modulefinder import ModuleFinder, ModuleProperties
@@ -25,8 +24,8 @@ from nb_autodoc.typing import (
     T_Annot,
     T_Autodoc,
     T_ClassMember,
+    T_Definition,
     T_ModuleMember,
-    T_ValidMember,
     isgenericalias,
 )
 from nb_autodoc.utils import (
@@ -105,7 +104,7 @@ class ModuleManager:
         *,
         config: Config | None = None,
     ) -> None:
-        self.context: ChainMap[str, T_ValidMember] = ChainMap()
+        self.context: ChainMap[str, T_Definition] = ChainMap()
         """Context all members. Key is `module:qualname`."""
         self.config: Config = default_config.copy()
         if config is not None:
@@ -171,12 +170,12 @@ class ModuleManager:
             m.prepare()
 
     def push_context(
-        self, d: dict[str, T_ValidMember] | None = None
-    ) -> dict[str, T_ValidMember]:
+        self, d: dict[str, T_Definition] | None = None
+    ) -> dict[str, T_Definition]:
         """Push context. Like inplace `ChainMap.new_child`."""
         if d is None:
             d = {}
-        self.context.maps.insert(0, d)
+        self.context.maps.insert(1, d)
         return d
 
     def __repr__(self) -> str:
@@ -187,21 +186,24 @@ class ModuleManager:
 class WeakReference:
     """External reference."""
 
-    __slots__ = ("module", "attrs")
+    __slots__ = ("module", "attr")
 
-    def __init__(self, module: str, attrs: str) -> None:
+    def __init__(self, module: str, attr: str) -> None:
         self.module = module
-        self.attrs = attrs
+        self.attr = attr
+
+    def find_definition(
+        self, context: Mapping[str, T_Definition]
+    ) -> T_Definition | None:
+        ...
 
     def __repr__(self) -> str:
-        return (
-            f"{self.__class__.__name__}(module={self.module!r}, attrs={self.attrs!r})"
-        )
+        return f"{self.__class__.__name__}(module={self.module!r}, attr={self.attr!r})"
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, WeakReference):
             return False
-        return self.module == other.module and self.attrs == other.attrs
+        return self.module == other.module and self.attr == other.attr
 
 
 class LibraryAttr:
@@ -343,6 +345,8 @@ class Module:
         )
         return globals_
 
+    # def attrgetter(self, name: str)
+
     def add_member(self, name: str, obj: T_ModuleMember) -> None:
         self.members[name] = self.context[f"{self.name}:{name}"] = obj
 
@@ -351,8 +355,6 @@ class Module:
         self.members.clear()
         if not self.has_source:
             return
-        py = self.py
-        pyi = self.pyi
         ast_scope = self.prime_analyzer.module.scope
         libdocs = {k: v for k, v in self.py__autodoc__.items() if isinstance(v, str)}
         for name, astobj in ast_scope.items():
@@ -363,7 +365,6 @@ class Module:
                 logger.warning(f"ignore {self.name}:{name}")
                 continue
             if isinstance(astobj, ImportFromData):
-                # libdoc maybe import from user module, check it first
                 if name in libdocs:
                     self.add_member(
                         name, LibraryAttr(self.name, name, libdocs.pop(name))
@@ -462,8 +463,12 @@ class Class:
         ...
 
     @property
+    def qualname(self) -> str:
+        return self.name  # nested class not support
+
+    @property
     def fullname(self) -> str:
-        return f"{self.module.name}:{self.name}"
+        return f"{self.module.name}:{self.qualname}"
 
     @cached_property
     def t_namespace(self) -> dict[str, Any]:
@@ -565,6 +570,8 @@ class Class:
                 self.add_member(
                     name, Variable(name, dict_obj, astobj, module=self.module, cls=self)
                 )
+            else:
+                logger.warning(f"skip analyze {name!r} in class {self.name!r}")
 
     def __repr__(self) -> str:
         doc = self.doc and self.doc[:8] + "..."
@@ -607,34 +614,28 @@ class Function:
             func = pyobj.__func__
         self.pyobj = pyobj
         self.func = func
+        doc = assign_doc
+        if not doc:
+            doc = pyobj.__doc__ and cleandoc(pyobj.__doc__)
+        self.doc = doc
         # None if function is dynamic creation without overload or c extension reexport
         self.astobj = astobj
         self.module = module
         self.cls = cls
-        self.assign_doc = assign_doc
         # evaluate signature_from_ast `expr | str` using globals and class locals
         # __text_signature__ should be respected
         # https://github.com/python/cpython/blob/5cf317ade1e1b26ee02621ed84d29a73181631dc/Objects/typeobject.c#L8597
         # catch signature ValueError if is BuiltinFunctionType
 
     @property
-    def docstring(self) -> Optional[str]:
-        doc = self.module._analyzer.var_comments.get(self.qualname, self.obj.__doc__)
-        if doc is None and hasattr(self.obj, "__func__"):
-            doc = getattr(self.obj, "__func__").__doc__
-        return doc
-
-    @property
     def qualname(self) -> str:
         if self.cls:
-            return f"{self.cls.name}.{self.name}"
+            return f"{self.cls.qualname}.{self.name}"
         return self.name
 
     @property
     def fullname(self) -> str:
-        if self.cls:
-            return f"{self.cls.fullname}.{self.name}"
-        return f"{self.module.name}:{self.name}"
+        return f"{self.module.name}:{self.qualname}"
 
     def __repr__(self) -> str:
         lineno = self.func.__code__.co_firstlineno
@@ -667,45 +668,33 @@ class Variable:
     def qualname(self) -> str:
         if self.cls is None:
             return self.name
-        if self.instvar:
-            return f"{self.cls.name}.__init__.{self.name}"
-        else:
-            return f"{self.cls.name}.{self.name}"
+        return f"{self.cls.qualname}.{self.name}"
 
     @property
     def fullname(self) -> str:
-        if self.cls:
-            return f"{self.cls.fullname}.{self.name}"
-        return f"{self.module.name}:{self.name}"
+        return f"{self.module.name}:{self.qualname}"
 
     @property
     def is_typealias(self) -> bool:
-        astobj = self.astobj
-        if isgenericalias(self.pyobj):
+        annotation = self.get_annotation()
+        if isgenericalias(self.pyobj) or (annotation and annotation.is_typealias):
             return True
-        elif not isinstance(astobj, AssignData) or not astobj.annotation:
-            return False
-        elif unparse_attribute_or_name(astobj.annotation.body):
-            # var ann always define on its module, so eval OK
-            code = compile(astobj.annotation, "<string>", "eval")
-            return eval(
-                code,
-                self.module.t_namespace,
-                self.cls.t_namespace if self.cls else None,
-            )
         return False
 
-    @cached_property
-    def annot(self) -> T_Annot:
-        if not self.cls:
-            return self.module.annotations.get(self.name, NULL)
-        elif self.name in self.cls.annotations:
-            return self.cls.annotations[self.name]
-        elif self.name in self.cls.inst_vars:
-            return self.module._analyzer.annotations.get(self.refname, NULL)
+    def get_annotation(self) -> Annotation | None:
+        ann = self.astobj.annotation if isinstance(self.astobj, AssignData) else None
+        if not ann:
+            return None
+        return Annotation(
+            ann,
+            _AnnContext(
+                self.module.prime_analyzer.module.typing_module,
+                self.module.prime_analyzer.module.typing_names,
+            ),
+        )
 
     @cached_property
-    def annotation(self) -> str:
+    def annotation_(self) -> str:
         annot = self.annot
         if annot is NULL:
             return "untyped"
@@ -741,3 +730,8 @@ class Variable:
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} {self.qualname!r} instvar={self.instvar}>"
+
+
+class _AnnContext(NamedTuple):
+    typing_module: list[str]
+    typing_names: dict[str, str]

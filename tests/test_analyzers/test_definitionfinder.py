@@ -175,7 +175,7 @@ class TestDefinitionFinder:
                 order=1, name="b", type_comment=None, docstring="b first docstring"
             ),
         }
-        assert isinstance(visitor.module.scope["b"].annotation.body, ast.Name)
+        assert isinstance(visitor.module.scope["b"].annotation, ast.Name)
 
     def test_type_checking(self):
         code = get_analyzer_data("type-checking-ast.py")

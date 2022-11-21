@@ -116,6 +116,28 @@ def get_assign_names(
     )
 
 
+def get_subst_args(node: ast.Subscript) -> t.List[ast.expr]:
+    """Get Subscript args.
+
+    The py39- node Slice is thinked as expr, ExtSlice is flattened,
+    and Index is flattened if it is Tuple.
+    """
+    if sys.version_info < (3, 9):
+        if isinstance(node.slice, ast.Index):
+            if isinstance(node.slice.value, ast.Tuple):
+                return node.slice.value.elts
+            return [node.slice.value]
+        elif isinstance(node.slice, ast.Slice):
+            return [node.slice]  # type: ignore
+        elif isinstance(node.slice, ast.ExtSlice):
+            return node.slice.dims  # type: ignore
+        else:
+            raise RuntimeError("node has been modified")
+    if isinstance(node.slice, ast.Tuple):
+        return node.slice.elts
+    return [node.slice]
+
+
 ### For components
 
 

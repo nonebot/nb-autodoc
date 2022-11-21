@@ -55,10 +55,9 @@ class Analyzer:
                 )
                 _locals.update(imports)
             else:
-                _fix = ast.fix_missing_locations
                 flags = _co_future_flags["annotations"]
                 code = compile(
-                    _fix(ast.Interactive([stmt])), self.path, "single", flags=flags
+                    ast.Interactive([stmt]), self.path, "single", flags=flags
                 )
                 exec(code, _globals, _locals)
 

@@ -22,24 +22,30 @@ typing_GenericAlias = __import__("typing")._GenericAlias
 class T_GenericAlias(Protocol):
     """`Union[typing._GenericAlias, types.GenericAlias]`."""
 
+    __origin__: Any  # type if is types.GenericAlias
     __args__: Tuple[Any, ...]
     __parameters__: Tuple[Any, ...]
-    __origin__: Any
 
     def __getitem__(self, __k: Any) -> "T_GenericAlias":
         ...
 
 
 T_Annot = Union[T_GenericAlias, type, str, None]
+"""Runtime annotation types."""
 
 
-def isgenericalias(obj: Any) -> TypeGuard[T_GenericAlias]:
-    if sys.version_info >= (3, 9):
+if sys.version_info >= (3, 9):
+
+    def isgenericalias(obj: Any) -> TypeGuard[T_GenericAlias]:
         return isinstance(obj, (GenericAlias, typing_GenericAlias))
-    return isinstance(obj, typing_GenericAlias)
+
+else:
+
+    def isgenericalias(obj: Any) -> TypeGuard[T_GenericAlias]:
+        return isinstance(obj, typing_GenericAlias)
 
 
-T_ValidMember = Union["T_ModuleMember", "T_ClassMember"]
+T_Definition = Union["T_ModuleMember", "T_ClassMember"]
 T_ModuleMember = Union[
     "Class",
     "Function",

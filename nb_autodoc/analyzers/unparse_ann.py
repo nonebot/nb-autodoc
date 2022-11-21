@@ -15,10 +15,10 @@ def convert_annot(s: str) -> str:
         node = ast.parse(s, mode="eval").body
     except SyntaxError:  # probably already new style
         return s
-    return AnnotUnparser().visit(node)
+    return NewAnnotUnparser().visit(node)
 
 
-class AnnotUnparser(Unparser):
+class NewAnnotUnparser(Unparser):
     """Special unparser for annotation with py3.9+ new style.
 
     Legal annotation consists of (ast.Name, ast.Attribute, ast.Subscript).

@@ -90,7 +90,9 @@ class TestModuleManager:
 
 class TestVariable:
     def test_is_typealias(self):
-        manager = ModuleManager("tests.managerdata.variable_is_typealias")
+        from tests.managerdata import variable_is_typealias
+
+        manager = ModuleManager(variable_is_typealias)
         module = manager.modules["tests.managerdata.variable_is_typealias"]
         assert module.members["a"].is_typealias
         assert module.members["b"].is_typealias

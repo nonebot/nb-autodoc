@@ -1,9 +1,10 @@
 import ast
 import itertools
 import sys
+from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from inspect import Signature
-from typing import Any, Dict, List, NamedTuple, Optional, Union
+from typing import Dict, List, NamedTuple, Optional, Union, cast
 
 from .utils import (
     get_assign_names,
@@ -23,12 +24,16 @@ class ModuleData:
     scope: Dict[str, _Member] = field(default_factory=dict)
     type_checking_body: List[ast.stmt] = field(default_factory=list, compare=False)
     # type_checking_names: Dict[str, None] = field(default_factory=dict)
+    # NOTE: typing import is only supported in Module frame
+    typing_module: List[str] = field(default_factory=list)
+    # names is Mapping of `varname: name`
+    typing_names: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
 class ImportFromData:
     order: int
-    name: str  # import asname
+    name: str  # varname
     module: str
     orig_name: str
 
@@ -38,7 +43,7 @@ class AssignData:
     # store both ast.Assign and ast.AnnAssign
     order: int
     name: str
-    annotation: Optional[ast.Expression] = field(default=None, compare=False)
+    annotation: Optional[ast.expr] = field(default=None, compare=False)
     type_comment: Optional[str] = None
     docstring: Optional[str] = None
     # NOTE: field to specify whether a AnnAssign has value can be used to
@@ -129,24 +134,15 @@ class DefinitionFinder:
         self.in_type_checking: bool = False
         self.counter = itertools.count()
         self.module = ModuleData()
-        # namespace context for precious binding
-        self.imp_typing: List[str] = []
-        self.imp_typing_overload: List[str] = []
-        self.imp_typing_type_checking: List[str] = []
+        # conventional attr
+        self.imp_typing = self.module.typing_module
+        self.imp_typing_names = self.module.typing_names
 
-    def get_current_scope(self) -> Dict[str, Any]:
+    def get_current_frame(self) -> Union[ModuleData, ClassDefData]:
         if self.current_classes:
-            return self.current_classes[-1].scope
+            return self.current_classes[-1]
         else:
-            return self.module.scope
-
-    # def get_type_checking_names(self) -> Optional[Dict[str, None]]:
-    #     if self.in_type_checking:
-    #         if self.current_classes:
-    #             return self.current_classes[-1].type_checking_names
-    #         else:
-    #             return self.module.type_checking_names
-    #     return None
+            return self.module
 
     def get_self(self) -> Optional[str]:
         """Return the first argument name in a method if exists."""
@@ -157,23 +153,18 @@ class DefinitionFinder:
                 return self.current_function.args.args[0].arg
         return None
 
-    # def update_scope(self, scope: Dict[str, Any], name: str, obj: Any) -> None:
-    #     type_checking_names = self.get_type_checking_names()
-    #     if type_checking_names is not None:
-    #         type_checking_names[name] = None
-    #     scope[name] = obj
+    def get_typing_ids(self, tp_id: str) -> List[str]:
+        return [f"{i}.{tp_id}" for i in self.imp_typing] + [
+            k for k, v in self.imp_typing_names.items() if v == tp_id
+        ]
 
     def is_overload(self, node: ast.FunctionDef) -> bool:
-        if len(node.decorator_list) != 1:
-            return False
-        deco = node.decorator_list[0]
-        deco_str = unparse_attribute_or_name(deco)
-        if deco_str is not None:
-            overload_ids = [
-                i + ".overload" for i in self.imp_typing
-            ] + self.imp_typing_overload
-            if deco_str in overload_ids:
-                return True
+        overload_ids = self.get_typing_ids("overload")
+        for deco in node.decorator_list:
+            deco_str = unparse_attribute_or_name(deco)
+            if deco_str is not None:
+                if deco_str in overload_ids:
+                    return True
         return False
 
     def visit(self, node: ast.AST) -> None:
@@ -195,7 +186,7 @@ class DefinitionFinder:
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         if self.current_function:
             return
-        scope = self.get_current_scope()
+        scope = self.get_current_frame().scope
         function_data = scope.get(node.name)
         if not isinstance(function_data, FunctionDefData):
             function_data = FunctionDefData(next(self.counter), node.name)
@@ -223,17 +214,17 @@ class DefinitionFinder:
         self.current_classes.append(class_data)
         self.visit_body(node.body)
         self.current_classes.pop()
-        scope = self.get_current_scope()
+        scope = self.get_current_frame().scope
         scope[node.name] = class_data
 
     def visit_Assign(self, node: ast.Assign) -> None:
         self_id = self.get_self()
         names = get_assign_names(node, self_id)
-        if self_id is not None:
-            # instance variable needs a special scope
-            scope = self.current_classes[-1].instance_vars
+        if self_id:
+            # __init__ definition needs a special scope
+            scope = cast("dict[str, _Member]", self.current_classes[-1].instance_vars)
         else:
-            scope = self.get_current_scope()
+            scope = self.get_current_frame().scope
         type_comment = getattr(node, "type_comment", None)
         docstring = None
         next_stmt = self.next_stmt
@@ -253,7 +244,7 @@ class DefinitionFinder:
                 scope[name] = assign_data
             # bind annotation and type_comment to its last declaration
             if isinstance(node, ast.AnnAssign):
-                assign_data.annotation = ast.Expression(node.annotation)
+                assign_data.annotation = node.annotation
             if type_comment is not None:
                 assign_data.type_comment = type_comment
             # bind docstring to its first declaration
@@ -265,23 +256,18 @@ class DefinitionFinder:
 
     def visit_If(self, node: ast.If) -> None:
         test = unparse_attribute_or_name(node.test)
-        set_true = False
         if test:
-            type_checking_ids = [
-                i + ".TYPE_CHECKING" for i in self.imp_typing
-            ] + self.imp_typing_type_checking
+            type_checking_ids = self.get_typing_ids("TYPE_CHECKING")
             if test in type_checking_ids and not self.in_type_checking:
                 # don't enter nested TYPE_CHECKING condition
                 self.in_type_checking = True
-                set_true = True
                 if self.current_classes:
                     type_checking_body = self.current_classes[-1].type_checking_body
                 else:
                     type_checking_body = self.module.type_checking_body
                 type_checking_body.extend(node.body)
         self.visit_body(node.body)
-        if set_true:
-            self.in_type_checking = False
+        self.in_type_checking = False
 
     def visit_Import(self, node: ast.Import) -> None:
         if self.current_function or self.current_classes:
@@ -289,22 +275,20 @@ class DefinitionFinder:
             return
         # do not add definition
         for alias in node.names:
-            if alias.name == "typing":
+            if alias.name in ("typing", "typing_extensions"):
+                # just make symbol typing import
                 self.imp_typing.append(alias.asname or alias.name)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         if self.current_function:
             return
-        if not self.current_classes and node.module == "typing":
+        if not self.current_classes and node.module in ("typing", "typing_extensions"):
             # only analyze module-level importfrom
             for alias in node.names:
-                if alias.name == "overload":
-                    self.imp_typing_overload.append(alias.asname or alias.name)
-                elif alias.name == "TYPE_CHECKING":
-                    self.imp_typing_type_checking.append(alias.asname or alias.name)
+                self.imp_typing_names[alias.asname or alias.name] = alias.name
         absoluate_module = resolve_name(node, self.package)
         # add definition
-        scope = self.get_current_scope()
+        scope = self.get_current_frame().scope
         for alias in node.names:
             varname = alias.asname or alias.name
             scope[varname] = ImportFromData(
