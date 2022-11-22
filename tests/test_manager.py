@@ -79,20 +79,36 @@ class TestModuleManager:
     def test_single_file_module(self):
         manager = ModuleManager("tests.managerdata.single")
         assert manager.name == "tests.managerdata.single"
+        assert len(manager.modules) == 1
         single = manager.modules["tests.managerdata.single"]
         assert single.members.keys() == {"foo", "func"}
+
         with uncache_import("tests/managerdata", "single") as m:
             manager = ModuleManager(m)
             assert manager.name == "single"
+            assert len(manager.modules) == 1
             single = manager.modules["single"]
             assert single.members.keys() == {"foo", "func"}
 
 
+class TestClass:
+    def test_instvar_combination(self):
+        from .managerdata import class_instvar_combination
+
+        manager = ModuleManager(class_instvar_combination)
+        name, module = manager.modules.popitem()
+        dobj = module.members["A"].instvars["a"]
+        assert dobj.astobj.annotation.id == "str"
+        assert dobj.astobj.docstring == "a docstring"
+        assert module.members["A"].instvars["b"].astobj.docstring == "b docstring"
+
+
 class TestVariable:
     def test_is_typealias(self):
-        from tests.managerdata import variable_is_typealias
+        from .managerdata import variable_is_typealias
 
         manager = ModuleManager(variable_is_typealias)
-        module = manager.modules["tests.managerdata.variable_is_typealias"]
+        name, module = manager.modules.popitem()
         assert module.members["a"].is_typealias
         assert module.members["b"].is_typealias
+        assert module.members["c"].is_typealias

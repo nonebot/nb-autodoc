@@ -1,6 +1,7 @@
 import ast
 
 from nb_autodoc.annotation import (
+    Annotated,
     Annotation,
     AnnotationTransformer,
     CallableType,
@@ -11,7 +12,6 @@ from nb_autodoc.annotation import (
     UnionType,
     _annexpr,
     _get_typing_normalizer,
-    Annotated,
 )
 from nb_autodoc.manager import _AnnContext
 

@@ -5,7 +5,7 @@ from __future__ import annotations as _
 from collections import ChainMap, defaultdict
 from contextvars import ContextVar
 from enum import Enum
-from types import BuiltinFunctionType, FunctionType, ModuleType
+from types import FunctionType, ModuleType
 from typing import Any, Mapping, NamedTuple, TypeVar, cast
 from typing_extensions import Literal
 
@@ -339,11 +339,12 @@ class Module:
 
         Stub-only imports are replaced by `Type[TypeCheckingClass]`.
         """
-        globals_ = self.prime_module_dict.copy()
+        globalns = self.prime_module_dict.copy()
+        _copy__annotations__(globalns)
         self.prime_analyzer.exec_type_checking_body(
-            self.prime_analyzer.module.type_checking_body, globals_
+            self.prime_analyzer.module.type_checking_body, globalns
         )
-        return globals_
+        return globalns
 
     # def attrgetter(self, name: str)
 
@@ -364,6 +365,7 @@ class Module:
                 # explicitly deleted by `del name`. just pass
                 logger.warning(f"ignore {self.name}:{name}")
                 continue
+            is_lambda = isinstance(pyobj, FunctionType) and pyobj.__name__ == "<lambda>"
             if isinstance(astobj, ImportFromData):
                 if name in libdocs:
                     self.add_member(
@@ -375,40 +377,32 @@ class Module:
                         name, WeakReference(astobj.module, astobj.orig_name)
                     )
             elif isinstance(astobj, ClassDefData):
-                # pass if class is decorated as function or other types
+                # pass if ClassDef is decorated as function or other types
                 if not isinstance(pyobj, type):
                     continue
                 self.add_member(name, Class(name, pyobj, astobj, module=self))
-            elif isinstance(pyobj, (FunctionType, BuiltinFunctionType)):
-                if isinstance(pyobj, BuiltinFunctionType):
-                    # is import user c extension function and redefine by assignment
-                    # if not isextbuiltin(pyobj, self.manager.name):
-                    #     continue
-                    # TODO: add c extension support
-                    # support for c extension function or reexport class (ambitious member)
-                    # we needs another config for this
-                    continue
-                if pyobj.__name__ == "<lambda>":
-                    self.add_member(name, Variable(name, pyobj, astobj, module=self))
-                    continue
+            elif isinstance(pyobj, FunctionType) and not is_lambda:
+                # is import user c extension function and redefine by assignment
+                # if not isextbuiltin(pyobj, self.manager.name):
+                #     continue
+                # TODO: add c extension support
+                # support for c extension function or reexport class (ambitious member)
+                # we needs another config for this
+                astobj_val = astobj if isinstance(astobj, FunctionDefData) else None
                 assign_doc = None
                 if isinstance(astobj, AssignData) and astobj.docstring:
                     assign_doc = cleandoc(astobj.docstring)
                 self.add_member(
                     name,
                     Function(
-                        name,
-                        pyobj,
-                        astobj if isinstance(astobj, FunctionDefData) else None,
-                        module=self,
-                        assign_doc=assign_doc,
+                        name, pyobj, astobj_val, module=self, assign_doc=assign_doc
                     ),
                 )
-            elif isinstance(astobj, AssignData):
-                # maybe dynamic class creation or class type alias
-                self.add_member(name, Variable(name, pyobj, astobj, module=self))
             else:
-                logger.warning(f"skip analyze {name!r} in module {self.name!r}")
+                # maybe dynamic class creation or class type alias or lambda
+                self.add_member(name, Variable(name, pyobj, astobj, module=self))
+            # else:
+            #     logger.warning(f"skip analyze {name!r} in module {self.name!r}")
         if libdocs:
             logger.warning(f"cannot solve autodoc item {libdocs}")
 
@@ -428,9 +422,6 @@ class Module:
 
 class Class:
     """Analyze class."""
-
-    # whitelist members in filter
-    SPECIAL_MEMBERS = ["__get__", "__set__", "__delete__"]
 
     def __init__(
         self, name: str, pyobj: type, astobj: ClassDefData, *, module: Module
@@ -472,12 +463,13 @@ class Class:
 
     @cached_property
     def t_namespace(self) -> dict[str, Any]:
-        globals_ = self.module.t_namespace
-        locals_ = self.pyobj.__dict__.copy()
+        globalns = self.module.t_namespace
+        localns = self.pyobj.__dict__.copy()
+        _copy__annotations__(localns)
         self.module.prime_analyzer.exec_type_checking_body(
-            self.astobj.type_checking_body, globals_, locals_
+            self.astobj.type_checking_body, globalns, localns
         )
-        return locals_
+        return localns
 
     def add_member(self, name: str, obj: T_ClassMember) -> None:
         self.members[name] = obj
@@ -517,11 +509,11 @@ class Class:
             if cls_inst:
                 astobj = cast(AssignData, cls_inst)  # cast for mypy
                 if init_inst:
-                    astobj.merge(init_inst)
+                    astobj = astobj.merge(init_inst)
             elif init_inst:
                 astobj = init_inst
             else:
-                logger.warning(f"ignore instance var {self.fullname}.{name}")
+                logger.error(f"unknown ignored instance var {self.fullname}.{name}")
                 continue
             self.instvars[name] = Variable(
                 name, _NULL, astobj, module=self.module, cls=self, instvar=True
@@ -559,19 +551,12 @@ class Class:
                         assign_doc=assign_doc,
                     ),
                 )
-            elif isinstance(dict_obj, property):
-                if not isinstance(astobj, (FunctionDefData, AssignData)):
-                    continue
-                self.add_member(
-                    name,
-                    Variable(name, dict_obj, astobj, module=self.module, cls=self),
-                )
-            elif isinstance(astobj, AssignData) or is_lambda:
+            else:
                 self.add_member(
                     name, Variable(name, dict_obj, astobj, module=self.module, cls=self)
                 )
-            else:
-                logger.warning(f"skip analyze {name!r} in class {self.name!r}")
+            # else:
+            #     logger.warning(f"skip analyze {name!r} in class {self.name!r}")
 
     def __repr__(self) -> str:
         doc = self.doc and self.doc[:8] + "..."
@@ -735,3 +720,8 @@ class Variable:
 class _AnnContext(NamedTuple):
     typing_module: list[str]
     typing_names: dict[str, str]
+
+
+def _copy__annotations__(_ns: dict[str, Any]) -> None:
+    if "__annotations__" in _ns:
+        _ns["__annotations__"] = _ns["__annotations__"].copy()
