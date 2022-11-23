@@ -44,45 +44,8 @@ current_module: ContextVar["Module"] = ContextVar("current_module")
 # NOTE: isfunction not recognize the C extension function (builtin), maybe isroutine and callable
 
 
-_NULL: Any = object()
-
-
-class AutodocRefineResult(NamedTuple):
-    module: str
-    attr: str
-    is_ref: bool
-    is_library: bool
-
-
-def _refine_autodoc_from_ast(module: "Module", name: str) -> AutodocRefineResult | None:
-    """Return source module where has name definition."""
-    # should be circular guarded?
-    chain = []
-    attrs = []
-    while True:
-        analyzer = module.pyi_analyzer or module.py_analyzer
-        # maybe reexport c extension? but it always appear in stub file
-        assert analyzer, "found '__autodoc__' on non-source file"
-        ast_obj = analyzer.scope.get(name)
-        if ast_obj is None:
-            return None
-        if isinstance(ast_obj, ImportFromData):
-            # found reference or library
-            modules = module.manager.modules
-            if ast_obj.module in modules:
-                chain.append(module.name)
-                attrs.append(name)
-                module = modules[ast_obj.module]
-                name = ast_obj.orig_name  # original name
-            else:
-                # if chain:  # ref should not be library
-                #     return AutodocRefineResult(module.name, name, True, True)
-                return AutodocRefineResult(module.name, name, False, True)
-        else:
-            # found definition
-            if chain:
-                return AutodocRefineResult(module.name, name, True, False)
-            return AutodocRefineResult(module.name, name, False, False)
+_null_member: Any = object()
+"""Runtime placeholder that doesn't exist."""
 
 
 class ModuleManager:
@@ -117,52 +80,12 @@ class ModuleManager:
         }
         self.modules: dict[str, Module] = modules
         self.prepare_module_members()
-
-    def refine_autodoc(self, modules: dict[str, "Module"]) -> None:
-        # clear manager context
-        self.whitelist.clear()
-        self.blacklist.clear()
-        for module in modules.values():
-            # clear module context
-            module.exist_external.clear()
-            autodoc = module.py__autodoc__
-            for key, value in autodoc.items():
-                name, _, attr = key.partition(".")
-                result = _refine_autodoc_from_ast(module, name)
-                if result is None:
-                    logger.error(f"__autodoc__[{key!r}] not found")
-                    continue
-                if result.is_ref:
-                    module.exist_external[name] = Reference(result.module, result.attr)
-                elif result.is_library:
-                    if result.module != module.name:
-                        logger.error(
-                            f"__autodoc__[{key!r}] is external import "
-                            "but ends as library attribute"
-                        )
-                        continue
-                    if attr:
-                        logger.error(
-                            f"__autodoc__[{key!r}] is library attribute "
-                            f"with ambitious attr {attr!r}"
-                        )
-                        continue
-                    if not isinstance(value, str):
-                        logger.error(
-                            f"__autodoc__[{key!r}] is library attribute "
-                            f"and expects string value to override, got {type(value)}"
-                        )
-                        continue
-                    module.exist_external[name] = LibraryAttr(module.name, name, value)
-                refname = f"{result.module}:{result.attr}"
-                if attr:  # no check attr existence
-                    refname += "." + attr
-                if value is True or isinstance(value, str):
-                    self.whitelist.add(refname)
-                elif value is False:
-                    self.blacklist.add(refname)
-                else:
-                    logger.error(f"__autodoc__[{key!r}] got unexpected value {value}")
+        # the manager member context is loaded, now build the bases of classes
+        classes = {i.pyobj: i for i in self.context.values() if isinstance(i, Class)}
+        for clsobj in classes:
+            classes[clsobj].bases = tuple(
+                classes[i] for i in clsobj.__bases__ if i in classes
+            )
 
     def prepare_module_members(self) -> None:
         """Call `module.prepare` to filter internal reference."""
@@ -267,7 +190,7 @@ class Module:
         """Module member whitelist."""
         self.blacklist: set[str] = set()
         """Module member blacklist."""
-        # dotted whitelist/blacklist consumed by class, the remaining item must be reference
+        # dotted whitelist/blacklist consumed by class
         self.dotted_whitelist: dict[str, set[str]] = defaultdict(set)
         self.dotted_blacklist: dict[str, set[str]] = defaultdict(set)
         for name, val in self.py__autodoc__.items():
@@ -358,6 +281,7 @@ class Module:
             return
         ast_scope = self.prime_analyzer.module.scope
         libdocs = {k: v for k, v in self.py__autodoc__.items() if isinstance(v, str)}
+        _NULL = object()
         for name, astobj in ast_scope.items():
             pyobj = self.t_namespace.get(name, _NULL)
             if pyobj is _NULL:
@@ -406,11 +330,11 @@ class Module:
         if libdocs:
             logger.warning(f"cannot solve autodoc item {libdocs}")
 
-    def _evaluate(self, s: str, *, locals: dict[str, Any] | None = None) -> Any:
-        # some library has stmt like `if TYPE_CHECKING...else...`
-        # so we need to create type_checking namespace rather than ChainMap
-        # for class method, give class namespace as `locals`
-        return eval(s, cast("dict[str, Any]", self.prime_module_dict), locals)
+    # def _evaluate(self, s: str, *, locals: dict[str, Any] | None = None) -> Any:
+    #     # some library has stmt like `if TYPE_CHECKING...else...`
+    #     # so we need to create type_checking namespace rather than ChainMap
+    #     # for class method, give class namespace as `locals`
+    #     return eval(s, self.prime_module_dict, locals)
 
     def __repr__(self) -> str:
         return (
@@ -422,6 +346,8 @@ class Module:
 
 class Class:
     """Analyze class."""
+
+    bases: tuple[Class, ...]
 
     def __init__(
         self, name: str, pyobj: type, astobj: ClassDefData, *, module: Module
@@ -482,6 +408,7 @@ class Class:
         annotations = self.t_namespace.get("__annotations__", {})
         ast_scope = self.astobj.scope
         ast_instance_vars = self.astobj.instance_vars
+        _NULL = object()
         if issubclass(clsobj, Enum):
             for name, member in clsobj.__members__.items():
                 doc = None
@@ -516,7 +443,7 @@ class Class:
                 logger.error(f"unknown ignored instance var {self.fullname}.{name}")
                 continue
             self.instvars[name] = Variable(
-                name, _NULL, astobj, module=self.module, cls=self, instvar=True
+                name, _null_member, astobj, module=self.module, cls=self, instvar=True
             )
         # prepare class members
         for name, astobj in ast_scope.items():
@@ -677,38 +604,6 @@ class Variable:
                 self.module.prime_analyzer.module.typing_names,
             ),
         )
-
-    @cached_property
-    def annotation_(self) -> str:
-        annot = self.annot
-        if annot is NULL:
-            return "untyped"
-        elif isinstance(annot, str):
-            if "->" in annot:
-                logger.warning(
-                    f"{self.module.name} | disallow alternative Callable syntax "
-                    f"in {self.qualname} {annot!r}"
-                )
-                return self.replace_annot_refs(annot)
-            # TODO: add "X | Y" parser feature
-            try:
-                annot = self.module._evaluate(annot)
-            except Exception as e:  # TypeError if "X | Y"
-                logger.error(
-                    f"{self.module.name} | error evaluating annotation {self.qualname} {e}"
-                )
-            else:
-                annot = formatannotation(annot, {})
-        elif isinstance(annot, Tp_GenericAlias):
-            annot = eval_annot_as_possible(
-                annot,
-                self.module.obj.__dict__,
-                f"failed evaluating annotation {self.refname}",
-            )
-            annot = formatannotation(annot, {})
-        else:  # type or None
-            annot = formatannotation(annot, {})
-        return convert_annot(self.replace_annot_refs(annot))
 
     def replace_annot_refs(self, s: str) -> str:
         return s

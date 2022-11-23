@@ -1,15 +1,6 @@
-import ast
-
 import pytest
 
-from nb_autodoc.analyzers.definitionfinder import AssignData
-from nb_autodoc.manager import (
-    AutodocRefineResult,
-    LibraryAttr,
-    ModuleManager,
-    Variable,
-    _refine_autodoc_from_ast,
-)
+from nb_autodoc.manager import ModuleManager
 
 from .utils import uncache_import
 
@@ -97,9 +88,8 @@ class TestClass:
 
         manager = ModuleManager(class_instvar_combination)
         name, module = manager.modules.popitem()
-        dobj = module.members["A"].instvars["a"]
-        assert dobj.astobj.annotation.id == "str"
-        assert dobj.astobj.docstring == "a docstring"
+        assert module.members["A"].instvars["a"].astobj.annotation.id == "str"
+        assert module.members["A"].instvars["a"].astobj.docstring == "a docstring"
         assert module.members["A"].instvars["b"].astobj.docstring == "b docstring"
 
 
