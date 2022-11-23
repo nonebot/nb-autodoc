@@ -92,6 +92,18 @@ class TestClass:
         assert module.members["A"].instvars["a"].astobj.docstring == "a docstring"
         assert module.members["A"].instvars["b"].astobj.docstring == "b docstring"
 
+    def test_class_bases(self):
+        from .managerdata import class_bases
+
+        manager = ModuleManager(class_bases)
+        module = manager.modules["tests.managerdata.class_bases"]
+        module_base = manager.modules["tests.managerdata.class_bases.base"]
+        assert module.members["Mixin"].bases == ()
+        assert module.members["A"].bases == (
+            module.members["Mixin"],
+            module_base.members["Base"],
+        )
+
 
 class TestVariable:
     def test_is_typealias(self):
