@@ -82,6 +82,38 @@ class TestModuleManager:
             assert single.members.keys() == {"foo", "func"}
 
 
+class TestModule:
+    def test_get_canonical_member(self):
+        from .managerdata import get_canonical_member
+
+        manager = ModuleManager(get_canonical_member)
+        module = manager.modules["tests.managerdata.get_canonical_member.a"]
+        assert (
+            module.get_canonical_member("a").fullname
+            == "tests.managerdata.get_canonical_member.b:a"
+        )
+        assert (
+            module.get_canonical_member("b").fullname
+            == "tests.managerdata.get_canonical_member.a:b"
+        )
+        assert (
+            module.get_canonical_member("A.a").fullname
+            == "tests.managerdata.get_canonical_member.a:A.a"
+        )
+        assert (
+            module.get_canonical_member("B.a").fullname
+            == "tests.managerdata.get_canonical_member.a:A.a"
+        )
+        assert (
+            module.get_canonical_member("B.b").fullname
+            == "tests.managerdata.get_canonical_member.a:B.b"
+        )
+        assert (
+            module.get_canonical_member("B.c").fullname
+            == "tests.managerdata.get_canonical_member.b:C.c"
+        )
+
+
 class TestClass:
     def test_instvar_combination(self):
         from .managerdata import class_instvar_combination

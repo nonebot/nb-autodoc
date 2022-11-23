@@ -46,6 +46,7 @@ else:
 
 
 T_Definition = Union["T_ModuleMember", "T_ClassMember"]
+# note that WeakReference is not definition
 T_ModuleMember = Union[
     "Class",
     "Function",

@@ -118,7 +118,15 @@ class WeakReference:
     def find_definition(
         self, context: Mapping[str, T_Definition]
     ) -> T_Definition | None:
-        ...
+        fullname = f"{self.module}:{self.attr}"
+        for _ in range(100):
+            dobj = context.get(fullname)
+            if not isinstance(dobj, WeakReference):
+                return dobj
+            fullname = f"{dobj.module}:{dobj.attr}"
+        else:
+            # two weak reference point to each other?
+            raise RuntimeError("reference max iter exceeded")
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(module={self.module!r}, attr={self.attr!r})"
@@ -160,7 +168,7 @@ class Module:
         pyi: ModuleProperties | None = None,
     ) -> None:
         self.manager = manager
-        self.context = manager.push_context()
+        self.all_members = manager.push_context()
         self.members: dict[str, T_ModuleMember] = {}
         self.name = name
         # if py and pyi both exist, then py (include extension) is only used to extract docstring
@@ -272,7 +280,23 @@ class Module:
     # def attrgetter(self, name: str)
 
     def add_member(self, name: str, obj: T_ModuleMember) -> None:
-        self.members[name] = self.context[f"{self.name}:{name}"] = obj
+        self.members[name] = self.all_members[f"{self.name}:{name}"] = obj
+
+    def get_canonical_member(self, qualname: str) -> T_Definition | None:
+        """Find canonical member definition.
+
+        Resolve module weakreference and class mro member.
+        """
+        clsname, dot, attr = qualname.partition(".")
+        dobj = self.members.get(clsname)  # type: T_Definition | None
+        if dobj is not None:
+            if isinstance(dobj, WeakReference):
+                dobj = dobj.find_definition(self.manager.context)
+            if not dot:
+                return dobj
+            if not isinstance(dobj, Class):
+                return None
+            return dobj.get_canonical_member(attr)
 
     def prepare(self) -> None:
         """Build module members."""
@@ -399,7 +423,17 @@ class Class:
 
     def add_member(self, name: str, obj: T_ClassMember) -> None:
         self.members[name] = obj
-        self.module.context[f"{self.fullname}.{name}"] = obj
+        self.module.all_members[f"{self.fullname}.{name}"] = obj
+
+    def get_canonical_member(self, name: str) -> T_ClassMember | None:
+        if "bases" not in self.__dict__:
+            raise RuntimeError("module has not been prepared")
+        dobj = self.members.get(name)
+        if dobj is not None:
+            return dobj
+        for base in self.bases:
+            if name in base.members:
+                return base.members[name]
 
     def prepare(self) -> None:
         """Build class members."""
