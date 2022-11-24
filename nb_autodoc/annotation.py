@@ -278,18 +278,32 @@ def _get_typing_normalizer(context: _AnnContext) -> t.Callable[[str], str | None
     return _norm_typing_name
 
 
+def _ga_subst_outer_check(ann: _annexpr, tp_name: str) -> bool:
+    if isinstance(ann, GASubscript) and isinstance(ann.origin, TypingName):
+        return ann.origin.tp_name == tp_name
+    return False
+
+
 class Annotation:
     def __init__(self, ast_expr: ast.expr, context: _AnnContext) -> None:
         self.ast_expr = ast_expr
         norm = _get_typing_normalizer(context)
-        self.ann = AnnotationTransformer(norm).visit(ast_expr)
-        self.norm_typing_name = norm
+        self.ann: _annexpr = AnnotationTransformer(norm).visit(ast_expr)
 
     @property
     def is_typealias(self) -> bool:
         if not isinstance(self.ann, TypingName):
             return False
         return self.ann.tp_name == "TypeAlias"
+
+    @property
+    def is_classvar(self) -> bool:
+        return _ga_subst_outer_check(self.ann, "ClassVar")
+
+    # @property
+    # def is_callable(self) -> bool:
+    #     # check if assign target is user function?
+    #     return _ga_subst_outer_check(self.ann, "Callable")
 
     def type_link(self, ontype: t.Callable[[type], str]) -> str:
         ...

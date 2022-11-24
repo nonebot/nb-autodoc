@@ -1,6 +1,6 @@
 import pytest
 
-from nb_autodoc.manager import ModuleManager
+from nb_autodoc.manager import Function, ModuleManager
 
 from .utils import uncache_import
 
@@ -120,9 +120,9 @@ class TestClass:
 
         manager = ModuleManager(class_instvar_combination)
         name, module = manager.modules.popitem()
-        assert module.members["A"].instvars["a"].astobj.annotation.id == "str"
-        assert module.members["A"].instvars["a"].astobj.docstring == "a docstring"
-        assert module.members["A"].instvars["b"].astobj.docstring == "b docstring"
+        assert module.members["A"].members["a"].astobj.annotation.id == "str"
+        assert module.members["A"].members["a"].astobj.docstring == "a docstring"
+        assert module.members["A"].members["b"].astobj.docstring == "b docstring"
 
     def test_class_bases(self):
         from .managerdata import class_bases
@@ -135,6 +135,35 @@ class TestClass:
             module.members["Mixin"],
             module_base.members["Base"],
         )
+
+    def test_prepare(self):
+        from .managerdata import class_prepare
+
+        manager = ModuleManager(class_prepare)
+        module = manager.modules["tests.managerdata.class_prepare.instvar"]
+        # NamedTuple fields is all instance var
+        assert module.members["A"].members["a"].is_instvar is True
+        assert module.members["A"].members["f"].__class__ is Function
+        # normal class tests
+        assert module.members["B"].members["a"].is_instvar is True
+        assert module.members["B"].members["b"].is_instvar is False
+        assert module.members["B"].members["c"].is_instvar is False
+        assert module.members["B"].members["d"].is_instvar is False
+        assert module.members["B"].members["e"].is_instvar is True
+        assert module.members["B"].members["__call__"].__class__ is Function
+        assert module.members["B"].members["__getitem__"].is_instvar is False
+        # the instance var order is uncompromised but we check here
+        assert list(module.members["B"].members.keys()) == [
+            "a",
+            "d",
+            "e",
+            "b",
+            "c",
+            "__init__",
+            "_call_impl",
+            "__call__",
+            "__getitem__",
+        ]
 
 
 class TestVariable:

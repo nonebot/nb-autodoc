@@ -1,7 +1,6 @@
 import ast
 import itertools
 import sys
-from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from inspect import Signature
 from typing import Dict, List, NamedTuple, Optional, Union, cast
@@ -46,8 +45,7 @@ class AssignData:
     annotation: Optional[ast.expr] = field(default=None, compare=False)
     type_comment: Optional[str] = None
     docstring: Optional[str] = None
-    # NOTE: field to specify whether a AnnAssign has value can be used to
-    # check instance var, but we check its runtime existence.
+    value: Optional[ast.expr] = field(default=None, compare=False)
 
     def merge(self, other: "AssignData") -> "AssignData":
         # used in merging `__init__` level AssignData into class-level AssignData
@@ -250,6 +248,7 @@ class DefinitionFinder:
             # bind docstring to its first declaration
             if docstring is not None and assign_data.docstring is None:
                 assign_data.docstring = docstring
+            assign_data.value = node.value
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         return self.visit_Assign(node)  # type: ignore

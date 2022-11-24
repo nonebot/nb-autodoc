@@ -44,7 +44,7 @@ current_module: ContextVar["Module"] = ContextVar("current_module")
 # NOTE: isfunction not recognize the C extension function (builtin), maybe isroutine and callable
 
 
-_null_member: Any = object()
+_NULL_MEMBER: Any = object()
 """Runtime placeholder that doesn't exist."""
 
 
@@ -383,7 +383,6 @@ class Class:
         self.astobj = astobj
         self.module = module
         self.members: dict[str, T_ClassMember] = {}
-        self.instvars: dict[str, Variable] = {}
         self.prepare()
 
     @property
@@ -439,10 +438,10 @@ class Class:
         """Build class members."""
         self.members.clear()
         clsobj = self.pyobj
-        annotations = self.t_namespace.get("__annotations__", {})
+        # annotations = self.t_namespace.get("__annotations__", {})
         ast_scope = self.astobj.scope
         ast_instance_vars = self.astobj.instance_vars
-        _NULL = object()
+        # _NULL = object()
         if issubclass(clsobj, Enum):
             for name, member in clsobj.__members__.items():
                 doc = None
@@ -457,8 +456,8 @@ class Class:
         if isnamedtuple(clsobj):
             instvar_names.extend(clsobj._fields)
         else:
-            for name in annotations.keys():
-                if find_name_in_mro(clsobj, name, _NULL) is _NULL:
+            for name, astobj in ast_scope.items():
+                if isinstance(astobj, AssignData) and astobj.value is None:
                     instvar_names.append(name)
             instvar_names.extend(ast_instance_vars.keys())
         # prepare instance vars
@@ -476,19 +475,27 @@ class Class:
             else:
                 logger.error(f"unknown ignored instance var {self.fullname}.{name}")
                 continue
-            self.instvars[name] = Variable(
-                name, _null_member, astobj, module=self.module, cls=self, instvar=True
+            # ClassVar[...] is checked by Variable constructor
+            self.add_member(
+                name,
+                Variable(
+                    name,
+                    _NULL_MEMBER,
+                    astobj,
+                    module=self.module,
+                    cls=self,
+                    is_instvar=True,
+                ),
             )
         # prepare class members
         for name, astobj in ast_scope.items():
-            if name in self.instvars:
-                # maybe also class-var definition but we ignore
+            if name in self.members:
+                # already instance var. maybe also classvar but ignore
                 continue
-            dict_obj = self.t_namespace.get(name, _NULL)
-            if dict_obj is _NULL:
-                # annotation only or deleted or superclass
-                logger.warning(f"ignore {self.fullname}.{name}")
-                continue
+            # member maybe superclass or Mixin that undocumented
+            # but we should have another config for that case
+            # class member constructor always focus on its dict members
+            dict_obj = self.t_namespace.get(name, _NULL_MEMBER)
             is_lambda = (
                 isinstance(dict_obj, FunctionType) and dict_obj.__name__ == "<lambda>"
             )
@@ -599,7 +606,7 @@ class Variable:
         *,
         module: Module,
         cls: Class | None = None,
-        instvar: bool = False,
+        is_instvar: bool = False,
     ) -> None:
         # only ast_function in property
         # assert not (isinstance(astobj, FunctionDefData) and not isinstance(pyobj, property))
@@ -608,7 +615,11 @@ class Variable:
         self.astobj = astobj
         self.module = module
         self.cls = cls
-        self.instvar = instvar
+        if is_instvar is True:
+            ann = self.annotation
+            if ann and ann.is_classvar:
+                is_instvar = False
+        self.is_instvar = is_instvar
 
     @property
     def qualname(self) -> str:
@@ -622,12 +633,14 @@ class Variable:
 
     @property
     def is_typealias(self) -> bool:
-        annotation = self.get_annotation()
+        annotation = self.annotation
         if isgenericalias(self.pyobj) or (annotation and annotation.is_typealias):
             return True
         return False
 
-    def get_annotation(self) -> Annotation | None:
+    # Annotation do static analysis so cacheable
+    @cached_property
+    def annotation(self) -> Annotation | None:
         ann = self.astobj.annotation if isinstance(self.astobj, AssignData) else None
         if not ann:
             return None
@@ -643,7 +656,9 @@ class Variable:
         return s
 
     def __repr__(self) -> str:
-        return f"<{self.__class__.__name__} {self.qualname!r} instvar={self.instvar}>"
+        return (
+            f"<{self.__class__.__name__} {self.qualname!r} instvar={self.is_instvar}>"
+        )
 
 
 class _AnnContext(NamedTuple):

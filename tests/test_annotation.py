@@ -80,3 +80,15 @@ class TestAnnotationTransformer:
             GASubscript(TypingName("t.Concatenate", "Concatenate"), [Name("int"), ...]),
             Name("A"),
         )
+
+
+class TestAnnotation:
+    def test_is_typealias(self):
+        anncontext = _AnnContext(["t"], {})
+        ann = Annotation(get_expr("t.TypeAlias"), anncontext)
+        assert ann.is_typealias
+
+    def test_is_classvar(self):
+        anncontext = _AnnContext(["t"], {})
+        ann = Annotation(get_expr("t.ClassVar[int]"), anncontext)
+        assert ann.is_classvar
