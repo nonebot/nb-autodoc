@@ -130,8 +130,8 @@ class TestClass:
         manager = ModuleManager(class_bases)
         module = manager.modules["tests.managerdata.class_bases"]
         module_base = manager.modules["tests.managerdata.class_bases.base"]
-        assert module.members["Mixin"].bases == ()
-        assert module.members["A"].bases == (
+        assert module.members["Mixin"].mro == ()
+        assert module.members["A"].mro == (
             module.members["Mixin"],
             module_base.members["Base"],
         )

@@ -2,12 +2,11 @@
 
 from __future__ import annotations as _
 
-from collections import ChainMap, defaultdict
+from collections import defaultdict
 from contextvars import ContextVar
 from enum import Enum
 from types import FunctionType, ModuleType
 from typing import Any, Mapping, NamedTuple, TypeVar, cast
-from typing_extensions import Literal
 
 from nb_autodoc.analyzers.analyzer import Analyzer
 from nb_autodoc.analyzers.definitionfinder import (
@@ -21,31 +20,30 @@ from nb_autodoc.config import Config, default_config
 from nb_autodoc.log import logger
 from nb_autodoc.modulefinder import ModuleFinder, ModuleProperties
 from nb_autodoc.typing import (
-    T_Annot,
     T_Autodoc,
     T_ClassMember,
     T_Definition,
     T_ModuleMember,
     isgenericalias,
 )
-from nb_autodoc.utils import (
-    cached_property,
-    cleandoc,
-    find_name_in_mro,
-    ismetaclass,
-    isnamedtuple,
-)
+from nb_autodoc.utils import cached_property, cleandoc, isnamedtuple
 
 T = TypeVar("T")
 TT = TypeVar("TT")
 
-
 current_module: ContextVar["Module"] = ContextVar("current_module")
-# NOTE: isfunction not recognize the C extension function (builtin), maybe isroutine and callable
 
 
-_NULL_MEMBER: Any = object()
-"""Runtime placeholder that doesn't exist."""
+class Context(dict[str, T_Definition]):
+    """Context all members. Dictionary key is `module:qualname`."""
+
+    def link_class_by_mro(self) -> None:
+        """Find class resolution order."""
+        classes = {i.pyobj: i for i in self.values() if isinstance(i, Class)}
+        for clsobj in classes:
+            classes[clsobj].mro = tuple(
+                classes[i] for i in clsobj.__mro__[1:-1] if i in classes
+            )
 
 
 class ModuleManager:
@@ -67,8 +65,7 @@ class ModuleManager:
         *,
         config: Config | None = None,
     ) -> None:
-        self.context: ChainMap[str, T_Definition] = ChainMap()
-        """Context all members. Key is `module:qualname`."""
+        self.context: Context = Context()
         self.config: Config = default_config.copy()
         if config is not None:
             self.config.update(config)
@@ -79,27 +76,10 @@ class ModuleManager:
             for name, m, ms in module_found_result.gen_bound_module()
         }
         self.modules: dict[str, Module] = modules
-        self.prepare_module_members()
-        # the manager member context is loaded, now build the bases of classes
-        classes = {i.pyobj: i for i in self.context.values() if isinstance(i, Class)}
-        for clsobj in classes:
-            classes[clsobj].bases = tuple(
-                classes[i] for i in clsobj.__bases__ if i in classes
-            )
-
-    def prepare_module_members(self) -> None:
-        """Call `module.prepare` to filter internal reference."""
         for m in self.modules.values():
             m.prepare()
-
-    def push_context(
-        self, d: dict[str, T_Definition] | None = None
-    ) -> dict[str, T_Definition]:
-        """Push context. Like inplace `ChainMap.new_child`."""
-        if d is None:
-            d = {}
-        self.context.maps.insert(1, d)
-        return d
+        # the context is loaded, now build the mro of class
+        self.context.link_class_by_mro()
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} {self.name!r}>"
@@ -168,7 +148,6 @@ class Module:
         pyi: ModuleProperties | None = None,
     ) -> None:
         self.manager = manager
-        self.all_members = manager.push_context()
         self.members: dict[str, T_ModuleMember] = {}
         self.name = name
         # if py and pyi both exist, then py (include extension) is only used to extract docstring
@@ -233,10 +212,6 @@ class Module:
         raise RuntimeError
 
     @property
-    def annotations(self) -> dict[str, T_Annot]:
-        return self.prime_module_dict.get("__annotations__", {})
-
-    @property
     def prime_analyzer(self) -> Analyzer:
         prime = self.pyi_analyzer or self.py_analyzer
         if prime is not None:
@@ -244,12 +219,16 @@ class Module:
         raise RuntimeError
 
     @property
-    def prime_module_dict(self) -> dict[str, Any]:
-        """Return runtime module dict."""
+    def prime_py(self) -> ModuleProperties:
         prime = self.pyi or self.py
         if prime is not None:
-            return prime.sm_dict
+            return prime
         raise RuntimeError
+
+    @property
+    def prime_module_dict(self) -> dict[str, Any]:
+        """Return runtime module dict."""
+        return self.prime_py.sm_dict
 
     @property
     def py__autodoc__(self) -> T_Autodoc:
@@ -268,11 +247,11 @@ class Module:
     def t_namespace(self) -> dict[str, Any]:
         """Return type checking namespace.
 
-        Stub-only imports are replaced by `Type[TypeCheckingClass]`.
+        Stub imports are replaced by `Type[TypeCheckingClass]`.
         """
         globalns = self.prime_module_dict.copy()
         _copy__annotations__(globalns)
-        self.prime_analyzer.exec_type_checking_body(
+        self.prime_analyzer._exec_stub_safe(
             self.prime_analyzer.module.type_checking_body, globalns
         )
         return globalns
@@ -280,12 +259,12 @@ class Module:
     # def attrgetter(self, name: str)
 
     def add_member(self, name: str, obj: T_ModuleMember) -> None:
-        self.members[name] = self.all_members[f"{self.name}:{name}"] = obj
+        self.members[name] = self.manager.context[f"{self.name}:{name}"] = obj
 
     def get_canonical_member(self, qualname: str) -> T_Definition | None:
         """Find canonical member definition.
 
-        Resolve module weakreference and class mro member.
+        Resolve import reference and class mro member.
         """
         clsname, dot, attr = qualname.partition(".")
         dobj = self.members.get(clsname)  # type: T_Definition | None
@@ -309,9 +288,8 @@ class Module:
         for name, astobj in ast_scope.items():
             pyobj = self.t_namespace.get(name, _NULL)
             if pyobj is _NULL:
-                # TODO: _NULL and pyi, then get from py dict
                 # explicitly deleted by `del name`. just pass
-                logger.warning(f"ignore {self.name}:{name}")
+                logger.warning(f"ignored {self.name}:{name}")
                 continue
             is_lambda = isinstance(pyobj, FunctionType) and pyobj.__name__ == "<lambda>"
             if isinstance(astobj, ImportFromData):
@@ -349,8 +327,6 @@ class Module:
             else:
                 # maybe dynamic class creation or class type alias or lambda
                 self.add_member(name, Variable(name, pyobj, astobj, module=self))
-            # else:
-            #     logger.warning(f"skip analyze {name!r} in module {self.name!r}")
         if libdocs:
             logger.warning(f"cannot solve autodoc item {libdocs}")
 
@@ -371,7 +347,10 @@ class Module:
 class Class:
     """Analyze class."""
 
-    bases: tuple[Class, ...]
+    mro: tuple[Class, ...]
+
+    _ANNONLY_MEMBER: Any = object()
+    """Annotation only member placeholder."""
 
     def __init__(
         self, name: str, pyobj: type, astobj: ClassDefData, *, module: Module
@@ -384,18 +363,6 @@ class Class:
         self.module = module
         self.members: dict[str, T_ClassMember] = {}
         self.prepare()
-
-    @property
-    def objtype(self) -> Literal["class", "metaclass", "namedtuple", "enum"]:
-        # objtype maybe relate to object indicator
-        obj = self.pyobj
-        if isnamedtuple(obj):
-            return "namedtuple"
-        elif issubclass(obj, Enum):
-            return "enum"
-        if ismetaclass(obj):
-            return "metaclass"
-        return "class"
 
     @property
     def kind(self) -> str:
@@ -415,22 +382,23 @@ class Class:
         globalns = self.module.t_namespace
         localns = self.pyobj.__dict__.copy()
         _copy__annotations__(localns)
-        self.module.prime_analyzer.exec_type_checking_body(
+        self.module.prime_analyzer._exec_stub_safe(
             self.astobj.type_checking_body, globalns, localns
         )
         return localns
 
     def add_member(self, name: str, obj: T_ClassMember) -> None:
-        self.members[name] = obj
-        self.module.all_members[f"{self.fullname}.{name}"] = obj
+        self.members[name] = self.module.manager.context[
+            f"{self.fullname}.{name}"
+        ] = obj
 
     def get_canonical_member(self, name: str) -> T_ClassMember | None:
-        if "bases" not in self.__dict__:
-            raise RuntimeError("module has not been prepared")
+        # if "mro" not in self.__dict__:
+        #     raise RuntimeError("module has not been prepared")
         dobj = self.members.get(name)
         if dobj is not None:
             return dobj
-        for base in self.bases:
+        for base in self.mro:
             if name in base.members:
                 return base.members[name]
 
@@ -473,14 +441,14 @@ class Class:
             elif init_inst:
                 astobj = init_inst
             else:
-                logger.error(f"unknown ignored instance var {self.fullname}.{name}")
+                logger.error(f"ignored instance var {self.fullname}.{name}")
                 continue
             # ClassVar[...] is checked by Variable constructor
             self.add_member(
                 name,
                 Variable(
                     name,
-                    _NULL_MEMBER,
+                    Class._ANNONLY_MEMBER,
                     astobj,
                     module=self.module,
                     cls=self,
@@ -495,7 +463,7 @@ class Class:
             # member maybe superclass or Mixin that undocumented
             # but we should have another config for that case
             # class member constructor always focus on its dict members
-            dict_obj = self.t_namespace.get(name, _NULL_MEMBER)
+            dict_obj = self.t_namespace.get(name, Class._ANNONLY_MEMBER)
             is_lambda = (
                 isinstance(dict_obj, FunctionType) and dict_obj.__name__ == "<lambda>"
             )
@@ -529,12 +497,6 @@ class Class:
     def __repr__(self) -> str:
         doc = self.doc and self.doc[:8] + "..."
         return f"<{self.__class__.__name__} {self.name!r} doc={doc!r}>"
-
-
-class EnumMember(NamedTuple):
-    name: str
-    value: Any
-    doc: str | None
 
 
 # TODO: add MethodType support on module-level, those are alias of bound method
@@ -659,6 +621,17 @@ class Variable:
         return (
             f"<{self.__class__.__name__} {self.qualname!r} instvar={self.is_instvar}>"
         )
+
+
+class EnumMember(NamedTuple):
+    """Enumeration class members.
+
+    Enum member has different documentation from `Variable`.
+    """
+
+    name: str
+    value: Any
+    doc: str | None
 
 
 class _AnnContext(NamedTuple):

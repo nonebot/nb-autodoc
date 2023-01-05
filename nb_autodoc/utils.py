@@ -53,16 +53,16 @@ class TypeCheckingClass:
 
 @t.overload
 def frozendict() -> t.Dict[t.Any, t.Any]:
-    """Return empty MappingProxyType object."""
+    """Return empty dict."""
 
 
 @t.overload
 def frozendict(dct: T) -> T:
-    """Return MappingProxyType object."""
+    """Get MappingProxyType object and correct typing (for TypedDict)."""
 
 
 def frozendict(dct: T = _NULL) -> T:
-    """Get MappingProxyType object and correct typing (for TypedDict)."""
+    # T should be bound on dict, but mypy mistake TypedDict
     if dct is _NULL:
         return MappingProxyType({})  # type: ignore
     return MappingProxyType(dct)  # type: ignore

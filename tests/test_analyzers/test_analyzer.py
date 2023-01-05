@@ -21,14 +21,14 @@ class TestAnalyzer:
         simple_assign = _fix(
             ast.Assign(targets=[ast.Name("a", ctx=ast.Store())], value=ast.Str("value"))
         )
-        analyzer.exec_type_checking_body(
+        analyzer._exec_stub_safe(
             [simple_assign],
             globals,
         )
         assert {"a"} == get_non_dunder_names(globals.keys())
         globals = {}
         locals = {}
-        analyzer.exec_type_checking_body([simple_assign], globals, locals)
+        analyzer._exec_stub_safe([simple_assign], globals, locals)
         assert not get_non_dunder_names(globals.keys())
         assert {"a"} == get_non_dunder_names(locals.keys())
 
@@ -38,7 +38,7 @@ class TestAnalyzer:
         analyzer.analyze()
         locals = {}
         preexec_names = tuple(module.__dict__.items())
-        analyzer.exec_type_checking_body(
+        analyzer._exec_stub_safe(
             analyzer.module.type_checking_body, module.__dict__, locals
         )
         assert preexec_names == tuple(module.__dict__.items())

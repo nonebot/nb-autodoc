@@ -35,7 +35,7 @@ class Analyzer:
     def filename(self) -> str:
         return os.path.basename(self.path)
 
-    def exec_type_checking_body(
+    def _exec_stub_safe(
         self,
         body: List[ast.stmt],
         _globals: Dict[str, Any],
