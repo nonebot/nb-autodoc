@@ -2,11 +2,9 @@
 
 from __future__ import annotations as _
 
-from collections import defaultdict
-from contextvars import ContextVar
 from enum import Enum
 from types import FunctionType, ModuleType
-from typing import Any, Mapping, NamedTuple, TypeVar, cast
+from typing import Any, Dict, NamedTuple, TypeVar, cast
 
 from nb_autodoc.analyzers.analyzer import Analyzer
 from nb_autodoc.analyzers.definitionfinder import (
@@ -17,12 +15,13 @@ from nb_autodoc.analyzers.definitionfinder import (
 )
 from nb_autodoc.annotation import Annotation
 from nb_autodoc.config import Config, default_config
-from nb_autodoc.log import logger
+from nb_autodoc.log import current_module, logger
 from nb_autodoc.modulefinder import ModuleFinder, ModuleProperties
 from nb_autodoc.typing import (
     T_Autodoc,
     T_ClassMember,
     T_Definition,
+    T_DefinitionOrRef,
     T_ModuleMember,
     isgenericalias,
 )
@@ -31,10 +30,8 @@ from nb_autodoc.utils import cached_property, cleandoc, isnamedtuple
 T = TypeVar("T")
 TT = TypeVar("TT")
 
-current_module: ContextVar["Module"] = ContextVar("current_module")
 
-
-class Context(dict[str, T_Definition]):
+class Context(Dict[str, T_DefinitionOrRef]):
     """Context all members. Dictionary key is `module:qualname`."""
 
     def link_class_by_mro(self) -> None:
@@ -89,32 +86,39 @@ class ModuleManager:
 class WeakReference:
     """External reference."""
 
-    __slots__ = ("module", "attr")
+    __slots__ = ("name", "module", "ref")
 
-    def __init__(self, module: str, attr: str) -> None:
+    def __init__(self, name: str, module: "Module", ref: tuple[str, str]) -> None:
+        self.name = name
         self.module = module
-        self.attr = attr
+        self.ref = ref
 
-    def find_definition(
-        self, context: Mapping[str, T_Definition]
-    ) -> T_Definition | None:
-        fullname = f"{self.module}:{self.attr}"
+    def find_definition(self, context: Context) -> T_Definition | None:
+        ref = self.ref
         for _ in range(100):
+            fullname = f"{ref[0]}:{ref[1]}"
             dobj = context.get(fullname)
             if not isinstance(dobj, WeakReference):
                 return dobj
-            fullname = f"{dobj.module}:{dobj.attr}"
+            ref = dobj.ref
         else:
             # two weak reference point to each other?
             raise RuntimeError("reference max iter exceeded")
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(module={self.module!r}, attr={self.attr!r})"
+        return (
+            f"{self.__class__.__name__}(name={self.name!r}, "
+            f"module={self.module!r}, ref={self.ref!r})"
+        )
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, WeakReference):
             return False
-        return self.module == other.module and self.attr == other.attr
+        return (
+            self.name == other.name
+            and self.module == other.module
+            and self.ref == other.ref
+        )
 
 
 class LibraryAttr:
@@ -148,7 +152,7 @@ class Module:
         pyi: ModuleProperties | None = None,
     ) -> None:
         self.manager = manager
-        self.members: dict[str, T_ModuleMember] = {}
+        self.members: dict[str, T_ModuleMember | WeakReference] = {}
         self.name = name
         # if py and pyi both exist, then py (include extension) is only used to extract docstring
         # if one of them exists, then analyze that one
@@ -173,31 +177,16 @@ class Module:
             pyi_analyzer.analyze()
         self.py_analyzer = py_analyzer
         self.pyi_analyzer = pyi_analyzer
-        self.whitelist: set[str] = set()
-        """Module member whitelist."""
-        self.blacklist: set[str] = set()
-        """Module member blacklist."""
-        # dotted whitelist/blacklist consumed by class
-        self.dotted_whitelist: dict[str, set[str]] = defaultdict(set)
-        self.dotted_blacklist: dict[str, set[str]] = defaultdict(set)
-        for name, val in self.py__autodoc__.items():
-            if "." in name:
-                name, _, attrs = name.partition(".")
-                if val:
-                    self.dotted_whitelist[name].add(attrs)
-                else:
-                    self.dotted_blacklist[name].add(attrs)
-            else:
-                if val:
-                    self.whitelist.add(name)
-                else:
-                    self.blacklist.add(name)
 
     @property
     def is_bare_c_extension(self) -> bool:
         if self.pyi is None and self.py is not None:
             return self.py.is_c_module
         return False
+
+    @property
+    def is_package(self) -> bool:
+        return self.prime_py.is_package
 
     @property
     def has_source(self) -> bool:
@@ -230,7 +219,7 @@ class Module:
         """Return runtime module dict."""
         return self.prime_py.sm_dict
 
-    @property
+    @cached_property
     def py__autodoc__(self) -> T_Autodoc:
         """Retrieve `__autodoc__` bound on current module."""
         res = {}
@@ -256,9 +245,7 @@ class Module:
         )
         return globalns
 
-    # def attrgetter(self, name: str)
-
-    def add_member(self, name: str, obj: T_ModuleMember) -> None:
+    def add_member(self, name: str, obj: T_ModuleMember | WeakReference) -> None:
         self.members[name] = self.manager.context[f"{self.name}:{name}"] = obj
 
     def get_canonical_member(self, qualname: str) -> T_Definition | None:
@@ -267,7 +254,7 @@ class Module:
         Resolve import reference and class mro member.
         """
         clsname, dot, attr = qualname.partition(".")
-        dobj = self.members.get(clsname)  # type: T_Definition | None
+        dobj = self.members.get(clsname)  # type: T_DefinitionOrRef | None
         if dobj is not None:
             if isinstance(dobj, WeakReference):
                 dobj = dobj.find_definition(self.manager.context)
@@ -300,7 +287,8 @@ class Module:
                 # lazy reference. resolve on whitelisting
                 elif astobj.module in self.manager.modules:
                     self.add_member(
-                        name, WeakReference(astobj.module, astobj.orig_name)
+                        name,
+                        WeakReference(name, self, (astobj.module, astobj.orig_name)),
                     )
             elif isinstance(astobj, ClassDefData):
                 # pass if ClassDef is decorated as function or other types
@@ -416,7 +404,7 @@ class Class:
                 astobj = ast_scope[name]
                 if isinstance(astobj, AssignData) and astobj.docstring:
                     doc = cleandoc(astobj.docstring)
-                self.add_member(name, EnumMember(name, member.value, doc))
+                self.add_member(name, EnumMember(name, member.value, doc, cls=self))
             return
         instvar_names = []  # type: list[str]
         # slots = clsobj_dict.get("__slots__", None)
@@ -632,6 +620,11 @@ class EnumMember(NamedTuple):
     name: str
     value: Any
     doc: str | None
+    cls: Class
+
+    @property
+    def qualname(self) -> str:
+        return f"{self.cls.qualname}.{self.name}"
 
 
 class _AnnContext(NamedTuple):

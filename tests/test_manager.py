@@ -124,7 +124,7 @@ class TestClass:
         assert module.members["A"].members["a"].astobj.docstring == "a docstring"
         assert module.members["A"].members["b"].astobj.docstring == "b docstring"
 
-    def test_class_bases(self):
+    def test_mro(self):
         from .managerdata import class_bases
 
         manager = ModuleManager(class_bases)

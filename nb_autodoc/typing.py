@@ -45,15 +45,11 @@ else:
         return isinstance(obj, typing_GenericAlias)
 
 
-T_Definition = Union["T_ModuleMember", "T_ClassMember"]
-# note that WeakReference is not definition
-T_ModuleMember = Union[
-    "Class",
-    "Function",
-    "Variable",
-    "WeakReference",
-    "LibraryAttr",
-]
+T_ModuleMember = Union["Class", "Function", "Variable", "LibraryAttr"]
 T_ClassMember = Union["Function", "Variable", "EnumMember"]
+# maybe have reference in class future
+
+T_Definition = Union[T_ModuleMember, T_ClassMember]
+T_DefinitionOrRef = Union[T_Definition, "WeakReference"]
 
 T_Autodoc: TypeAlias = "dict[str, bool | str]"

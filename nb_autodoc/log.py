@@ -1,17 +1,13 @@
 import logging
+from contextvars import ContextVar
+
+current_module: ContextVar[str] = ContextVar("current_module", default="nb_autodoc")
 
 
 def logfilter(record: logging.LogRecord) -> bool:
     """Transform LogRecord to add context info."""
-    from nb_autodoc.manager import current_module
-
     builder = []
-    try:
-        module = current_module.get()
-    except LookupError:
-        builder.append(record.name)
-    else:
-        builder.append(module.name)
+    builder.append(current_module.get())
     builder.append(record.msg)
     record.msg = " ".join(builder)
     return True
