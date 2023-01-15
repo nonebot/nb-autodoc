@@ -16,12 +16,14 @@ class Config(TypedDict, total=False):
     # static: bool
     # """Fully static code analysis."""
 
-    # Filter pattern for finder
+    # used by ModuleFinder
     skip_import_modules: set[str] | frozenset[str]
-    """Module names that skip importation and analysis, wildcard(*) is OK.
+    """Module names that skip importation and analysis.
 
     Carefully add this option on a dependent module because we want to
     analyze python object relationship.
+
+    Support `fnmatch` pattern, such as '*', '?', etc.
     """
 
     ### Builder Config ###
@@ -32,8 +34,14 @@ class Config(TypedDict, total=False):
     docstring_section_indent: int | None
     """Docstring section indent. Specified from string if None."""
 
-    exclude_modules: set[str] | frozenset[str]
-    """Exclude modules documentation."""
+    exclude_documentation_modules: set[str] | frozenset[str]
+    """Exclude documentation modules.
+
+    Support `fnmatch` pattern, such as '*', '?', etc.
+    """
+
+    write_encoding: str
+    """The file encoding to write."""
 
 
 default_config: Config = frozendict(
@@ -41,7 +49,8 @@ default_config: Config = frozendict(
         skip_import_modules=frozenset(),
         strict_docstring=True,
         docstring_section_indent=None,
-        exclude_modules=frozenset(),
+        exclude_documentation_modules=frozenset(),
+        write_encoding="utf-8",
     )
 )
 

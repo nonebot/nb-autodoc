@@ -78,28 +78,32 @@ class ModuleManager:
         # the context is loaded, now build the mro of class
         self.context.link_class_by_mro()
 
+    @property
+    def is_single_module(self) -> bool:
+        return len(self.modules) == 1 and not self.modules[self.name].is_package
+
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} {self.name!r}>"
 
 
-# external has two type "WeakReference" and "LibraryAttr"
-class WeakReference:
-    """External reference."""
+# external has two type "ImportRef" and "LibraryAttr"
+class ImportRef:
+    """Import reference."""
 
     __slots__ = ("name", "module", "ref")
 
-    def __init__(self, name: str, module: "Module", ref: tuple[str, str]) -> None:
+    def __init__(self, name: str, module: "Module", ref: str) -> None:
         self.name = name
         self.module = module
         self.ref = ref
 
-    def find_definition(self, context: Context) -> T_Definition | None:
+    def find_definition(self) -> T_ModuleMember:
         ref = self.ref
-        for _ in range(100):
-            fullname = f"{ref[0]}:{ref[1]}"
-            dobj = context.get(fullname)
-            if not isinstance(dobj, WeakReference):
-                return dobj
+        context = self.module.manager.context
+        for _ in range(100):  # or parameter guard
+            dobj = context[ref]
+            if not isinstance(dobj, ImportRef):
+                return cast(T_ModuleMember, dobj)
             ref = dobj.ref
         else:
             # two weak reference point to each other?
@@ -112,7 +116,7 @@ class WeakReference:
         )
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, WeakReference):
+        if not isinstance(other, ImportRef):
             return False
         return (
             self.name == other.name
@@ -132,7 +136,7 @@ class LibraryAttr:
         self.doc = cleandoc(docstring)
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(name={self.name!r}, docstring={self.doc!r})"
+        return f"{self.__class__.__name__}(name={self.name!r}, doc={self.doc!r})"
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, LibraryAttr):
@@ -152,7 +156,7 @@ class Module:
         pyi: ModuleProperties | None = None,
     ) -> None:
         self.manager = manager
-        self.members: dict[str, T_ModuleMember | WeakReference] = {}
+        self.members: dict[str, T_ModuleMember | ImportRef] = {}
         self.name = name
         # if py and pyi both exist, then py (include extension) is only used to extract docstring
         # if one of them exists, then analyze that one
@@ -245,7 +249,7 @@ class Module:
         )
         return globalns
 
-    def add_member(self, name: str, obj: T_ModuleMember | WeakReference) -> None:
+    def add_member(self, name: str, obj: T_ModuleMember | ImportRef) -> None:
         self.members[name] = self.manager.context[f"{self.name}:{name}"] = obj
 
     def get_canonical_member(self, qualname: str) -> T_Definition | None:
@@ -256,8 +260,8 @@ class Module:
         clsname, dot, attr = qualname.partition(".")
         dobj = self.members.get(clsname)  # type: T_DefinitionOrRef | None
         if dobj is not None:
-            if isinstance(dobj, WeakReference):
-                dobj = dobj.find_definition(self.manager.context)
+            if isinstance(dobj, ImportRef):
+                dobj = dobj.find_definition()
             if not dot:
                 return dobj
             if not isinstance(dobj, Class):
@@ -288,7 +292,7 @@ class Module:
                 elif astobj.module in self.manager.modules:
                     self.add_member(
                         name,
-                        WeakReference(name, self, (astobj.module, astobj.orig_name)),
+                        ImportRef(name, self, f"{astobj.module}:{astobj.orig_name}"),
                     )
             elif isinstance(astobj, ClassDefData):
                 # pass if ClassDef is decorated as function or other types
@@ -483,7 +487,7 @@ class Class:
             #     logger.warning(f"skip analyze {name!r} in class {self.name!r}")
 
     def __repr__(self) -> str:
-        doc = self.doc and self.doc[:8] + "..."
+        doc = _truncate_doc(self.doc)
         return f"<{self.__class__.__name__} {self.name!r} doc={doc!r}>"
 
 
@@ -635,3 +639,7 @@ class _AnnContext(NamedTuple):
 def _copy__annotations__(_ns: dict[str, Any]) -> None:
     if "__annotations__" in _ns:
         _ns["__annotations__"] = _ns["__annotations__"].copy()
+
+
+def _truncate_doc(doc: str | None) -> str | None:
+    return doc and doc[:16].rstrip() + "..."

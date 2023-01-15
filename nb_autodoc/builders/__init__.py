@@ -2,11 +2,12 @@
 
 import abc
 import shutil
+from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import Callable, Iterable, List, Union, final
+from typing import Callable, Iterable, List, Optional, Type, Union, final
 
 from nb_autodoc.log import logger
-from nb_autodoc.manager import Class, Module, ModuleManager, WeakReference
+from nb_autodoc.manager import Class, ImportRef, Module, ModuleManager
 from nb_autodoc.typing import T_ClassMember, T_ModuleMember
 
 
@@ -39,24 +40,93 @@ class MemberIterator:
             name.startswith("_") or qualname in self.blacklist
         )
 
-    def iter_module(
-        self, module: Module
-    ) -> Iterable[Union[T_ModuleMember, WeakReference]]:
+    def iter_module(self, module: Module) -> Iterable[T_ModuleMember]:
         for dobj in module.members.values():
-            if isinstance(dobj, WeakReference):
+            if isinstance(dobj, ImportRef):
                 if dobj.name in self.whitelist:
-                    yield dobj
-                continue
-            if self.filter(dobj.name, dobj.name):
+                    yield dobj.find_definition()
+            elif self.filter(dobj.name, dobj.name):
                 yield dobj
 
     def iter_class(self, cls: Class) -> Iterable[T_ClassMember]:
+        # in case class is reference from other module (reexport), then
+        # other module's `__autodoc__` for this class is invalid
         yield from filter(
             lambda dobj: self.filter(dobj.name, dobj.qualname), cls.members.values()
         )
 
 
-class BuilderInterface(abc.ABC):
+class Builder(abc.ABC):
+    """Builder store the context of all modules."""
+
+    def __init__(
+        self,
+        manager: ModuleManager,
+        *,
+        output_dir: Union[str, Path] = "build",
+        path_factory: Optional[Callable[[str, bool], List[str]]] = None,
+        member_iterator_cls: Optional[Type[MemberIterator]] = None,
+    ) -> None:
+        # Args:
+        #     linkable_deepth: Positive integer. The max length of common path prefix
+        #         in calculating relative path. Raise if the prefixs do not equal.
+        #         By default, it is the length of output_dir + 1, such as
+        #         2 for `build/pkg` or `build/pkg/subpkg`.
+        self.manager = manager
+        self.output_dir = Path(output_dir)
+        # get documentable modules and paths
+        skip_doc_modules = list(self.manager.config["exclude_documentation_modules"])
+        exclude_module = lambda x: any(fnmatchcase(x, pt) for pt in skip_doc_modules)
+        if path_factory is None:
+            path_factory = default_path_factory
+        self.modules: dict[str, Module] = {}
+        self.paths: dict[str, Path] = {}
+        for module in self.manager.modules.values():
+            if exclude_module(module.name):
+                continue
+            self.modules[module.name] = module
+            self.paths[module.name] = self._build_path(
+                module.name, module.is_package, path_factory
+            )
+        # get member iterators for modules
+        if member_iterator_cls is None:
+            member_iterator_cls = MemberIterator
+        self._member_iterators = {
+            module: member_iterator_cls(module) for module in self.modules.values()
+        }
+        # traverse all members to create anchor
+
+    def _build_path(
+        self,
+        modulename: str,
+        ispkg: bool,
+        path_factory: Callable[[str, bool], List[str]],
+    ) -> Path:
+        mrelpath = Path(*path_factory(modulename, ispkg))
+        # '..' and '.' is not allowed while doing relative link, but we dont check
+        path = self.output_dir / mrelpath
+        return path.with_suffix(self.get_suffix())
+
+    def get_member_iterator(self, module: Module) -> MemberIterator:
+        return self._member_iterators[module]
+
+    @final
+    def write(self) -> None:
+        modules = self.manager.modules
+        # prepare top-level empty dir
+        if not self.manager.is_single_module:  # skip for single module
+            path = self.paths[min(self.paths)]
+            if path.parent.is_file():
+                path.parent.unlink()
+            elif path.parent.is_dir():
+                logger.info(f"deleting directory {str(path.parent)!r}...")
+                shutil.rmtree(path.parent)
+        for modname, path in self.paths.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            doc = self.text(modules[modname])
+            path.touch(exist_ok=False)
+            path.write_text(doc, encoding=self.manager.config["write_encoding"])
+
     @abc.abstractmethod
     def get_suffix(self) -> str:
         raise NotImplementedError
@@ -64,65 +134,3 @@ class BuilderInterface(abc.ABC):
     @abc.abstractmethod
     def text(self, module: Module) -> str:
         raise NotImplementedError
-
-
-class WriterMixin(BuilderInterface):
-    manager: ModuleManager
-    output_dir: Path
-
-    def __init__(self) -> None:
-        self.path_factory: Callable[[str, bool], List[str]]
-        # Annotation here because mypy mistake attribute function
-
-    del __init__
-
-    @final
-    def get_path(self, modulename: str, ispkg: bool) -> Path:
-        mrelpath = Path(*self.path_factory(modulename, ispkg))
-        path = self.output_dir / mrelpath
-        if not path.is_relative_to(self.output_dir):
-            raise RuntimeError(
-                f"target file path '{path}' is not relative to "
-                f"output dir '{self.output_dir}'"
-            )
-        return path.with_suffix(self.get_suffix())
-
-    @final
-    def write(self) -> None:
-        modules = self.manager.modules
-        top_module = modules[self.manager.name]
-        # prepare top-level empty dir
-        if top_module.is_package:  # skip for single module
-            path = self.get_path(top_module.name, top_module.is_package)
-            if path.parent.is_file():
-                path.parent.unlink()
-            elif path.parent.is_dir():
-                logger.info(f"deleting directory {str(path.parent)!r}...")
-                shutil.rmtree(path.parent)
-        for module in modules.values():
-            path = self.get_path(module.name, module.is_package)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            # get documentation for each module
-            docpage = self.text(module)
-            path.touch(exist_ok=False)
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(docpage)
-
-
-class Builder(WriterMixin, BuilderInterface):
-    @final
-    def __init__(
-        self,
-        manager: ModuleManager,
-        *,
-        output_dir: Union[str, Path] = "build",
-        path_factory: Callable[[str, bool], List[str]] = default_path_factory,
-    ) -> None:
-        self.manager = manager
-        self.output_dir = Path(output_dir)
-        self.path_factory = path_factory
-        # deduplication and link definition to document
-
-    @final
-    def set_parser(self) -> None:
-        ...

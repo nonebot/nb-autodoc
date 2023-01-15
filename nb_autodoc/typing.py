@@ -11,9 +11,9 @@ if TYPE_CHECKING:
         Class,
         EnumMember,
         Function,
+        ImportRef,
         LibraryAttr,
         Variable,
-        WeakReference,
     )
 
 typing_GenericAlias = __import__("typing")._GenericAlias
@@ -50,6 +50,6 @@ T_ClassMember = Union["Function", "Variable", "EnumMember"]
 # maybe have reference in class future
 
 T_Definition = Union[T_ModuleMember, T_ClassMember]
-T_DefinitionOrRef = Union[T_Definition, "WeakReference"]
+T_DefinitionOrRef = Union[T_Definition, "ImportRef"]
 
 T_Autodoc: TypeAlias = "dict[str, bool | str]"
