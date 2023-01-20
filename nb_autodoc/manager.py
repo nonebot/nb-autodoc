@@ -2,7 +2,6 @@
 
 from __future__ import annotations as _
 
-from enum import Enum
 from types import FunctionType, ModuleType
 from typing import Any, Dict, NamedTuple, TypeVar, cast
 
@@ -18,14 +17,13 @@ from nb_autodoc.config import Config, default_config
 from nb_autodoc.log import current_module, logger
 from nb_autodoc.modulefinder import ModuleFinder, ModuleProperties
 from nb_autodoc.typing import (
-    T_Autodoc,
     T_ClassMember,
     T_Definition,
     T_DefinitionOrRef,
     T_ModuleMember,
     isgenericalias,
 )
-from nb_autodoc.utils import cached_property, cleandoc, isnamedtuple
+from nb_autodoc.utils import cached_property, cleandoc, isenumclass, isnamedtuple
 
 T = TypeVar("T")
 TT = TypeVar("TT")
@@ -86,7 +84,6 @@ class ModuleManager:
         return f"<{self.__class__.__name__} {self.name!r}>"
 
 
-# external has two type "ImportRef" and "LibraryAttr"
 class ImportRef:
     """Import reference."""
 
@@ -123,25 +120,6 @@ class ImportRef:
             and self.module == other.module
             and self.ref == other.ref
         )
-
-
-class LibraryAttr:
-    """External library attribute."""
-
-    __slots__ = ("module", "name", "doc")
-
-    def __init__(self, module: str, name: str, docstring: str) -> None:
-        self.module = module  # the user module, not library
-        self.name = name
-        self.doc = cleandoc(docstring)
-
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(name={self.name!r}, doc={self.doc!r})"
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, LibraryAttr):
-            return False
-        return self.name == other.name and self.doc == other.doc
 
 
 class Module:
@@ -224,7 +202,7 @@ class Module:
         return self.prime_py.sm_dict
 
     @cached_property
-    def py__autodoc__(self) -> T_Autodoc:
+    def py__autodoc__(self) -> dict[str, bool | str]:
         """Retrieve `__autodoc__` bound on current module."""
         res = {}
         if self.py:
@@ -285,9 +263,7 @@ class Module:
             is_lambda = isinstance(pyobj, FunctionType) and pyobj.__name__ == "<lambda>"
             if isinstance(astobj, ImportFromData):
                 if name in libdocs:
-                    self.add_member(
-                        name, LibraryAttr(self.name, name, libdocs.pop(name))
-                    )
+                    self.add_member(name, LibraryAttr(self, name, libdocs.pop(name)))
                 # lazy reference. resolve on whitelisting
                 elif astobj.module in self.manager.modules:
                     self.add_member(
@@ -336,6 +312,31 @@ class Module:
         )
 
 
+# LibraryAttr only appears in module
+class LibraryAttr:
+    """External library attribute."""
+
+    __slots__ = ("module", "name", "doc")
+
+    def __init__(self, module: Module, name: str, docstring: str) -> None:
+        self.module = module  # the user module, not library
+        self.name = name
+        self.doc = cleandoc(docstring)
+
+    @property
+    def qualname(self) -> str:
+        return self.name
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(name={self.name!r}, doc={self.doc!r})"
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, LibraryAttr):
+            return False
+        return self.name == other.name and self.doc == other.doc
+
+
+# Class only appears in module
 class Class:
     """Analyze class."""
 
@@ -355,11 +356,6 @@ class Class:
         self.module = module
         self.members: dict[str, T_ClassMember] = {}
         self.prepare()
-
-    @property
-    def kind(self) -> str:
-        # kind is documentation prefix
-        ...
 
     @property
     def qualname(self) -> str:
@@ -402,13 +398,16 @@ class Class:
         ast_scope = self.astobj.scope
         ast_instance_vars = self.astobj.instance_vars
         # _NULL = object()
-        if issubclass(clsobj, Enum):
+        if isenumclass(clsobj):
             for name, member in clsobj.__members__.items():
                 doc = None
                 astobj = ast_scope[name]
                 if isinstance(astobj, AssignData) and astobj.docstring:
                     doc = cleandoc(astobj.docstring)
-                self.add_member(name, EnumMember(name, member.value, doc, cls=self))
+                self.add_member(
+                    name,
+                    EnumMember(name, member.value, doc, cls=self, module=self.module),
+                )
             return
         instvar_names = []  # type: list[str]
         # slots = clsobj_dict.get("__slots__", None)
@@ -491,6 +490,7 @@ class Class:
         return f"<{self.__class__.__name__} {self.name!r} doc={doc!r}>"
 
 
+# Function appears in module and class
 # TODO: add MethodType support on module-level, those are alias of bound method
 class Function:
     """Analyze function.
@@ -549,6 +549,7 @@ class Function:
         return f"<{self.__class__.__name__} {self.qualname!r} lineno={lineno}>"
 
 
+# Variable appears in module and class
 class Variable:
     """Analyze variable."""
 
@@ -615,6 +616,7 @@ class Variable:
         )
 
 
+# EnumMember only appears in class
 class EnumMember(NamedTuple):
     """Enumeration class members.
 
@@ -625,6 +627,7 @@ class EnumMember(NamedTuple):
     value: Any
     doc: str | None
     cls: Class
+    module: Module
 
     @property
     def qualname(self) -> str:

@@ -4,6 +4,7 @@ import os
 import sys
 import typing as t
 import typing_extensions as te
+from enum import Enum
 from importlib.machinery import all_suffixes
 from types import BuiltinFunctionType, FunctionType, MappingProxyType
 from typing import NamedTuple
@@ -95,6 +96,10 @@ def ismetaclass(cls: type) -> bool:
 def isextbuiltin(obj: BuiltinFunctionType, name: str) -> bool:
     module = obj.__module__  # maybe None
     return bool(module and module.partition(".")[0] == name.partition(".")[0])
+
+
+def isenumclass(cls: type) -> te.TypeGuard[t.Type[Enum]]:
+    return issubclass(cls, Enum)
 
 
 def getmodulename(path: str) -> t.Optional[str]:

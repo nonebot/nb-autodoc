@@ -1,5 +1,7 @@
 from contextlib import contextmanager
-from typing import Dict, Generator, NamedTuple, Union
+from functools import singledispatch
+from typing import Callable, Dict, Generator, Optional, Union
+from typing_extensions import Literal
 
 from nb_autodoc.builders import Builder, MemberIterator
 from nb_autodoc.manager import (
@@ -8,14 +10,39 @@ from nb_autodoc.manager import (
     Function,
     LibraryAttr,
     Module,
+    ModuleManager,
     Variable,
 )
 from nb_autodoc.typing import T_Definition
+from nb_autodoc.utils import isenumclass
+
+from .helpers import vuepress_slugify
 
 
-class Context(NamedTuple):
-    doc_location: Dict[str, str]
-    """Object documentation locator. Dict key is refname, value is anchor."""
+@singledispatch
+def get_bare_title(dobj: T_Definition) -> Optional[str]:
+    """Returns None if not implementation found for object."""
+    return None
+
+
+@get_bare_title.register
+def get_class_title(dobj: Class) -> str:
+    ...
+
+
+@get_bare_title.register
+def get_function_title(dobj: Function) -> str:
+    ...
+
+
+@get_bare_title.register
+def get_variable_title(dobj: Variable) -> str:
+    ...
+
+
+@get_bare_title.register
+def get_libraryattr_title(dobj: LibraryAttr) -> str:
+    ...
 
 
 class Renderer:
@@ -23,7 +50,6 @@ class Renderer:
         self.member_iterator = itor
         self._builder: list[str] = []
         self._indent: int = 0
-        self._title_cached: bool = False
 
     def write(self, s: str) -> None:
         self._builder.append(s)
@@ -50,6 +76,11 @@ class Renderer:
         self.visit(dobj)
         self._builder.append(end)
         return "".join(self._builder)
+
+    def get_title(
+        self, dobj: Union[T_Definition, Module], *, version: Optional[str] = None
+    ) -> str:
+        ...
 
     def visit_Module(self, module: Module) -> None:
         self.write(f"# {module.name}\n\n")
@@ -81,9 +112,40 @@ class Renderer:
         self.write(f"- `{enumm.name}: {enumm.value!r}`")
 
 
+def heading_id_slugify_impl(dobj: T_Definition) -> str:
+    # EnumMember is unlinkable and expect None, but we skipped
+    return dobj.qualname.replace(".", "-")
+
+
+def vuepress_slugify_impl(dobj: T_Definition) -> Optional[str]:
+    title = get_bare_title(dobj)
+    if title is None:
+        return None
+    return vuepress_slugify(title)
+
+
+# impl return the slug of linkable object
+_slugify_impls: Dict[str, Callable[[T_Definition], Optional[str]]] = {
+    "heading_id": heading_id_slugify_impl,
+    "vuepress": vuepress_slugify_impl,
+}
+
+
 class MarkdownBuilder(Builder):
+    def __init__(
+        self,
+        manager: ModuleManager,
+        *,
+        link_mode: Literal["heading_id", "vuepress"] = "heading_id",
+    ) -> None:
+        self.link_mode = link_mode
+        super().__init__(manager)
+
     def get_suffix(self) -> str:
         return ".md"
+
+    def get_slugify_impl(self) -> Callable[[T_Definition], Optional[str]]:
+        return _slugify_impls[self.link_mode]
 
     def text(self, module: Module) -> str:
         renderer = Renderer(self.get_member_iterator(module))

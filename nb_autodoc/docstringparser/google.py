@@ -3,7 +3,7 @@
 import re
 import warnings
 from functools import lru_cache, wraps
-from typing import TYPE_CHECKING, Callable, List, Optional, TypeVar, cast
+from typing import Callable, List, Optional, TypeVar, cast
 from typing_extensions import Concatenate, ParamSpec
 
 from nb_autodoc.nodes import (
@@ -22,10 +22,6 @@ from nb_autodoc.nodes import (
     section,
 )
 from nb_autodoc.utils import dedent
-
-if TYPE_CHECKING:
-    from nb_autodoc.config import Config
-
 
 TP = TypeVar("TP", bound="Parser")
 P = ParamSpec("P")
@@ -107,12 +103,13 @@ class Parser:
         "类型版本": "typeversion",
     }
 
-    def __init__(self, docstring: str, config: "Config") -> None:
+    def __init__(self, docstring: str, num_indent: Optional[int] = None) -> None:
         self.lines = docstring.splitlines()
         self.lines.append("")  # ending of docstring
         self.lineno = 0
         self.col = 0
-        self._indent = config["docstring_section_indent"]
+        # the number spaces of indent
+        self._indent = num_indent
 
     @property
     def line(self) -> str:
@@ -233,7 +230,7 @@ class Parser:
         try:
             consumer = getattr(self, "_consume_" + self._sections[name])
         except KeyError:
-            raise ParserError(f"{name} is not a valid section marker.")
+            raise ParserError(f"{name!r} is not a valid section marker.")
         # Detect docstring indent in first non-inline section
         indent = len(self.line) - len(self.line.lstrip())
         if self._indent is None:

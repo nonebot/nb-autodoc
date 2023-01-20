@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import TYPE_CHECKING, Callable
+from typing_extensions import TypedDict
 
 from nb_autodoc.utils import frozendict
+
+if TYPE_CHECKING:
+    from nb_autodoc.builders import MemberIterator
 
 
 class Config(TypedDict, total=False):
@@ -32,7 +36,7 @@ class Config(TypedDict, total=False):
     """Apply docstring validation."""
 
     docstring_section_indent: int | None
-    """Docstring section indent. Specified from string if None."""
+    """Docstring section indent. Infer from string if None. Default to None."""
 
     exclude_documentation_modules: set[str] | frozenset[str]
     """Exclude documentation modules.
@@ -40,8 +44,17 @@ class Config(TypedDict, total=False):
     Support `fnmatch` pattern, such as '*', '?', etc.
     """
 
+    output_dir: str
+    """The documentation output directory. Default to 'build'."""
+
     write_encoding: str
-    """The file encoding to write."""
+    """The file encoding to write. Default to 'utf-8'."""
+
+    path_factory: Callable[[str, bool], list[str]] | None
+    """The path factory register. Default to None."""
+
+    member_iterator_cls: type[MemberIterator] | None
+    """The member iterator class register. Default to None."""
 
 
 default_config: Config = frozendict(
@@ -50,7 +63,10 @@ default_config: Config = frozendict(
         strict_docstring=True,
         docstring_section_indent=None,
         exclude_documentation_modules=frozenset(),
+        output_dir="build",
         write_encoding="utf-8",
+        path_factory=None,
+        member_iterator_cls=None,
     )
 )
 

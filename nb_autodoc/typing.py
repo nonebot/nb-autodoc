@@ -52,4 +52,4 @@ T_ClassMember = Union["Function", "Variable", "EnumMember"]
 T_Definition = Union[T_ModuleMember, T_ClassMember]
 T_DefinitionOrRef = Union[T_Definition, "ImportRef"]
 
-T_Autodoc: TypeAlias = "dict[str, bool | str]"
+# T_Autodoc: TypeAlias = "dict[str, bool | str]"

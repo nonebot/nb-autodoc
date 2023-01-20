@@ -4,11 +4,14 @@ import abc
 import shutil
 from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import Callable, Iterable, List, Optional, Type, Union, final
+from typing import Callable, Iterable, List, Optional
+from typing_extensions import final
 
 from nb_autodoc.log import logger
 from nb_autodoc.manager import Class, ImportRef, Module, ModuleManager
-from nb_autodoc.typing import T_ClassMember, T_ModuleMember
+from nb_autodoc.typing import T_ClassMember, T_Definition, T_ModuleMember
+
+default_slugify = lambda dobj: None
 
 
 def default_path_factory(modulename: str, ispkg: bool) -> List[str]:
@@ -23,6 +26,8 @@ def default_path_factory(modulename: str, ispkg: bool) -> List[str]:
     return pparts
 
 
+# TODO: auto generation docref for reexport which is not whitelisted
+# so called `conventional import list`
 class MemberIterator:
     """Dict-ordered autodoc member iterator."""
 
@@ -45,7 +50,7 @@ class MemberIterator:
             if isinstance(dobj, ImportRef):
                 if dobj.name in self.whitelist:
                     yield dobj.find_definition()
-            elif self.filter(dobj.name, dobj.name):
+            elif self.filter(dobj.name, dobj.qualname):
                 yield dobj
 
     def iter_class(self, cls: Class) -> Iterable[T_ClassMember]:
@@ -55,27 +60,30 @@ class MemberIterator:
             lambda dobj: self.filter(dobj.name, dobj.qualname), cls.members.values()
         )
 
+    def _iter_all_definitions(self, module: Module) -> Iterable[T_Definition]:
+        for dobj in self.iter_module(module):
+            yield dobj
+            if isinstance(dobj, Class):
+                yield from self.iter_class(dobj)
+
 
 class Builder(abc.ABC):
     """Builder store the context of all modules."""
 
-    def __init__(
-        self,
-        manager: ModuleManager,
-        *,
-        output_dir: Union[str, Path] = "build",
-        path_factory: Optional[Callable[[str, bool], List[str]]] = None,
-        member_iterator_cls: Optional[Type[MemberIterator]] = None,
-    ) -> None:
+    def __init__(self, manager: ModuleManager) -> None:
         # Args:
         #     linkable_deepth: Positive integer. The max length of common path prefix
         #         in calculating relative path. Raise if the prefixs do not equal.
         #         By default, it is the length of output_dir + 1, such as
         #         2 for `build/pkg` or `build/pkg/subpkg`.
         self.manager = manager
-        self.output_dir = Path(output_dir)
+        # setting some lazy config
+        self.output_dir = Path(manager.config["output_dir"])
+        self.write_encoding = manager.config["write_encoding"]
         # get documentable modules and paths
-        skip_doc_modules = list(self.manager.config["exclude_documentation_modules"])
+        skip_doc_modules = list(manager.config["exclude_documentation_modules"])
+        path_factory = manager.config["path_factory"]
+        member_iterator_cls = manager.config["member_iterator_cls"]
         exclude_module = lambda x: any(fnmatchcase(x, pt) for pt in skip_doc_modules)
         if path_factory is None:
             path_factory = default_path_factory
@@ -94,7 +102,13 @@ class Builder(abc.ABC):
         self._member_iterators = {
             module: member_iterator_cls(module) for module in self.modules.values()
         }
-        # traverse all members to create anchor
+        # redirect ref's module for correct link
+        self._objref_module_locator: dict[T_Definition, Module] = {}
+        self.anchors: dict[T_Definition, str] = {}
+        """The URL anchor (slug) for linkable objects."""
+        self.slugify = self.get_slugify_impl()
+        """The generic function implement the URL slug creator."""
+        self._create_linking_context()
 
     def _build_path(
         self,
@@ -107,12 +121,24 @@ class Builder(abc.ABC):
         path = self.output_dir / mrelpath
         return path.with_suffix(self.get_suffix())
 
+    def _create_linking_context(self) -> None:
+        for module, miterator in self._member_iterators.items():
+            for dobj in miterator._iter_all_definitions(module):
+                if dobj.module is not module:
+                    self._objref_module_locator[dobj] = module
+                anchor = self.slugify(dobj)
+                if anchor is not None:
+                    self.anchors[dobj] = anchor
+
+    def get_slugify_impl(self) -> Callable[[T_Definition], Optional[str]]:
+        # by default all resource is unlinkable
+        return default_slugify
+
     def get_member_iterator(self, module: Module) -> MemberIterator:
         return self._member_iterators[module]
 
     @final
     def write(self) -> None:
-        modules = self.manager.modules
         # prepare top-level empty dir
         if not self.manager.is_single_module:  # skip for single module
             path = self.paths[min(self.paths)]
@@ -123,9 +149,9 @@ class Builder(abc.ABC):
                 shutil.rmtree(path.parent)
         for modname, path in self.paths.items():
             path.parent.mkdir(parents=True, exist_ok=True)
-            doc = self.text(modules[modname])
+            doc = self.text(self.modules[modname])
             path.touch(exist_ok=False)
-            path.write_text(doc, encoding=self.manager.config["write_encoding"])
+            path.write_text(doc, encoding=self.write_encoding)
 
     @abc.abstractmethod
     def get_suffix(self) -> str:
