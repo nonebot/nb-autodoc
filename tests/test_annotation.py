@@ -28,8 +28,15 @@ class TestAnnotationTransformer:
             return AnnotationTransformer(norm).visit(expr)
 
         assert transform(get_expr("'AnyName.Name'")) == Name("AnyName.Name")
-        assert transform(get_expr("Dict['Union[int, str]', 'None']")) == GASubscript(
-            Name("Dict"), [GASubscript(Name("Union"), [Name("int"), Name("str")]), None]
+        assert transform(
+            get_expr("Dict['Union[int, str]', 'None', Literal['int']]")
+        ) == GASubscript(
+            Name("Dict"),
+            [
+                GASubscript(Name("Union"), [Name("int"), Name("str")]),
+                None,
+                GASubscript(Name("Literal"), [Name("int")]),
+            ],
         )
 
     def test_typing_common(self):
@@ -79,6 +86,61 @@ class TestAnnotationTransformer:
         ) == CallableType(
             GASubscript(TypingName("t.Concatenate", "Concatenate"), [Name("int"), ...]),
             Name("A"),
+        )
+
+    def test_repr(self):
+        assert (
+            repr(
+                GASubscript(
+                    Name("Dict"),
+                    [
+                        GASubscript(Name("Union"), [Name("int"), Name("str")]),
+                        None,
+                        GASubscript(Name("Literal"), [Name("int")]),
+                    ],
+                )
+            )
+            == "Dict[Union[int, str], None, Literal[int]]"
+        )
+        assert (
+            repr(
+                UnionType(
+                    [
+                        GASubscript(TypingName("ttt", "List"), [Name("int")]),
+                        GASubscript(TypingName("ttt", "Tuple"), [Name("int")]),
+                        GASubscript(TypingName("ttt", "Set"), [Name("int")]),
+                        GASubscript(
+                            TypingName("ttt", "Dict"), [Name("str"), Name("int")]
+                        ),
+                        GASubscript(TypingName("ttt", "FrozenSet"), [Name("int")]),
+                        GASubscript(TypingName("ttt", "Type"), [Name("int")]),
+                    ]
+                )
+            )
+            == "list[int] | tuple[int] | set[int] | dict[str, int] | frozenset[int] | type[int]"
+        )
+        assert repr(UnionType([Name("str"), None])) == "str | None"
+        assert repr(CallableType(..., Name("str"))) == "(...) -> str"
+        assert (
+            repr(
+                CallableType(
+                    [Name("int"), Name("str")],
+                    CallableType([Name("str")], CallableType([], None)),
+                )
+            )
+            == "(int, str) -> (str) -> () -> None"
+        )
+        assert (
+            repr(
+                UnionType(
+                    [
+                        CallableType([], UnionType([Name("str"), None])),
+                        Name("str"),
+                        None,
+                    ]
+                )
+            )
+            == "() -> (str | None) | str | None"
         )
 
 

@@ -50,6 +50,8 @@ _py310_ga = {
     type: t.Type,
 }
 
+_py310_ga_tpname = {"Tuple", "List", "Dict", "Set", "FrozenSet", "Type"}
+
 
 class _annexpr:
     ...
@@ -69,6 +71,9 @@ class Name(_annexpr):
             return False
         return self.name == other.name
 
+    def __repr__(self) -> str:
+        return self.name
+
 
 class TypingName(_annexpr):
     def __init__(self, name: str, tp_name: str) -> None:
@@ -80,6 +85,11 @@ class TypingName(_annexpr):
             return False
         return self.name == other.name and self.tp_name == other.tp_name
 
+    def __repr__(self) -> str:
+        if self.tp_name in _py310_ga_tpname:
+            return self.tp_name.lower()
+        return self.tp_name
+
 
 class UnionType(_annexpr):
     # typing.Union and py3.10 `X | Y`
@@ -88,10 +98,9 @@ class UnionType(_annexpr):
         for arg in args:
             if isinstance(arg, UnionType):
                 new_args.extend(arg.args)
-            else:
-                if arg not in new_args:
-                    # deduplicates
-                    new_args.append(arg)
+            elif arg not in new_args:
+                # deduplicates
+                new_args.append(arg)
         assert len(new_args) >= 2, "Union requires at least two types"
         self.args: list[_annexpr | None] = new_args
 
@@ -100,6 +109,9 @@ class UnionType(_annexpr):
             return False
         # order is respected
         return self.args == other.args
+
+    def __repr__(self) -> str:
+        return " | ".join(repr(arg) for arg in self.args)
 
 
 # just typing for test
@@ -117,6 +129,9 @@ class Literal(_annexpr):
             return False
         return self.args == other.args
 
+    def __repr__(self) -> str:
+        return f"Literal[{', '.join(repr(arg) for arg in self.args)}]"
+
 
 class Annotated(_annexpr):
     def __init__(self, origin: _annexpr) -> None:
@@ -126,6 +141,9 @@ class Annotated(_annexpr):
         if not isinstance(other, Annotated):
             return False
         return self.origin == other.origin
+
+    def __repr__(self) -> str:
+        return repr(self.origin)
 
 
 class GASubscript(_annexpr):
@@ -142,10 +160,13 @@ class GASubscript(_annexpr):
             return False
         return self.origin == other.origin and self.args == other.args
 
+    def __repr__(self) -> str:
+        return f"{self.origin!r}[{', '.join(repr(arg) for arg in self.args)}]"
+
 
 class CallableType(_annexpr):
     def __init__(
-        self, args: list[_annexpr] | ellipsis | GASubscript, ret: _annexpr
+        self, args: list[_annexpr] | ellipsis | GASubscript, ret: _annexpr | None
     ) -> None:
         self.args = args
         self.ret = ret
@@ -154,6 +175,17 @@ class CallableType(_annexpr):
         if not isinstance(other, CallableType):
             return False
         return self.args == other.args and self.ret == other.ret
+
+    def __repr__(self) -> str:
+        if self.args is ...:  # mypy mistake ...
+            params = "..."
+        elif isinstance(self.args, GASubscript):
+            params = repr(self.args)
+        else:
+            params = ", ".join(repr(arg) for arg in self.args)  # type: ignore
+        # make parents on union return because https://bugs.python.org/issue43609
+        ret = f"({self.ret!r})" if isinstance(self.ret, UnionType) else repr(self.ret)
+        return f"({params}) -> {ret}"
 
 
 class AnnotationTransformer(ast.NodeVisitor):  # type hint
@@ -309,7 +341,4 @@ class Annotation:
         ...
 
     def stringify(self, typealias: t.Dict[str, t.Tuple[str, str]]) -> str:
-        ...
-
-    def __repr__(self) -> str:
         ...
