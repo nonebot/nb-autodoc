@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from inspect import Signature
-from typing import Any, Callable, ClassVar
+from typing import Any, Callable, ClassVar, Type, TypeVar
+from typing_extensions import Literal
+
+TD = TypeVar("TD", bound="Document")
 
 
 class DocumentMeta(type):
@@ -37,6 +40,19 @@ class MappingMixin(Mapping[str, Any]):
     # not implemented yet
     def __init__(self) -> None:
         raise NotImplementedError
+
+
+def eq_mixin(cls: Type[TD]) -> Type[TD]:
+    def eq_impl(self: TD, other: object) -> bool:
+        if not isinstance(other, cls):
+            return False
+        for field in self._fields:
+            if getattr(self, field) != getattr(other, field):
+                return False
+        return True
+
+    setattr(cls, "__eq__", eq_impl)
+    return cls
 
 
 class Document(metaclass=DocumentMeta):
@@ -100,6 +116,7 @@ class Variable(root):
 # Abstract Docstring for Builder
 
 
+@eq_mixin
 class docstring(Document):
     lineno: int
     col: int
@@ -110,6 +127,7 @@ class docstring(Document):
 class Docstring(docstring):
     roles: list[Role]
     annotation: str | None  # only variable should be contained
+    # if long_descr exists, then descr exists too
     descr: str
     long_descr: str
     sections: list[section]
@@ -122,7 +140,7 @@ class Role(docstring):
 
 
 class ColonArg(docstring):
-    name: str  # maybe not identifier, in `Returns` is anno
+    name: str | None  # None in `Returns`
     annotation: str | None
     roles: list[Role]
     descr: str
@@ -135,6 +153,7 @@ class section(docstring):
 
 class InlineValue(section):
     name: str
+    type: Literal["version", "typeversion"]
     value: str
 
 
@@ -142,12 +161,13 @@ class Args(section):
     name: str
     args: list[ColonArg]
     vararg: ColonArg | None
+    kwonlyargs: list[ColonArg]
     kwarg: ColonArg | None
 
 
 class Attributes(section):
     name: str
-    args: list[ColonArg]  # identifier
+    args: list[ColonArg]
 
 
 class Examples(section):
@@ -165,10 +185,19 @@ class FrontMatter(section):
 
 class Raises(section):
     name: str
-    args: list[ColonArg]  # identifier or attribute
+    # arg only have annotation (must be attr) and description
+    # like `exception.ApiError: descr`
+    args: list[ColonArg]
 
 
 class Returns(section):
+    name: str
+    version: str | None
+    # if value is arg, it only have annotation and description
+    value: str | ColonArg
+
+
+class Yields(section):
     name: str
     version: str | None
     value: str | ColonArg
@@ -178,8 +207,3 @@ class Require(section):
     name: str
     version: str | None
     value: str
-
-
-class Yields(section):
-    name: str
-    value: str | ColonArg

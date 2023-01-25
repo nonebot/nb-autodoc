@@ -2,6 +2,7 @@
 
 from __future__ import annotations as _
 
+import dataclasses
 from types import FunctionType, ModuleType
 from typing import Any, Dict, NamedTuple, TypeVar, cast
 
@@ -14,8 +15,10 @@ from nb_autodoc.analyzers.definitionfinder import (
 )
 from nb_autodoc.annotation import Annotation
 from nb_autodoc.config import Config, default_config
+from nb_autodoc.docstringparser import GoogleStyleParser
 from nb_autodoc.log import current_module, logger
 from nb_autodoc.modulefinder import ModuleFinder, ModuleProperties
+from nb_autodoc.nodes import Docstring
 from nb_autodoc.typing import (
     T_ClassMember,
     T_Definition,
@@ -27,6 +30,19 @@ from nb_autodoc.utils import cached_property, cleandoc, isenumclass, isnamedtupl
 
 T = TypeVar("T")
 TT = TypeVar("TT")
+
+
+def _parse_google_docstring(s: str, num_indent: int | None = None) -> Docstring:
+    dsobj = GoogleStyleParser(s, num_indent)
+    return dsobj.parse()
+
+
+def parse_doc(s: str, config: Config) -> Docstring:
+    docformat = config["docstring_format"]
+    if docformat == "google":
+        return _parse_google_docstring(s, config["docstring_indent"])
+    else:
+        raise ValueError(f"unknown docstring format {docformat!r}")
 
 
 class Context(Dict[str, T_DefinitionOrRef]):
@@ -80,6 +96,9 @@ class ModuleManager:
     def is_single_module(self) -> bool:
         return len(self.modules) == 1 and not self.modules[self.name].is_package
 
+    def parse_doc(self, s: str) -> Docstring:
+        return parse_doc(s, self.config)
+
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} {self.name!r}>"
 
@@ -127,7 +146,7 @@ class Module:
 
     def __init__(
         self,
-        manager: "ModuleManager",
+        manager: ModuleManager,
         name: str,
         *,
         py: ModuleProperties | None = None,
@@ -150,6 +169,7 @@ class Module:
         elif py and py.sm_doc:
             docstring = py.sm_doc
         self.doc = docstring and cleandoc(docstring)
+        self.doctree = manager.parse_doc(self.doc) if self.doc is not None else None
         py_analyzer = pyi_analyzer = None
         if py and py.is_source:
             py_analyzer = Analyzer(self.name, self.package, cast(str, py.sm_file))
@@ -316,12 +336,13 @@ class Module:
 class LibraryAttr:
     """External library attribute."""
 
-    __slots__ = ("module", "name", "doc")
+    __slots__ = ("module", "name", "doc", "doctree")
 
     def __init__(self, module: Module, name: str, docstring: str) -> None:
         self.module = module  # the user module, not library
         self.name = name
         self.doc = cleandoc(docstring)
+        self.doctree = module.manager.parse_doc(self.doc)
 
     @property
     def qualname(self) -> str:
@@ -329,11 +350,6 @@ class LibraryAttr:
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(name={self.name!r}, doc={self.doc!r})"
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, LibraryAttr):
-            return False
-        return self.name == other.name and self.doc == other.doc
 
 
 # Class only appears in module
@@ -351,6 +367,9 @@ class Class:
         self.name = name
         docstring = pyobj.__doc__  # TODO: add inherit config
         self.doc = docstring and cleandoc(docstring)
+        self.doctree = (
+            module.manager.parse_doc(self.doc) if self.doc is not None else None
+        )
         self.pyobj = pyobj
         self.astobj = astobj
         self.module = module
@@ -525,6 +544,9 @@ class Function:
         if not doc:
             doc = pyobj.__doc__ and cleandoc(pyobj.__doc__)
         self.doc = doc
+        self.doctree = (
+            module.manager.parse_doc(self.doc) if self.doc is not None else None
+        )
         # None if function is dynamic creation without overload or c extension reexport
         self.astobj = astobj
         self.module = module
@@ -570,6 +592,11 @@ class Variable:
         self.astobj = astobj
         self.module = module
         self.cls = cls
+        docstring = astobj.docstring if isinstance(astobj, AssignData) else None
+        self.doc = docstring and cleandoc(docstring)
+        self.doctree = (
+            module.manager.parse_doc(self.doc) if self.doc is not None else None
+        )
         if is_instvar is True:
             ann = self.annotation
             if ann and ann.is_classvar:
@@ -616,8 +643,10 @@ class Variable:
         )
 
 
+# TODO: replace these classes with dataclass and do procedure analysis
 # EnumMember only appears in class
-class EnumMember(NamedTuple):
+@dataclasses.dataclass(eq=False)
+class EnumMember:
     """Enumeration class members.
 
     Enum member has different documentation from `Variable`.
@@ -628,6 +657,11 @@ class EnumMember(NamedTuple):
     doc: str | None
     cls: Class
     module: Module
+
+    def __post_init__(self) -> None:
+        self.doctree = (
+            self.module.manager.parse_doc(self.doc) if self.doc is not None else None
+        )
 
     @property
     def qualname(self) -> str:
