@@ -3,7 +3,7 @@
 import re
 import warnings
 from functools import lru_cache, wraps
-from typing import Callable, List, Optional, TypeVar, cast
+from typing import Callable, List, Optional, Type, TypeVar, cast
 from typing_extensions import Concatenate, ParamSpec
 
 from nb_autodoc.nodes import (
@@ -18,15 +18,16 @@ from nb_autodoc.nodes import (
     Require,
     Returns,
     Role,
+    Yields,
     docstring,
     section,
 )
 from nb_autodoc.utils import dedent
 
-TP = TypeVar("TP", bound="Parser")
+TP = TypeVar("TP", bound="GoogleStyleParser")
+TS = TypeVar("TS", bound="section")
 P = ParamSpec("P")
 RT = TypeVar("RT")
-RTS = TypeVar("RTS", bound="section")
 
 
 def record_pos(
@@ -54,10 +55,12 @@ def record_pos(
     return recorder
 
 
-class Parser:
+class GoogleStyleParser:
+    """Google style docstring parser."""
+
     _role_re = re.compile(r"{(\w+)}`(.+?)`", re.A)
-    _firstline_re = re.compile(r"([a-zA-Z_][\w\. \[\],]*)(?<! ):(.+)", re.A)
-    _section_marker_re = re.compile(r"(\w+) *(?:\(([0-9\.\+\-]+)\))? *:")
+    _firstline_re = re.compile(r"([a-zA-Z_][\w\. \[\],]*)(?<! ): *(\S+)", re.A)
+    _section_marker_re = re.compile(r"(\w+) *(?:\(([0-9\.\+\-]+)\))? *:[^:]?")
     _identifier_re = re.compile(r"[^\W0-9]\w*")
     _anno_re = re.compile(r"[a-zA-Z_][\w\. \[\],]*(?<! )", re.A)
     _pair_anno_re = re.compile(r"\(([a-zA-Z_][\w\. \[\],]*)\)", re.A)
@@ -99,15 +102,15 @@ class Parser:
     _inline_sections = {
         "Version": "version",
         "版本": "version",
-        "TypeVersion": "typeversion",
+        "Type-Version": "typeversion",
         "类型版本": "typeversion",
     }
 
-    def __init__(self, docstring: str, num_indent: Optional[int] = None) -> None:
-        self.lines = docstring.splitlines()
+    def __init__(self, doc: str, num_indent: Optional[int] = None) -> None:
+        self.lines = doc.splitlines()
         self.lines.append("")  # ending of docstring
-        self.lineno = 0
-        self.col = 0
+        self.lineno: int = 0
+        self.col: int = 0
         # the number spaces of indent
         self._indent = num_indent
 
@@ -127,6 +130,11 @@ class Parser:
         for i in range(len(self.lines)):
             match = self._section_marker_re.match(self.lines[i])
             if match:
+                if match.group(1) not in self._sections | self._inline_sections:
+                    warnings.warn(
+                        f"{match.group()!r} is not a valid section marker, skip"
+                    )
+                    continue
                 partition_lineno = i
                 break
         return partition_lineno
@@ -136,18 +144,19 @@ class Parser:
         self.col += spaces
 
     def _consume_linebreaks(self) -> None:
-        if self.line:
+        if self.line or self.lineno == len(self.lines) - 1:
             return
         self.col = 0
-        while not self.line and self.lineno + 1 < len(self.lines):
+        self.lineno += 1
+        while self.lineno < len(self.lines) - 1 and not self.line:
             self.lineno += 1
 
-    def _consume_indent(self, num: int = 1) -> None:
+    def _consume_indent(self) -> None:
         """Ensure the indent is correct."""
         spaces = len(self.line) - len(self.line.lstrip())
-        if spaces != self.indent * num:
+        if spaces != self.indent:
             raise ParserError("try to consume indent that is inconsistent.")
-        self.col += self.indent * num
+        self.col += self.indent
 
     @record_pos
     def _consume_role(self) -> Optional[Role]:
@@ -218,25 +227,26 @@ class Parser:
         return obj
 
     @record_pos
-    def _section_manager(self, match: re.Match[str]) -> section:
+    def _section_dispatch(self, match: re.Match[str]) -> section:
         name, version = match.groups()
-        if name in self._inline_sections:
-            value = self.line[match.end() :].strip()
-            self.lineno += 1
-            self._consume_linebreaks()
-            return InlineValue(name=name, value=value)
+        marker_line = self.line
         self.lineno += 1
         self._consume_linebreaks()
+        if name in self._inline_sections:
+            type_ = self._inline_sections[name]
+            value = marker_line[match.end() :].strip()
+            return InlineValue(name=name, type=type_, value=value)
         try:
             consumer = getattr(self, "_consume_" + self._sections[name])
         except KeyError:
-            raise ParserError(f"{name!r} is not a valid section marker.")
+            raise ParserError(f"{name!r} is not a valid section marker.") from None
         # Detect docstring indent in first non-inline section
         indent = len(self.line) - len(self.line.lstrip())
         if self._indent is None:
             self._indent = indent
         obj = consumer()
         obj.name = name
+        # some section like InlineValue or Example has no version
         if "version" in obj._fields:
             obj.version = version
         return obj
@@ -244,6 +254,7 @@ class Parser:
     def _consume_args(self) -> Args:
         args = []
         vararg = None
+        kwonlyargs = []
         kwarg = None
         # linebreak has been consumed
         while self.line and self.line.startswith(" "):
@@ -255,8 +266,14 @@ class Parser:
                 self.col += 1
                 vararg = self._consume_colonarg(partial_indent=True)
             else:
-                args.append(self._consume_colonarg(partial_indent=True))
-        return Args(args=args, vararg=vararg, kwarg=kwarg)
+                arg = self._consume_colonarg(partial_indent=True)
+                if vararg:
+                    kwonlyargs.append(arg)
+                elif not kwarg:
+                    args.append(arg)
+                else:
+                    raise ParserError("arg cannot follow **kwargs")
+        return Args(args=args, vararg=vararg, kwonlyargs=kwonlyargs, kwarg=kwarg)
 
     def _consume_attributes(self) -> Attributes:
         args = []
@@ -281,30 +298,29 @@ class Parser:
             match = self._attr_re.match(self.line)
             if not match:
                 raise ParserError
-            name = match.group()
+            exc_cls = match.group()
             self.col += match.end()
             self._consume_spaces()
             roles = self._consume_roles()
             if not self.line or self.line[0] != ":":
                 raise ParserError("no colon found.")
             self.col += 1
-            obj = ColonArg(name=name, roles=roles)
+            obj = ColonArg(annotation=exc_cls, roles=roles)
             self._consume_descr(obj, self.indent + 1)
             args.append(obj)
         return Raises(args=args)
 
-    def _consume_returns(self) -> Returns:
+    def _return_like_helper(self, cls: Type[TS]) -> TS:
         value = ""  # type: str | ColonArg
         self._consume_indent()  # ensure correct indent
         line = self.line
         before, colon, after = line.partition(":")
         match = self._anno_re.match(before)
         if colon and match:
-            if not line[len(match.group()) : len(before)].isspace():
-                raise ParserError(
-                    f'unrecognized things between "{match.group()}" and ":".'
-                )
-            value = ColonArg(name=match.group(), descr=after.strip())
+            miss = line[len(match.group()) : len(before)]
+            if miss and not miss.isspace():
+                raise ParserError(f"unrecognized things in {line!r}.")
+            value = ColonArg(annotation=match.group(), descr=after.strip())
             self.lineno += 1
         self.col = 0
         # In each case, Returns's long description indent is 4
@@ -313,7 +329,10 @@ class Parser:
         else:
             descr_chunk = self._consume_descr(None, self.indent, include_short=False)
             value = dedent("\n".join(descr_chunk)).strip()
-        return Returns(value=value)
+        return cls(value=value)
+
+    _consume_returns = lambda self: self._return_like_helper(Returns)
+    _consume_yields = lambda self: self._return_like_helper(Yields)
 
     def _consume_require(self) -> Require:
         descr_chunk = self._consume_descr(None, self.indent, include_short=False)
@@ -327,24 +346,26 @@ class Parser:
         long_descr = ""
         match = None
         partition_lineno = self._find_first_marker()
-        descr_chunk = self.lines[:partition_lineno]
-        if descr_chunk:
-            roles = self._consume_roles()
+        roles = self._consume_roles()
+        self._consume_linebreaks()
+        if partition_lineno is None or self.lineno < partition_lineno:
+            # have description before first section
             match = self._firstline_re.match(self.line)
             if match:
                 annotation, descr = match.groups()
+                descr = descr.strip()
             else:
-                descr = self.line
-            descr = descr.strip()
-            if len(descr_chunk) > 1:
-                long_descr = "\n".join(descr_chunk[1:]).strip()
-        self.col = 0
-        self.lineno = partition_lineno if partition_lineno is not None else 0
+                descr = self.line.strip()
+            self.lineno += 1
+            self.col = 0  # descr may behind roles, so set to zero
+            descr_chunk = self.lines[self.lineno : partition_lineno]
+            self.lineno += len(descr_chunk)  # maybe zero
+            long_descr = "\n".join(descr_chunk).strip()
         sections = []
         while self.lineno <= len(self.lines) - 2:  # ending is empty string
             match = self._section_marker_re.match(self.line)
             if match:
-                section = self._section_manager(match)
+                section = self._section_dispatch(match)
                 sections.append(section)
             else:  # Skip one line
                 # This branch should not execute

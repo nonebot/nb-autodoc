@@ -168,16 +168,18 @@ def cleandoc(s: str, strict: bool = False) -> str:
     * Fix `inspect.cleandoc` do not remove space only lines (strict mode).
     * Slightly better performance (powered by pytest-benchmark).
     """
-    lines = s.strip().expandtabs().splitlines()
+    lines = s.rstrip().expandtabs().splitlines()
     if strict:
         if any(line.isspace() for line in lines):
             raise ValueError
     margin = len(lines[-1]) - len(lines[-1].lstrip())
-    for line in lines[1:]:
+    for line in lines[1:-1]:
         if line:
             margin = min(margin, len(line) - len(line.lstrip()))
     for i in range(1, len(lines)):
         lines[i] = lines[i][margin:]
+    while lines and not lines[0]:
+        lines.pop(0)
     return "\n".join(lines)
 
 
