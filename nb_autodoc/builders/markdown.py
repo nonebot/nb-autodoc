@@ -307,6 +307,9 @@ class Renderer:
                 self.newline(dsobj.long_descr)
 
     # sections
+    def visit_Text(self, dsobj: nodes.Text) -> None:
+        self.write(dsobj.value)
+
     def visit_Args(self, dsobj: nodes.Args) -> None:
         self.fill(f"- **{dsobj.name}**")
         with self.block():

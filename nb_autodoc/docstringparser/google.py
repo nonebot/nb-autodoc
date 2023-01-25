@@ -6,6 +6,7 @@ from functools import lru_cache, wraps
 from typing import Callable, List, Optional, Type, TypeVar, cast
 from typing_extensions import Concatenate, ParamSpec
 
+from nb_autodoc.log import logger
 from nb_autodoc.nodes import (
     Args,
     Attributes,
@@ -18,6 +19,7 @@ from nb_autodoc.nodes import (
     Require,
     Returns,
     Role,
+    Text,
     Yields,
     docstring,
     section,
@@ -131,9 +133,7 @@ class GoogleStyleParser:
             match = self._section_marker_re.match(self.lines[i])
             if match:
                 if match.group(1) not in self._sections | self._inline_sections:
-                    warnings.warn(
-                        f"{match.group()!r} is not a valid section marker, skipped"
-                    )
+                    # maybe 'Anything:' in description
                     continue
                 partition_lineno = i
                 break
@@ -155,7 +155,10 @@ class GoogleStyleParser:
         """Ensure the indent is correct."""
         spaces = len(self.line) - len(self.line.lstrip())
         if spaces != self.indent:
-            raise ParserError("try to consume indent that is inconsistent")
+            raise ParserError(
+                "try to consume indent that is inconsistent\n"
+                + self._get_arounding_text(self.lineno)
+            )
         self.col += self.indent
 
     @record_pos
@@ -220,7 +223,9 @@ class GoogleStyleParser:
             self.col += len(match.group())
         roles = self._consume_roles()
         if not self.line or self.line[0] != ":":
-            raise ParserError("no colon found")
+            raise ParserError(
+                "no colon found\n" + self._get_arounding_text(self.lineno)
+            )
         self.col += 1
         obj = ColonArg(name=name, annotation=annotation, roles=roles)
         self._consume_descr(obj, self.indent + 1)
@@ -239,7 +244,10 @@ class GoogleStyleParser:
         try:
             consumer = getattr(self, "_consume_" + self._sections[name])
         except KeyError:
-            raise ParserError(f"{name!r} is not a valid section marker") from None
+            raise ParserError(
+                f"{name!r} is not a valid section marker, skipped\n"
+                + self._get_arounding_text(self.lineno)
+            ) from None
         # Detect docstring indent in first non-inline section
         indent = len(self.line) - len(self.line.lstrip())
         if self._indent is None:
@@ -272,7 +280,10 @@ class GoogleStyleParser:
                 elif not kwarg:
                     args.append(arg)
                 else:
-                    raise ParserError("arg cannot follow **kwargs")
+                    raise ParserError(
+                        "arg cannot follow **kwargs\n"
+                        + self._get_arounding_text(self.lineno)
+                    )
         return Args(args=args, vararg=vararg, kwonlyargs=kwonlyargs, kwarg=kwarg)
 
     def _consume_attributes(self) -> Attributes:
@@ -303,7 +314,9 @@ class GoogleStyleParser:
             self._consume_spaces()
             roles = self._consume_roles()
             if not self.line or self.line[0] != ":":
-                raise ParserError("no colon found")
+                raise ParserError(
+                    "no colon found\n" + self._get_arounding_text(self.lineno)
+                )
             self.col += 1
             obj = ColonArg(annotation=exc_cls, roles=roles)
             self._consume_descr(obj, self.indent + 1)
@@ -319,8 +332,11 @@ class GoogleStyleParser:
         if colon and match:
             miss = line[len(match.group()) : len(before)]
             if miss and not miss.isspace():
-                raise ParserError(f"unrecognized things in {line!r}")
-            value = ColonArg(annotation=match.group(), descr=after.strip())
+                raise ParserError(
+                    "unrecognized things in line\n"
+                    + self._get_arounding_text(self.lineno)
+                )
+            value = ColonArg(annotation=match.group(), roles=[], descr=after.strip())
             self.lineno += 1
         self.col = 0
         # In each case, Returns's long description indent is 4
@@ -362,18 +378,27 @@ class GoogleStyleParser:
             self.lineno += len(descr_chunk)  # maybe zero
             long_descr = "\n".join(descr_chunk).strip()
         sections = []
+        text_chunk: list[str] = []
+
+        def save_text_chunk_if() -> None:
+            if text_chunk:
+                text = "\n".join(text_chunk).strip()
+                if text:
+                    sections.append(Text(value=text))
+                text_chunk.clear()
+
         while self.lineno <= len(self.lines) - 2:  # ending is empty string
             match = self._section_marker_re.match(self.line)
             if match:
+                save_text_chunk_if()
                 section = self._section_dispatch(match)
                 sections.append(section)
-            else:  # Skip one line
-                # This branch should not execute
-                # Possibly caused by mixing uncognized and detended things between two sections
-                warnings.warn("the line has not been fully consumed")
+            else:
+                text_chunk.append(self.line)
                 self.lineno += 1
                 self.col = 0
             self._consume_linebreaks()
+        save_text_chunk_if()
         return Docstring(
             roles=roles,
             annotation=annotation,
@@ -382,6 +407,13 @@ class GoogleStyleParser:
             sections=sections,
         )
 
+    def _get_arounding_text(self, lineno: int) -> str:
+        builder = [
+            "+ " + line if i != 2 else "> " + line
+            for i, line in enumerate(self.lines[lineno - 2 : lineno + 3])
+        ]
+        return "\n".join(builder)
 
-class ParserError(Exception):
+
+class ParserError(RuntimeError):
     ...

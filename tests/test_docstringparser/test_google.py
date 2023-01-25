@@ -1,5 +1,5 @@
 from nb_autodoc.docstringparser.google import GoogleStyleParser
-from nb_autodoc.nodes import Args, ColonArg, Docstring, Role
+from nb_autodoc.nodes import Args, ColonArg, Docstring, Role, Text, Returns
 from nb_autodoc.utils import cleandoc
 
 
@@ -119,5 +119,54 @@ class TestGoogleStyleParser:
                     kwonlyargs=[],
                     kwarg=None,
                 )
+            ],
+        )
+        doc = cleandoc(
+            """description.
+
+            Args:
+                a: descr
+
+            :::tip
+            any text between two section
+            :::
+
+            返回:
+                Union[int, str]: descr
+            """
+        )
+        assert parse(doc) == Docstring(
+            roles=[],
+            annotation=None,
+            descr="description.",
+            long_descr="",
+            sections=[
+                Args(
+                    name="Args",
+                    args=[
+                        ColonArg(
+                            name="a",
+                            annotation=None,
+                            roles=[],
+                            descr="descr",
+                            long_descr="",
+                        )
+                    ],
+                    vararg=None,
+                    kwonlyargs=[],
+                    kwarg=None,
+                ),
+                Text(value=":::tip\nany text between two section\n:::"),
+                Returns(
+                    name="返回",
+                    version=None,
+                    value=ColonArg(
+                        name=None,
+                        annotation="Union[int, str]",
+                        roles=[],
+                        descr="descr",
+                        long_descr="",
+                    ),
+                ),
             ],
         )

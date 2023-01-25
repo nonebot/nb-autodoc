@@ -157,6 +157,16 @@ class InlineValue(section):
     value: str
 
 
+class FrontMatter(section):
+    name: str
+    value: str  # maybe dict
+
+
+class Text(section):
+    # the text between two section
+    value: str
+
+
 class Args(section):
     name: str
     args: list[ColonArg]
@@ -176,11 +186,6 @@ class Examples(section):
 
 
 # class KeywordArgs(section): ...
-
-
-class FrontMatter(section):
-    name: str
-    value: str  # maybe dict
 
 
 class Raises(section):
