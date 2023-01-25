@@ -4,7 +4,7 @@ import abc
 import shutil
 from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import Callable, Iterable, List, Optional
+from typing import Callable, Iterable, List, Optional, Tuple
 from typing_extensions import final
 
 from nb_autodoc.log import logger
@@ -103,7 +103,8 @@ class Builder(abc.ABC):
             module: member_iterator_cls(module) for module in self.modules.values()
         }
         # redirect ref's module for correct link
-        self._objref_module_locator: dict[T_Definition, Module] = {}
+        self._documented: set[T_Definition] = set()
+        self._module_locator: dict[T_Definition, Module] = {}
         self.anchors: dict[T_Definition, str] = {}
         """The URL anchor (slug) for linkable objects."""
         self.slugify = self.get_slugify_impl()
@@ -125,10 +126,24 @@ class Builder(abc.ABC):
         for module, miterator in self._member_iterators.items():
             for dobj in miterator._iter_all_definitions(module):
                 if dobj.module is not module:
-                    self._objref_module_locator[dobj] = module
+                    self._module_locator[dobj] = module
                 anchor = self.slugify(dobj)
                 if anchor is not None:
                     self.anchors[dobj] = anchor
+            # just notice module member reduplicated document (class will cause big log)
+            for dobj in miterator.iter_module(module):
+                if dobj not in self._documented:
+                    self._documented.add(dobj)
+                else:
+                    logger.warning(
+                        f"object {dobj.fullname!r} is already documented "
+                        f"at {self.get_anchor_ref(dobj)}"
+                    )
+
+    def get_anchor_ref(self, dobj: T_Definition) -> Tuple[str, Optional[str]]:
+        module = self._module_locator.get(dobj) or dobj.module
+        anchor = self.anchors.get(dobj)
+        return (module.name, anchor)
 
     def get_slugify_impl(self) -> Callable[[T_Definition], Optional[str]]:
         # by default all resource is unlinkable

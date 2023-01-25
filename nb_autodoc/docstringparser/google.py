@@ -121,7 +121,7 @@ class GoogleStyleParser:
     @property
     def indent(self) -> int:
         if self._indent is None:
-            raise ParserError("indent is not specified.")
+            raise ParserError("indent is not specified")
         return self._indent
 
     @lru_cache(1)
@@ -132,7 +132,7 @@ class GoogleStyleParser:
             if match:
                 if match.group(1) not in self._sections | self._inline_sections:
                     warnings.warn(
-                        f"{match.group()!r} is not a valid section marker, skip"
+                        f"{match.group()!r} is not a valid section marker, skipped"
                     )
                     continue
                 partition_lineno = i
@@ -155,7 +155,7 @@ class GoogleStyleParser:
         """Ensure the indent is correct."""
         spaces = len(self.line) - len(self.line.lstrip())
         if spaces != self.indent:
-            raise ParserError("try to consume indent that is inconsistent.")
+            raise ParserError("try to consume indent that is inconsistent")
         self.col += self.indent
 
     @record_pos
@@ -203,10 +203,10 @@ class GoogleStyleParser:
         return descr_chunk
 
     @record_pos
-    def _consume_colonarg(self, partial_indent: bool = False) -> ColonArg:
+    def _consume_colonarg(self, remove_indent: bool = True) -> ColonArg:
         """Consume ColonArg until next ColonArg or detented line."""
         annotation = None
-        if not partial_indent:
+        if remove_indent:
             self._consume_indent()
         match = self._identifier_re.match(self.line)
         if not match:
@@ -220,7 +220,7 @@ class GoogleStyleParser:
             self.col += len(match.group())
         roles = self._consume_roles()
         if not self.line or self.line[0] != ":":
-            raise ParserError("no colon found.")
+            raise ParserError("no colon found")
         self.col += 1
         obj = ColonArg(name=name, annotation=annotation, roles=roles)
         self._consume_descr(obj, self.indent + 1)
@@ -239,7 +239,7 @@ class GoogleStyleParser:
         try:
             consumer = getattr(self, "_consume_" + self._sections[name])
         except KeyError:
-            raise ParserError(f"{name!r} is not a valid section marker.") from None
+            raise ParserError(f"{name!r} is not a valid section marker") from None
         # Detect docstring indent in first non-inline section
         indent = len(self.line) - len(self.line.lstrip())
         if self._indent is None:
@@ -261,12 +261,12 @@ class GoogleStyleParser:
             self._consume_indent()
             if self.line.startswith("**"):
                 self.col += 2
-                kwarg = self._consume_colonarg(partial_indent=True)
+                kwarg = self._consume_colonarg(remove_indent=False)
             elif self.line.startswith("*"):
                 self.col += 1
-                vararg = self._consume_colonarg(partial_indent=True)
+                vararg = self._consume_colonarg(remove_indent=False)
             else:
-                arg = self._consume_colonarg(partial_indent=True)
+                arg = self._consume_colonarg(remove_indent=False)
                 if vararg:
                     kwonlyargs.append(arg)
                 elif not kwarg:
@@ -303,7 +303,7 @@ class GoogleStyleParser:
             self._consume_spaces()
             roles = self._consume_roles()
             if not self.line or self.line[0] != ":":
-                raise ParserError("no colon found.")
+                raise ParserError("no colon found")
             self.col += 1
             obj = ColonArg(annotation=exc_cls, roles=roles)
             self._consume_descr(obj, self.indent + 1)
@@ -319,7 +319,7 @@ class GoogleStyleParser:
         if colon and match:
             miss = line[len(match.group()) : len(before)]
             if miss and not miss.isspace():
-                raise ParserError(f"unrecognized things in {line!r}.")
+                raise ParserError(f"unrecognized things in {line!r}")
             value = ColonArg(annotation=match.group(), descr=after.strip())
             self.lineno += 1
         self.col = 0
@@ -370,7 +370,7 @@ class GoogleStyleParser:
             else:  # Skip one line
                 # This branch should not execute
                 # Possibly caused by mixing uncognized and detended things between two sections
-                warnings.warn("the line has not been fully consumed.")
+                warnings.warn("the line has not been fully consumed")
                 self.lineno += 1
                 self.col = 0
             self._consume_linebreaks()

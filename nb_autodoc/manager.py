@@ -348,6 +348,10 @@ class LibraryAttr:
     def qualname(self) -> str:
         return self.name
 
+    @property
+    def fullname(self) -> str:
+        return f"{self.module.name}:{self.name}"
+
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(name={self.name!r}, doc={self.doc!r})"
 
@@ -542,7 +546,7 @@ class Function:
         self.func = func
         doc = assign_doc
         if not doc:
-            doc = pyobj.__doc__ and cleandoc(pyobj.__doc__)
+            doc = func.__doc__ and cleandoc(func.__doc__)
         self.doc = doc
         self.doctree = (
             module.manager.parse_doc(self.doc) if self.doc is not None else None
@@ -666,6 +670,10 @@ class EnumMember:
     @property
     def qualname(self) -> str:
         return f"{self.cls.qualname}.{self.name}"
+
+    @property
+    def fullname(self) -> str:
+        return f"{self.module.name}:{self.name}"
 
 
 class _AnnContext(NamedTuple):

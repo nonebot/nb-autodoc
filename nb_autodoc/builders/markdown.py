@@ -199,7 +199,7 @@ class Renderer:
         if frontmatter:
             self.write("---\n")
             self.write(frontmatter.value)
-            self.write("---\n\n")
+            self.write("\n---\n\n")
         self.write(f"# {dobj.name}")
         self.current_module = dobj
         if dobj.doctree:
