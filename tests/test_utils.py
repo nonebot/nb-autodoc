@@ -8,7 +8,7 @@ from typing import Callable, List, TypeVar, Union, cast
 
 import pytest
 
-from nb_autodoc.utils import cleandoc, dedent, getmodulename
+from nb_autodoc.utils import cleandoc, dedent, getmodulename, stringify_signature
 
 T = TypeVar("T")
 TT = TypeVar("TT")
@@ -102,6 +102,18 @@ def test_getmodulename():
     assert getmodulename(norm("./__init__.so")) == "__init__"
     assert getmodulename(norm("/xxx.pyi")) == None
     assert getmodulename(norm("/xxx-yyy.py")) == None
+
+
+def test_stringify_signature():
+    def func(a: int, b: dict = {}) -> str:
+        ...
+
+    sig = inspect.signature(func)
+    assert stringify_signature(sig) == "(a, b={})"
+    assert (
+        stringify_signature(sig, replace_ann=False, show_returns=True)
+        == "(a: int, b: dict = {}) -> str"
+    )
 
 
 # def test_formatannotation():

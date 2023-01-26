@@ -1,5 +1,5 @@
 from nb_autodoc.docstringparser.google import GoogleStyleParser
-from nb_autodoc.nodes import Args, ColonArg, Docstring, Role, Text, Returns
+from nb_autodoc.nodes import Args, ColonArg, Docstring, Returns, Role, Text
 from nb_autodoc.utils import cleandoc
 
 

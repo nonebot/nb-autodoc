@@ -6,6 +6,7 @@ import typing as t
 import typing_extensions as te
 from enum import Enum
 from importlib.machinery import all_suffixes
+from inspect import Parameter, Signature
 from types import BuiltinFunctionType, FunctionType, MappingProxyType
 from typing import NamedTuple
 
@@ -135,6 +136,20 @@ def findparamsource(obj: FunctionType) -> str:
     ...
 
 
+def stringify_signature(
+    sig: Signature, *, replace_ann: bool = True, show_returns: bool = False
+) -> str:
+    sig = sig.replace()
+    params = sig.parameters.copy()
+    if replace_ann:
+        for param in sig.parameters.values():
+            params[param.name] = param.replace(annotation=Signature.empty)
+    return_ann = sig.return_annotation if show_returns else Signature.empty
+    return str(
+        sig.replace(parameters=list(params.values()), return_annotation=return_ann)
+    )
+
+
 # Utilities
 
 
@@ -219,8 +234,9 @@ class cached_property(t.Generic[T, TT]):
             )
             raise TypeError(msg) from None
         try:
-            val = cache[self.attrname]
+            return cache[self.attrname]
         except KeyError:
-            val = self.func(instance)
-            cache[self.attrname] = val
+            pass  # avoid extra traceback
+        val = self.func(instance)
+        cache[self.attrname] = val
         return val

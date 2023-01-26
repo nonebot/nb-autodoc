@@ -166,8 +166,12 @@ class GASubscript(_annexpr):
 
 class CallableType(_annexpr):
     def __init__(
-        self, args: list[_annexpr] | ellipsis | GASubscript, ret: _annexpr | None
+        self, args: list[_annexpr] | ellipsis | GASubscript | Name, ret: _annexpr | None
     ) -> None:
+        # Callable[[arg1, arg2], None]
+        # Callable[..., Any]
+        # Callable[Concatenate[P, int], None]
+        # Callable[P, None]
         self.args = args
         self.ret = ret
 
@@ -179,7 +183,7 @@ class CallableType(_annexpr):
     def __repr__(self) -> str:
         if self.args is ...:  # mypy mistake ...
             params = "..."
-        elif isinstance(self.args, GASubscript):
+        elif isinstance(self.args, (GASubscript, Name)):
             params = repr(self.args)
         else:
             params = ", ".join(repr(arg) for arg in self.args)  # type: ignore
@@ -283,19 +287,21 @@ class AnnotationTransformer(ast.NodeVisitor):  # type hint
         if isinstance(args[0], ast.List):
             call_args = [self.visit(i) for i in args[0].elts]
         else:
-            concat = self.visit(args[0])
-            if concat is ...:
-                call_args = ...
+            call_args = self.visit(args[0])
+            if (
+                call_args is ...
+                or isinstance(call_args, Name)
+                or (
+                    isinstance(call_args, GASubscript)
+                    and isinstance(call_args.origin, TypingName)
+                    and call_args.origin.tp_name == "Concatenate"
+                )
+            ):
+                pass
             else:
-                if (
-                    not isinstance(concat, GASubscript)
-                    or not isinstance(concat.origin, TypingName)
-                    or concat.origin.tp_name != "Concatenate"
-                ):
-                    raise TypeError(
-                        "Callable[arg, ret] arg requires ellipsis, List or Concatenate"
-                    )
-                call_args = concat
+                raise TypeError(
+                    "Callable[arg, ret] arg requires ellipsis, List, ParamSpec or Concatenate"
+                )
         return CallableType(call_args, ret)
 
 
@@ -318,7 +324,6 @@ def _ga_subst_outer_check(ann: _annexpr, tp_name: str) -> bool:
 
 class Annotation:
     def __init__(self, ast_expr: ast.expr, context: _AnnContext) -> None:
-        self.ast_expr = ast_expr
         norm = _get_typing_normalizer(context)
         self.ann: _annexpr = AnnotationTransformer(norm).visit(ast_expr)
 
@@ -340,5 +345,5 @@ class Annotation:
     def type_link(self, ontype: t.Callable[[type], str]) -> str:
         ...
 
-    def stringify(self, typealias: t.Dict[str, t.Tuple[str, str]]) -> str:
+    def docuify(self, typealias: t.Dict[str, t.Tuple[str, str]]) -> str:
         ...

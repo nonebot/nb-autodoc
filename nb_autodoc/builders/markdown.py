@@ -18,7 +18,7 @@ from nb_autodoc.manager import (
     Variable,
 )
 from nb_autodoc.typing import T_Definition
-from nb_autodoc.utils import isenumclass
+from nb_autodoc.utils import isenumclass, stringify_signature
 
 from .helpers import vuepress_slugify
 
@@ -59,6 +59,11 @@ def get_class_title(dobj: Class) -> str:
         else:
             kind = "class"
     body = dobj.name
+    if not isenumclass(dobj.pyobj):
+        if dobj.signature:
+            body += stringify_signature(dobj.signature)
+        else:
+            body += "(<auto>)"
     return f"_{kind}_ `{body}`"
 
 
@@ -82,6 +87,10 @@ def get_function_title(dobj: Function) -> str:
             builder.append("def")
         kind = " ".join(builder)
     body = dobj.name
+    if dobj.signature:
+        body += stringify_signature(dobj.signature)
+    else:
+        body += "(<auto>)"
     return f"_{kind}_ `{body}`"
 
 

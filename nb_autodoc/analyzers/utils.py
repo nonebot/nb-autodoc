@@ -208,10 +208,34 @@ def get_docstring(
     return None
 
 
+_TS = t.TypeVar("_TS", bound=Signature)
+
+
+# https://github.com/python/mypy/issues/3737
+@t.overload
 def signature_from_ast(
     args: ast.arguments, returns: t.Optional[ast.expr] = None
 ) -> Signature:
-    """Signature from ast. Stores original annotation expr in `Parameter.annotation`."""
+    ...
+
+
+@t.overload
+def signature_from_ast(
+    args: ast.arguments, returns: t.Optional[ast.expr] = None, *, sigcls: t.Type[_TS]
+) -> _TS:
+    ...
+
+
+def signature_from_ast(
+    args: ast.arguments,
+    returns: t.Optional[ast.expr] = None,
+    *,
+    sigcls: t.Type[Signature] = Signature,
+) -> Signature:
+    """Signature from ast.
+
+    Parameter annotation and default can only be `ast.expr | _empty`.
+    """
     params = []
     defaults = args.defaults
     kwdefaults = args.kw_defaults
@@ -243,9 +267,7 @@ def signature_from_ast(
         arg = args.vararg
         params.append(
             Parameter(
-                arg.arg,
-                Parameter.VAR_POSITIONAL,
-                annotation=arg.annotation or _empty,
+                arg.arg, Parameter.VAR_POSITIONAL, annotation=arg.annotation or _empty
             )
         )
     for i, arg in enumerate(args.kwonlyargs):
@@ -261,15 +283,13 @@ def signature_from_ast(
         arg = args.kwarg
         params.append(
             Parameter(
-                arg.arg,
-                kind=Parameter.VAR_KEYWORD,
-                annotation=arg.annotation or _empty,
+                arg.arg, Parameter.VAR_KEYWORD, annotation=arg.annotation or _empty
             )
         )
     # TODO: add type comment feature
     # in pyright, annotation has higher priority that type comment
     # https://peps.python.org/pep-0484/#suggested-syntax-for-python-2-7-and-straddling-code
-    return Signature(params, return_annotation=returns or _empty)
+    return sigcls(params, return_annotation=returns or _empty)
 
 
 def unparse_attribute_or_name(node: ast.expr) -> t.Optional[str]:

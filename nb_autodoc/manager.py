@@ -2,8 +2,10 @@
 
 from __future__ import annotations as _
 
+import ast
 import dataclasses
-from types import FunctionType, ModuleType
+from inspect import Parameter, Signature, getsource, unwrap
+from types import FunctionType, MappingProxyType, ModuleType
 from typing import Any, Dict, NamedTuple, TypeVar, cast
 
 from nb_autodoc.analyzers.analyzer import Analyzer
@@ -13,6 +15,7 @@ from nb_autodoc.analyzers.definitionfinder import (
     FunctionDefData,
     ImportFromData,
 )
+from nb_autodoc.analyzers.utils import signature_from_ast
 from nb_autodoc.annotation import Annotation
 from nb_autodoc.config import Config, default_config
 from nb_autodoc.docstringparser import GoogleStyleParser
@@ -26,23 +29,57 @@ from nb_autodoc.typing import (
     T_ModuleMember,
     isgenericalias,
 )
-from nb_autodoc.utils import cached_property, cleandoc, isenumclass, isnamedtuple
+from nb_autodoc.utils import (
+    cached_property,
+    cleandoc,
+    dedent,
+    isenumclass,
+    isnamedtuple,
+)
 
 T = TypeVar("T")
 TT = TypeVar("TT")
 
 
-def _parse_google_docstring(s: str, num_indent: int | None = None) -> Docstring:
-    dsobj = GoogleStyleParser(s, num_indent)
-    return dsobj.parse()
-
-
 def parse_doc(s: str, config: Config) -> Docstring:
     docformat = config["docstring_format"]
     if docformat == "google":
-        return _parse_google_docstring(s, config["docstring_indent"])
+        dsobj = GoogleStyleParser(s, config["docstring_indent"])
+        return dsobj.parse()
     else:
         raise ValueError(f"unknown docstring format {docformat!r}")
+
+
+def _unwrap_until_sig(obj: Any) -> Any:
+    obj = unwrap(obj, stop=(lambda f: hasattr(f, "__signature__")))
+    return obj
+
+
+def get_signable_func(obj: Any) -> Any:
+    """Get unwrapped function and signable function for class."""
+    if not callable(obj):
+        raise ValueError(f"{obj!r} is not callable")
+    if isinstance(obj, type):
+        if type(obj).__call__ is not type.__call__:
+            return _unwrap_until_sig(obj.__call__)
+        elif obj.__new__ is not object.__new__:
+            return _unwrap_until_sig(obj.__new__)
+        elif getattr(obj, "__init__") is not object.__init__:
+            return _unwrap_until_sig(getattr(obj, "__init__"))
+        # nothing to signature
+        return getattr(object, "__init__")
+    else:
+        return _unwrap_until_sig(obj)
+
+
+class AnnParameter(Parameter):
+    annotation: Annotation | Any  # annotation or _empty
+
+
+class FunctionSignature(Signature):
+    """Precious signature for FunctionType."""
+
+    parameters: MappingProxyType[str, AnnParameter]
 
 
 class Context(Dict[str, T_DefinitionOrRef]):
@@ -318,6 +355,41 @@ class Module:
         if libdocs:
             logger.warning(f"cannot solve autodoc item {libdocs}")
 
+    def build_static_ann(self, expr: ast.expr) -> Annotation:
+        return Annotation(
+            expr,
+            _AnnContext(
+                self.prime_analyzer.module.typing_module,
+                self.prime_analyzer.module.typing_names,
+            ),
+        )
+
+    def get_signature(self, func: FunctionType) -> FunctionSignature:
+        """Get signature from concrete FunctionType."""
+        if not func.__module__ == self.name:
+            raise RuntimeError(
+                f"function {func.__name__!r} is defined on {func.__module__!r}"
+            )
+        node = ast.parse(dedent(getsource(func))).body[0]
+        assert isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        _empty = Parameter.empty
+        sig = signature_from_ast(node.args, node.returns)
+        params = sig.parameters.copy()
+        for param in sig.parameters.values():
+            annotation = param.annotation
+            default = param.default
+            if annotation is not _empty:
+                annotation = self.build_static_ann(annotation)
+            if default is not _empty:
+                default = ast.unparse(default)
+            params[param.name] = param.replace(annotation=annotation, default=default)
+        return_annotation = sig.return_annotation
+        if return_annotation is not _empty:
+            return_annotation = ast.unparse(return_annotation)
+        return FunctionSignature(
+            list(params.values()), return_annotation=return_annotation
+        )
+
     # def _evaluate(self, s: str, *, locals: dict[str, Any] | None = None) -> Any:
     #     # some library has stmt like `if TYPE_CHECKING...else...`
     #     # so we need to create type_checking namespace rather than ChainMap
@@ -397,6 +469,27 @@ class Class:
             self.astobj.type_checking_body, globalns, localns
         )
         return localns
+
+    @cached_property
+    def signature(self) -> FunctionSignature | None:
+        """Get signature on class, or None."""
+        sig = Function._get_signature(self.pyobj, self.module.manager.modules)
+        if not sig:
+            return None
+        # skip first argument
+        params = tuple(sig.parameters.values())
+        if not params or params[0].kind in (
+            Parameter.VAR_KEYWORD,
+            Parameter.KEYWORD_ONLY,
+        ):
+            raise ValueError("invalid class signature")
+        kind = params[0].kind
+        if kind in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD):
+            params = params[1:]
+        else:
+            # it is var-positional, do nothing
+            pass
+        return sig.replace(parameters=params)
 
     def add_member(self, name: str, obj: T_ClassMember) -> None:
         self.members[name] = self.module.manager.context[
@@ -570,6 +663,32 @@ class Function:
     def fullname(self) -> str:
         return f"{self.module.name}:{self.qualname}"
 
+    @cached_property
+    def signature(self) -> FunctionSignature | None:
+        """Get signature on unwrapped function, or None."""
+        return Function._get_signature(self.func, self.module.manager.modules)
+
+    @staticmethod
+    def _get_signature(
+        obj: Any, modules: dict[str, Module]
+    ) -> FunctionSignature | None:
+        func = get_signable_func(obj)
+        if not isinstance(func, FunctionType):
+            # maybe functionlike, such as cython function
+            return None
+        if not _validate_filename(func.__code__.co_filename):
+            # function has no source code
+            # maybe created by codegen (exec), such as dataclass
+            return None
+        modulename = func.__module__
+        if modulename in modules:
+            return modules[modulename].get_signature(func)
+        else:
+            logger.info(
+                f"function {func.__qualname__!r} is defined on {modulename!r} "
+                "which is unreachable"
+            )
+
     def __repr__(self) -> str:
         lineno = self.func.__code__.co_firstlineno
         return f"<{self.__class__.__name__} {self.qualname!r} lineno={lineno}>"
@@ -630,16 +749,7 @@ class Variable:
         ann = self.astobj.annotation if isinstance(self.astobj, AssignData) else None
         if not ann:
             return None
-        return Annotation(
-            ann,
-            _AnnContext(
-                self.module.prime_analyzer.module.typing_module,
-                self.module.prime_analyzer.module.typing_names,
-            ),
-        )
-
-    def replace_annot_refs(self, s: str) -> str:
-        return s
+        return self.module.build_static_ann(ann)
 
     def __repr__(self) -> str:
         return (
@@ -684,6 +794,10 @@ class _AnnContext(NamedTuple):
 def _copy__annotations__(_ns: dict[str, Any]) -> None:
     if "__annotations__" in _ns:
         _ns["__annotations__"] = _ns["__annotations__"].copy()
+
+
+def _validate_filename(filename: str) -> bool:
+    return not (filename.startswith("<") and filename.endswith(">"))
 
 
 def _truncate_doc(doc: str | None) -> str | None:
