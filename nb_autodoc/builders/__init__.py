@@ -8,7 +8,7 @@ from typing import Callable, Iterable, List, Optional, Tuple
 from typing_extensions import final
 
 from nb_autodoc.log import logger
-from nb_autodoc.manager import Class, ImportRef, Module, ModuleManager
+from nb_autodoc.manager import Class, ImportRef, Module, ModuleManager, Variable
 from nb_autodoc.typing import T_ClassMember, T_Definition, T_ModuleMember
 
 default_slugify = lambda dobj: None
@@ -52,15 +52,19 @@ class MemberIterator:
                     ref_found = dobj.find_definition()
                     if ref_found:
                         yield ref_found
+            elif isinstance(dobj, Variable) and not dobj.doctree:
+                pass
             elif self.filter(dobj.name, dobj.qualname):
                 yield dobj
 
     def iter_class(self, cls: Class) -> Iterable[T_ClassMember]:
         # in case class is reference from other module (reexport), then
         # other module's `__autodoc__` for this class is invalid
-        yield from filter(
-            lambda dobj: self.filter(dobj.name, dobj.qualname), cls.members.values()
-        )
+        for dobj in cls.members.values():
+            if isinstance(dobj, Variable) and not dobj.doctree:
+                pass
+            elif self.filter(dobj.name, dobj.qualname):
+                yield dobj
 
     def _iter_all_definitions(self, module: Module) -> Iterable[T_Definition]:
         for dobj in self.iter_module(module):
