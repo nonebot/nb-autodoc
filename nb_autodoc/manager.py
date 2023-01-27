@@ -39,6 +39,7 @@ from nb_autodoc.utils import (
 
 T = TypeVar("T")
 TT = TypeVar("TT")
+_TS = TypeVar("_TS", bound=Signature)
 
 
 def parse_doc(s: str, config: Config) -> Docstring:
@@ -495,22 +496,8 @@ class Class:
         if not self.module.manager.prepared:
             raise RuntimeError
         sig = Function._get_signature(self.pyobj, self.module.manager.modules)
-        if not sig:
-            return None
-        # skip first argument
-        params = tuple(sig.parameters.values())
-        if not params or params[0].kind in (
-            Parameter.VAR_KEYWORD,
-            Parameter.KEYWORD_ONLY,
-        ):
-            raise ValueError("invalid class signature")
-        kind = params[0].kind
-        if kind in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD):
-            params = params[1:]
-        else:
-            # it is var-positional, do nothing
-            pass
-        return sig.replace(parameters=params)
+        if sig:
+            return _skip_signature_bound_arg(sig)
 
     def add_member(self, name: str, obj: T_ClassMember) -> None:
         self.members[name] = self.module.manager.context[
@@ -689,7 +676,10 @@ class Function:
         """Get signature on unwrapped function, or None."""
         if not self.module.manager.prepared:
             raise RuntimeError
-        return Function._get_signature(self.func, self.module.manager.modules)
+        sig = Function._get_signature(self.func, self.module.manager.modules)
+        if sig and self.cls and isinstance(self.pyobj, (FunctionType, classmethod)):
+            return _skip_signature_bound_arg(sig)
+        return sig
 
     @staticmethod
     def _get_signature(
@@ -824,6 +814,23 @@ class _AlwaysStr(str):
     # let str.__repr__ have no change
     def __repr__(self) -> str:
         return self.__str__()
+
+
+def _skip_signature_bound_arg(sig: _TS) -> _TS:
+    # skip first argument
+    params = tuple(sig.parameters.values())
+    if not params or params[0].kind in (
+        Parameter.VAR_KEYWORD,
+        Parameter.KEYWORD_ONLY,
+    ):
+        raise ValueError(f"invalid method signature {sig}")
+    kind = params[0].kind
+    if kind in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD):
+        params = params[1:]
+    else:
+        # it is var-positional, do nothing
+        pass
+    return sig.replace(parameters=params)
 
 
 def _copy__annotations__(_ns: dict[str, Any]) -> None:
