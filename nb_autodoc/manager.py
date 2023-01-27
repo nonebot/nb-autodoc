@@ -381,7 +381,7 @@ class Module:
             if annotation is not _empty:
                 annotation = self.build_static_ann(annotation)
             if default is not _empty:
-                default = ast.unparse(default)
+                default = _AlwaysStr(ast.unparse(default))
             params[param.name] = param.replace(annotation=annotation, default=default)
         return_annotation = sig.return_annotation
         if return_annotation is not _empty:
@@ -789,6 +789,12 @@ class EnumMember:
 class _AnnContext(NamedTuple):
     typing_module: list[str]
     typing_names: dict[str, str]
+
+
+class _AlwaysStr(str):
+    # let str.__repr__ have no change
+    def __repr__(self) -> str:
+        return self.__str__()
 
 
 def _copy__annotations__(_ns: dict[str, Any]) -> None:
