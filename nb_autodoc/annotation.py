@@ -277,6 +277,10 @@ class AnnotationTransformer(ast.NodeVisitor):  # type hint
         return CallableType(call_args, ret)
 
 
+def _add_link_empty(dobj: T_Definition) -> str:
+    raise NotImplementedError
+
+
 class AnnExprVisitor:
     """The implementation of annotation repr."""
 
@@ -284,8 +288,10 @@ class AnnExprVisitor:
         self,
         *,
         globalns: dict[str, T_Definition] = frozendict(),
-        add_link: t.Callable[[T_Definition], str] = lambda dobj: dobj.qualname,
+        add_link: t.Callable[[T_Definition], str] = _add_link_empty,
     ) -> None:
+        self.globalns = globalns
+        self.add_link = add_link
         self._builder: list[str] = []
 
     def write(self, s: str) -> None:
@@ -308,6 +314,7 @@ class AnnExprVisitor:
             self.visit(ann)
 
     def render(self, ann: _T_annexpr) -> str:
+        self._builder = []
         self._type_repr(ann)
         return "".join(self._builder)
 
@@ -320,7 +327,11 @@ class AnnExprVisitor:
         raise TypeError(f"try to visit invalid annexpr {method}")
 
     def visit_Name(self, annexpr: Name) -> None:
-        self.write(annexpr.name)
+        name = annexpr.name
+        if name in self.globalns:
+            self.write(self.add_link(self.globalns[name]))
+        else:
+            self.write(name)
 
     def visit_TypingName(self, annexpr: TypingName) -> None:
         if annexpr.tp_name in _py310_ga_tpname:
@@ -382,9 +393,18 @@ def _ga_subst_outer_check(ann: _annexpr, tp_name: str) -> bool:
 
 
 class Annotation:
-    def __init__(self, ast_expr: ast.expr, context: _AnnContext) -> None:
+    def __init__(
+        self,
+        ast_expr: ast.expr,
+        context: _AnnContext,
+        *,
+        globalns: dict[str, T_Definition] | None = None,
+    ) -> None:
         norm = _get_typing_normalizer(context)
         self.ann: _T_annexpr = AnnotationTransformer(norm).visit(ast_expr)
+        if globalns is None:
+            globalns = {}
+        self.globalns = globalns
 
     @property
     def is_typealias(self) -> bool:
@@ -397,6 +417,11 @@ class Annotation:
         if isinstance(self.ann, _annexpr):
             return _ga_subst_outer_check(self.ann, "ClassVar")
         return False
+
+    def get_doc_linkify(self, add_link: t.Callable[[T_Definition], str]) -> str:
+        return AnnExprVisitor(globalns=self.globalns, add_link=add_link).render(
+            self.ann
+        )
 
     # @property
     # def is_callable(self) -> bool:

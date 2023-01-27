@@ -8,7 +8,13 @@ from typing import Callable, List, TypeVar, Union, cast
 
 import pytest
 
-from nb_autodoc.utils import cleandoc, dedent, getmodulename, stringify_signature
+from nb_autodoc.utils import (
+    calculate_relpath,
+    cleandoc,
+    dedent,
+    getmodulename,
+    stringify_signature,
+)
 
 T = TypeVar("T")
 TT = TypeVar("TT")
@@ -190,3 +196,11 @@ def test_cleandoc(docstrings: List[str]):
 #     benchmark.pedantic(
 #         partial_map(inspect.cleandoc, docstrings), iterations=10, rounds=100
 #     )
+
+
+def test_calculate_relpath():
+    assert calculate_relpath(Path("/usr/var/log"), Path("/usr/var/xxx")) == "../log"
+    assert (
+        calculate_relpath(Path("/usr/var/log"), Path("/usr/var/xxx/yyy")) == "../../log"
+    )
+    assert calculate_relpath(Path("/usr/var/log"), Path("/usr")) == "var/log"

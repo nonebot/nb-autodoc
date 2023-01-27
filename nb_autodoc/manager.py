@@ -308,7 +308,18 @@ class Module:
             return dobj.get_canonical_member(attr)
 
     def get_all_definitions(self) -> Dict[str, T_Definition]:
-        ...
+        defs: dict[str, T_Definition] = {}
+        for member in self.members.values():
+            if isinstance(member, ImportRef):
+                ref_found = member.find_definition()
+                if ref_found:
+                    defs[ref_found.qualname] = ref_found
+            elif isinstance(member, Class):
+                for clsmember in member.members.values():
+                    defs[clsmember.qualname] = clsmember
+            else:
+                defs[member.qualname] = member
+        return defs
 
     def prepare(self) -> None:
         """Build module members."""
@@ -369,6 +380,7 @@ class Module:
                 self.prime_analyzer.module.typing_module,
                 self.prime_analyzer.module.typing_names,
             ),
+            globalns=self.get_all_definitions(),
         )
 
     def get_signature(self, func: FunctionType) -> FunctionSignature:

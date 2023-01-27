@@ -18,7 +18,7 @@ from nb_autodoc.manager import (
     Variable,
 )
 from nb_autodoc.typing import T_Definition
-from nb_autodoc.utils import isenumclass, stringify_signature
+from nb_autodoc.utils import calculate_relpath, isenumclass, stringify_signature
 
 from .helpers import vuepress_slugify
 
@@ -119,11 +119,17 @@ def get_libraryattr_title(dobj: LibraryAttr) -> str:
 # TODO: i18n
 class Renderer:
     def __init__(
-        self, itor: MemberIterator, *, add_heading_id: bool, config: Config
+        self,
+        itor: MemberIterator,
+        *,
+        add_heading_id: bool,
+        config: Config,
+        builder: "MarkdownBuilder",
     ) -> None:
         self.member_iterator = itor
         self.add_heading_id = add_heading_id
         self.indent_size = config["markdown_indent_size"]
+        self.builder = builder
         self._builder: list[str] = []
         self._indent: int = 0
         self._level: int = 1
@@ -185,6 +191,17 @@ class Renderer:
         if self.add_heading_id:
             self.write(f" {{#{heading_id_slugify_impl(dobj)}}}")
 
+    def add_link(self, dobj: T_Definition) -> str:
+        modulename, anchor = self.builder.get_anchor_ref(dobj)
+        if not anchor:
+            return dobj.qualname
+        if modulename == self.current_module.name:
+            return f"[{dobj.qualname}](#{anchor})"
+        path = self.builder.paths[modulename]
+        current_path = self.builder.paths[self.current_module.name]
+        relpath = calculate_relpath(path, current_path)
+        return f"[{dobj.qualname}]({relpath}#{anchor})"
+
     def visit(self, dobj: Union[T_Definition, nodes.section]) -> None:
         visitor = getattr(self, "visit_" + dobj.__class__.__name__, None)
         if visitor:
@@ -229,7 +246,7 @@ class Renderer:
         self.newline("- **类型:**")
         if dobj.annotation:
             self.write(" ")
-            self.write(repr(dobj.annotation.ann))
+            self.write(dobj.annotation.get_doc_linkify(self.add_link))
         typeversion = None
         if dobj.doctree:
             for section in dobj.doctree.sections:
@@ -418,6 +435,7 @@ class MarkdownBuilder(Builder):
             self.get_member_iterator(module),
             add_heading_id=self.link_mode == "heading_id",
             config=self.manager.config,
+            builder=self,
         )
         return renderer.render(module)
 

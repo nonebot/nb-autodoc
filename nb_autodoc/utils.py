@@ -6,7 +6,9 @@ import typing as t
 import typing_extensions as te
 from enum import Enum
 from importlib.machinery import all_suffixes
-from inspect import Parameter, Signature
+from inspect import Signature
+from os.path import commonprefix
+from pathlib import Path
 from types import BuiltinFunctionType, FunctionType, MappingProxyType
 from typing import NamedTuple
 
@@ -211,6 +213,17 @@ def interleave(
         for x in seq:
             inter()
             f(x)
+
+
+def calculate_relpath(p1: Path, p2: Path) -> str:
+    """Returns '../log' like `os.path.relpath('/usr/var/log', '/usr/var/sad')`."""
+    # `pathlib.Path.relative_to` doesn't fully implement it
+    pparts1 = p1.parts
+    pparts2 = p2.parts
+    lencommon = len(commonprefix([pparts1, pparts2]))
+    builder = [".."] * (len(pparts2) - lencommon)
+    builder.extend(pparts1[lencommon:])
+    return "/".join(builder)
 
 
 def typed_lru_cache(maxsize: int = 128, typed: bool = False) -> t.Callable[[T], T]:
