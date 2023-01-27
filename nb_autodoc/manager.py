@@ -123,9 +123,11 @@ class ModuleManager:
             name: Module(self, name, py=m, pyi=ms)
             for name, m, ms in module_found_result.gen_bound_module()
         }
+        self.prepared = False
         self.modules: dict[str, Module] = modules
         for m in self.modules.values():
             m.prepare()
+        self.prepared = True
         # the context is loaded, now build the mro of class
         self.context.link_class_by_mro()
 
@@ -150,16 +152,18 @@ class ImportRef:
         self.module = module
         self.ref = ref
 
-    def find_definition(self) -> T_ModuleMember:
+    def find_definition(self) -> T_ModuleMember | None:
         ref = self.ref
         context = self.module.manager.context
         for _ in range(100):  # or parameter guard
+            if ref not in context:
+                break
             dobj = context[ref]
             if not isinstance(dobj, ImportRef):
                 return cast(T_ModuleMember, dobj)
             ref = dobj.ref
         else:
-            # two weak reference point to each other?
+            # two import from point to each other?
             raise RuntimeError("reference max iter exceeded")
 
     def __repr__(self) -> str:
@@ -302,6 +306,9 @@ class Module:
             if not isinstance(dobj, Class):
                 return None
             return dobj.get_canonical_member(attr)
+
+    def get_all_definitions(self) -> Dict[str, T_Definition]:
+        ...
 
     def prepare(self) -> None:
         """Build module members."""
@@ -473,6 +480,8 @@ class Class:
     @cached_property
     def signature(self) -> FunctionSignature | None:
         """Get signature on class, or None."""
+        if not self.module.manager.prepared:
+            raise RuntimeError
         sig = Function._get_signature(self.pyobj, self.module.manager.modules)
         if not sig:
             return None
@@ -666,6 +675,8 @@ class Function:
     @cached_property
     def signature(self) -> FunctionSignature | None:
         """Get signature on unwrapped function, or None."""
+        if not self.module.manager.prepared:
+            raise RuntimeError
         return Function._get_signature(self.func, self.module.manager.modules)
 
     @staticmethod
@@ -720,11 +731,7 @@ class Variable:
         self.doctree = (
             module.manager.parse_doc(self.doc) if self.doc is not None else None
         )
-        if is_instvar is True:
-            ann = self.annotation
-            if ann and ann.is_classvar:
-                is_instvar = False
-        self.is_instvar = is_instvar
+        self._is_instvar = is_instvar
 
     @property
     def qualname(self) -> str:
@@ -743,9 +750,19 @@ class Variable:
             return True
         return False
 
+    @property
+    def is_instvar(self) -> bool:
+        if self._is_instvar is True:
+            ann = self.annotation
+            if ann and ann.is_classvar:
+                return False
+        return self._is_instvar
+
     # Annotation do static analysis so cacheable
     @cached_property
     def annotation(self) -> Annotation | None:
+        if not self.module.manager.prepared:
+            raise RuntimeError
         ann = self.astobj.annotation if isinstance(self.astobj, AssignData) else None
         if not ann:
             return None

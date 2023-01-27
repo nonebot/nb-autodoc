@@ -1,5 +1,5 @@
 import re
-from typing import Callable, Iterable, TypeVar
+from typing import TypeVar
 
 T = TypeVar("T")
 
@@ -12,18 +12,3 @@ def vuepress_slugify(s: str) -> str:
     s = re.sub(r"^-+|-+$", "", s)
     s = re.sub(r"^(\d)", r"_\g<1>", s)
     return s.lower()
-
-
-def interleave(
-    inter: Callable[[], None], f: Callable[[T], None], seq: Iterable[T]
-) -> None:
-    """Call f on each item in seq, calling inter() in between."""
-    seq = iter(seq)
-    try:
-        f(next(seq))
-    except StopIteration:
-        pass
-    else:
-        for x in seq:
-            inter()
-            f(x)

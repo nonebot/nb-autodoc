@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import ast
 import typing as t
-import typing_extensions as te
+from contextlib import contextmanager
 
 from nb_autodoc.analyzers.utils import (
     get_constant_value,
@@ -22,22 +22,14 @@ from nb_autodoc.analyzers.utils import (
     is_constant_node,
     unparse_attribute_or_name,
 )
+from nb_autodoc.utils import frozendict, interleave
 
 if t.TYPE_CHECKING:
     from nb_autodoc.manager import _AnnContext
-    from nb_autodoc.typing import T_Annot, T_GenericAlias
+    from nb_autodoc.typing import T_Definition
 
 
-t_all_definitions = {k: getattr(t, k) for k in t.__all__}
-te_all_definitions = {k: getattr(te, k) for k in te.__all__}
-
-
-def _evaluate(
-    ann: T_Annot,
-    globals: dict[str, t.Any] | None = None,
-    locals: dict[str, t.Any] | None = None,
-) -> T_GenericAlias | type | None:
-    ...
+_T_annexpr = t.Union["_annexpr", "ellipsis", None]
 
 
 # see: https://docs.python.org/3/library/stdtypes.html#standard-generic-classes
@@ -53,8 +45,19 @@ _py310_ga = {
 _py310_ga_tpname = {"Tuple", "List", "Dict", "Set", "FrozenSet", "Type"}
 
 
+# def _traverse_name(ann: Name | _annexpr | list[t.Any] | t.Any) -> t.Iterable[Name]:
+#     if isinstance(ann, Name):
+#         yield ann
+#     elif isinstance(ann, _annexpr):
+#         yield from ann.traverse_name()
+#     elif isinstance(ann, list):
+#         for elemann in ann:
+#             yield from _traverse_name(elemann)
+
+
 class _annexpr:
-    ...
+    def __repr__(self) -> str:
+        return AnnExprVisitor().render(self)
 
 
 class Name(_annexpr):
@@ -71,9 +74,6 @@ class Name(_annexpr):
             return False
         return self.name == other.name
 
-    def __repr__(self) -> str:
-        return self.name
-
 
 class TypingName(_annexpr):
     def __init__(self, name: str, tp_name: str) -> None:
@@ -84,11 +84,6 @@ class TypingName(_annexpr):
         if not isinstance(other, TypingName):
             return False
         return self.name == other.name and self.tp_name == other.tp_name
-
-    def __repr__(self) -> str:
-        if self.tp_name in _py310_ga_tpname:
-            return self.tp_name.lower()
-        return self.tp_name
 
 
 class UnionType(_annexpr):
@@ -110,9 +105,6 @@ class UnionType(_annexpr):
         # order is respected
         return self.args == other.args
 
-    def __repr__(self) -> str:
-        return " | ".join(repr(arg) for arg in self.args)
-
 
 # just typing for test
 _literal_tp = t.Union[int, bool, str, bytes, None]
@@ -129,9 +121,6 @@ class Literal(_annexpr):
             return False
         return self.args == other.args
 
-    def __repr__(self) -> str:
-        return f"Literal[{', '.join(repr(arg) for arg in self.args)}]"
-
 
 class Annotated(_annexpr):
     def __init__(self, origin: _annexpr) -> None:
@@ -141,9 +130,6 @@ class Annotated(_annexpr):
         if not isinstance(other, Annotated):
             return False
         return self.origin == other.origin
-
-    def __repr__(self) -> str:
-        return repr(self.origin)
 
 
 class GASubscript(_annexpr):
@@ -159,9 +145,6 @@ class GASubscript(_annexpr):
         if not isinstance(other, GASubscript):
             return False
         return self.origin == other.origin and self.args == other.args
-
-    def __repr__(self) -> str:
-        return f"{self.origin!r}[{', '.join(repr(arg) for arg in self.args)}]"
 
 
 class CallableType(_annexpr):
@@ -179,17 +162,6 @@ class CallableType(_annexpr):
         if not isinstance(other, CallableType):
             return False
         return self.args == other.args and self.ret == other.ret
-
-    def __repr__(self) -> str:
-        if self.args is ...:  # mypy mistake ...
-            params = "..."
-        elif isinstance(self.args, (GASubscript, Name)):
-            params = repr(self.args)
-        else:
-            params = ", ".join(repr(arg) for arg in self.args)  # type: ignore
-        # make parents on union return because https://bugs.python.org/issue43609
-        ret = f"({self.ret!r})" if isinstance(self.ret, UnionType) else repr(self.ret)
-        return f"({params}) -> {ret}"
 
 
 class AnnotationTransformer(ast.NodeVisitor):  # type hint
@@ -305,6 +277,93 @@ class AnnotationTransformer(ast.NodeVisitor):  # type hint
         return CallableType(call_args, ret)
 
 
+class AnnExprVisitor:
+    """The implementation of annotation repr."""
+
+    def __init__(
+        self,
+        *,
+        globalns: dict[str, T_Definition] = frozendict(),
+        add_link: t.Callable[[T_Definition], str] = lambda dobj: dobj.qualname,
+    ) -> None:
+        self._builder: list[str] = []
+
+    def write(self, s: str) -> None:
+        self._builder.append(s)
+
+    @contextmanager
+    def delimit(self, start: str, end: str) -> t.Generator[None, None, None]:
+        self.write(start)
+        yield
+        self.write(end)
+
+    def _type_repr(self, ann: _T_annexpr) -> None:
+        if ann is ...:
+            self._builder.append("...")
+        elif ann is None:
+            self._builder.append("None")
+        elif not isinstance(ann, _annexpr):
+            raise RuntimeError
+        else:
+            self.visit(ann)
+
+    def render(self, ann: _T_annexpr) -> str:
+        self._type_repr(ann)
+        return "".join(self._builder)
+
+    def visit(self, annexpr: _annexpr) -> None:
+        method = "visit_" + annexpr.__class__.__name__
+        visitor = getattr(self, method, None)
+        if visitor:
+            return visitor(annexpr)
+        # disallow generic visit
+        raise TypeError(f"try to visit invalid annexpr {method}")
+
+    def visit_Name(self, annexpr: Name) -> None:
+        self.write(annexpr.name)
+
+    def visit_TypingName(self, annexpr: TypingName) -> None:
+        if annexpr.tp_name in _py310_ga_tpname:
+            self.write(annexpr.tp_name.lower())
+        else:
+            self.write(annexpr.tp_name)
+
+    def visit_UnionType(self, annexpr: UnionType) -> None:
+        interleave(lambda: self.write(" | "), self._type_repr, annexpr.args)
+
+    def visit_Literal(self, annexpr: Literal) -> None:
+        with self.delimit("Literal[", "]"):
+            interleave(
+                lambda: self.write(", "),
+                lambda arg: self.visit_Name(arg)
+                if isinstance(arg, Name)
+                else self.write(repr(arg)),
+                annexpr.args,
+            )
+
+    def visit_Annotated(self, annexpr: Annotated) -> None:
+        self.visit(annexpr.origin)
+
+    def visit_GASubscript(self, annexpr: GASubscript) -> None:
+        self.visit(annexpr.origin)
+        with self.delimit("[", "]"):
+            interleave(lambda: self.write(", "), self._type_repr, annexpr.args)
+
+    def visit_CallableType(self, annexpr: CallableType) -> None:
+        with self.delimit("(", ")"):
+            if isinstance(annexpr.args, list):
+                interleave(lambda: self.write(", "), self._type_repr, annexpr.args)
+            else:
+                self._type_repr(annexpr.args)
+        self.write(" -> ")
+        # make parents on union return because https://bugs.python.org/issue43609
+        if isinstance(annexpr.ret, UnionType):
+            with self.delimit("(", ")"):
+                self.visit_UnionType(annexpr.ret)
+        else:
+            self._type_repr(annexpr.ret)
+
+
 def _get_typing_normalizer(context: _AnnContext) -> t.Callable[[str], str | None]:
     def _norm_typing_name(name: str) -> str | None:
         if name in context.typing_names:
@@ -325,7 +384,7 @@ def _ga_subst_outer_check(ann: _annexpr, tp_name: str) -> bool:
 class Annotation:
     def __init__(self, ast_expr: ast.expr, context: _AnnContext) -> None:
         norm = _get_typing_normalizer(context)
-        self.ann: _annexpr = AnnotationTransformer(norm).visit(ast_expr)
+        self.ann: _T_annexpr = AnnotationTransformer(norm).visit(ast_expr)
 
     @property
     def is_typealias(self) -> bool:
@@ -335,15 +394,11 @@ class Annotation:
 
     @property
     def is_classvar(self) -> bool:
-        return _ga_subst_outer_check(self.ann, "ClassVar")
+        if isinstance(self.ann, _annexpr):
+            return _ga_subst_outer_check(self.ann, "ClassVar")
+        return False
 
     # @property
     # def is_callable(self) -> bool:
     #     # check if assign target is user function?
     #     return _ga_subst_outer_check(self.ann, "Callable")
-
-    def type_link(self, ontype: t.Callable[[type], str]) -> str:
-        ...
-
-    def docuify(self, typealias: t.Dict[str, t.Tuple[str, str]]) -> str:
-        ...

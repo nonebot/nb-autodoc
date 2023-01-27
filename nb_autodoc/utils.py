@@ -198,6 +198,21 @@ def cleandoc(s: str, strict: bool = False) -> str:
     return "\n".join(lines)
 
 
+def interleave(
+    inter: t.Callable[[], None], f: t.Callable[[T], None], seq: t.Iterable[T]
+) -> None:
+    """Call f on each item in seq, calling inter() in between."""
+    seq = iter(seq)
+    try:
+        f(next(seq))
+    except StopIteration:
+        pass
+    else:
+        for x in seq:
+            inter()
+            f(x)
+
+
 def typed_lru_cache(maxsize: int = 128, typed: bool = False) -> t.Callable[[T], T]:
     ...
 

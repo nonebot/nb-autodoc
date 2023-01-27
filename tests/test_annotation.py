@@ -27,6 +27,8 @@ class TestAnnotationTransformer:
         def transform(expr: ast.expr) -> _annexpr:
             return AnnotationTransformer(norm).visit(expr)
 
+        assert transform(get_expr("None")) == None
+        assert transform(get_expr("...")) == ...
         assert transform(get_expr("'AnyName.Name'")) == Name("AnyName.Name")
         assert transform(
             get_expr("Dict['Union[int, str]', 'None', Literal['int']]")

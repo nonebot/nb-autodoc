@@ -49,7 +49,9 @@ class MemberIterator:
         for dobj in module.members.values():
             if isinstance(dobj, ImportRef):
                 if dobj.name in self.whitelist:
-                    yield dobj.find_definition()
+                    ref_found = dobj.find_definition()
+                    if ref_found:
+                        yield ref_found
             elif self.filter(dobj.name, dobj.qualname):
                 yield dobj
 
@@ -109,7 +111,7 @@ class Builder(abc.ABC):
         """The URL anchor (slug) for linkable objects."""
         self.slugify = self.get_slugify_impl()
         """The generic function implement the URL slug creator."""
-        self._create_linking_context()
+        self._traverse_all_definitions()
 
     def _build_path(
         self,
@@ -122,7 +124,7 @@ class Builder(abc.ABC):
         path = self.output_dir / mrelpath
         return path.with_suffix(self.get_suffix())
 
-    def _create_linking_context(self) -> None:
+    def _traverse_all_definitions(self) -> None:
         for module, miterator in self._member_iterators.items():
             for dobj in miterator._iter_all_definitions(module):
                 if dobj.module is not module:
