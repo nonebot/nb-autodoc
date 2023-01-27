@@ -1,17 +1,22 @@
+import ast
 import inspect
 from contextlib import contextmanager
 from functools import singledispatch
+from inspect import Parameter
 from textwrap import indent
-from typing import Callable, Dict, Generator, Optional, Union
+from typing import Any, Callable, Dict, Generator, Optional, Union
 from typing_extensions import Literal
 
 from nb_autodoc import nodes
+from nb_autodoc.annotation import Annotation
 from nb_autodoc.builders import Builder, MemberIterator
 from nb_autodoc.config import Config
+from nb_autodoc.log import logger
 from nb_autodoc.manager import (
     Class,
     EnumMember,
     Function,
+    FunctionSignature,
     LibraryAttr,
     Module,
     ModuleManager,
@@ -23,6 +28,7 @@ from nb_autodoc.utils import calculate_relpath, isenumclass, stringify_signature
 from .helpers import vuepress_slugify
 
 
+# renderer utils
 def _find_kind_from_roles(roles: list[nodes.Role]) -> Optional[str]:
     for role in roles:
         if role.name == "kind":
@@ -40,6 +46,24 @@ def get_version_badge(ver: str) -> str:
         return f'<Badge text="{ver}" type="error"/>'
     else:
         return f'<Badge text="{ver}"/>'
+
+
+# inspect utils
+def _args_to_dict(args: nodes.Args) -> Dict[str, nodes.ColonArg]:
+    res: dict[str, nodes.ColonArg] = {}
+    for arg in args.args:
+        assert arg.name
+        res[arg.name] = arg
+    if args.vararg:
+        assert args.vararg.name
+        res[args.vararg.name] = args.vararg
+    for arg in args.kwonlyargs:
+        assert arg.name
+        res[arg.name] = arg
+    if args.kwarg:
+        assert args.kwarg.name
+        res[args.kwarg.name] = args.kwarg
+    return res
 
 
 @singledispatch
@@ -202,6 +226,108 @@ class Renderer:
         relpath = calculate_relpath(path, current_path)
         return f"[{dobj.qualname}]({relpath}#{anchor})"
 
+    def _resolve_doc_from_sig(self, dobj: Union[Function, Class]) -> None:
+        if not dobj.signature or not dobj.doctree:
+            return None
+        sections = dobj.doctree.sections
+        doc_args = None
+        for section in sections:
+            if not doc_args and isinstance(section, nodes.Args):
+                doc_args = section
+        if doc_args and sections.index(doc_args) != 0:
+            logger.warning(
+                f"found Args section in {dobj.fullname!r} docstring "
+                "with non-first position"
+            )
+        doc_args_dict = None
+        # maybe we should validate docstring's Args
+        if doc_args:
+            doc_args_dict = _args_to_dict(doc_args)
+        # turn signature into Args section
+        new_args = nodes.Args(
+            name="Args", args=[], vararg=None, kwonlyargs=[], kwarg=None
+        )
+        for p in dobj.signature.parameters.values():
+            doc_arg = None
+            if doc_args_dict:
+                doc_arg = doc_args_dict.get(p.name)
+            annotation = None
+            # doc overridden annotation or parameter annotation
+            if doc_arg and doc_arg.annotation:
+                annotation = dobj.module.build_static_ann(
+                    ast.parse(doc_arg.annotation, mode="eval").body
+                ).get_doc_linkify(self.add_link)
+            elif p.annotation is not Parameter.empty:
+                annotation = p.annotation.get_doc_linkify(self.add_link)
+            arg = nodes.ColonArg(p.name, annotation, [], "", "")
+            if doc_arg:
+                arg.descr = doc_arg.descr
+                arg.long_descr = doc_arg.long_descr
+            if p.kind in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD):
+                new_args.args.append(arg)
+            elif p.kind is Parameter.VAR_POSITIONAL:
+                new_args.vararg = arg
+            elif p.kind is Parameter.KEYWORD_ONLY:
+                new_args.kwonlyargs.append(arg)
+            elif p.kind is Parameter.VAR_KEYWORD:
+                new_args.kwarg = arg
+        if doc_args_dict:
+            # the docstring arg doesn't match signature
+            # we think these arguments are keyword-only
+            for name in doc_args_dict.keys() - dobj.signature.parameters.keys():
+                doc_arg = doc_args_dict[name]
+                annotation = None
+                if doc_arg.annotation:
+                    annotation = dobj.module.build_static_ann(
+                        ast.parse(doc_arg.annotation, mode="eval").body
+                    ).get_doc_linkify(self.add_link)
+                new_args.kwonlyargs.append(
+                    nodes.ColonArg(
+                        name, annotation, [], doc_arg.descr, doc_arg.long_descr
+                    )
+                )
+        if doc_args:
+            sections.remove(doc_args)
+        sections.insert(0, new_args)
+        # resolve returns section for function
+        if isinstance(dobj, Function):
+            doc_rets = None
+            for section in sections:
+                if not doc_rets and isinstance(section, nodes.Returns):
+                    doc_rets = section
+            new_rets = nodes.Returns(name="Returns", version=None)
+            new_rets.value = nodes.ColonArg(None, None, [], "", "")
+            annotation = None
+            if doc_rets:
+                if isinstance(doc_rets.value, nodes.ColonArg):
+                    assert (
+                        doc_rets.value.annotation
+                    ), "Returns ColonArg annotation must be str"
+                    annotation = dobj.module.build_static_ann(
+                        ast.parse(doc_rets.value.annotation, mode="eval").body
+                    ).get_doc_linkify(self.add_link)
+                    descr = doc_rets.value.descr
+                    long_descr = doc_rets.value.long_descr
+                else:
+                    descr, *descr_chunk = doc_rets.value.split("\n", 1)
+                    descr = descr.strip()
+                    long_descr = (descr_chunk[0] if descr_chunk else "").strip()
+                new_rets.value.descr = descr
+                new_rets.value.long_descr = long_descr
+            if (
+                annotation is None
+                and dobj.signature.return_annotation is not Parameter.empty
+            ):
+                annotation = dobj.signature.return_annotation.get_doc_linkify(
+                    self.add_link
+                )
+            if annotation is None:
+                annotation = "untyped"
+            new_rets.value.annotation = annotation
+            if doc_rets:
+                sections.remove(doc_rets)
+            sections.insert(1, new_rets)
+
     def visit(self, dobj: Union[T_Definition, nodes.section]) -> None:
         visitor = getattr(self, "visit_" + dobj.__class__.__name__, None)
         if visitor:
@@ -247,6 +373,10 @@ class Renderer:
         if dobj.annotation:
             self.write(" ")
             self.write(dobj.annotation.get_doc_linkify(self.add_link))
+        elif dobj.doctree and dobj.doctree.annotation:
+            dobj.module.build_static_ann(
+                ast.parse(dobj.doctree.annotation, mode="eval").body
+            ).get_doc_linkify(self.add_link)
         typeversion = None
         if dobj.doctree:
             for section in dobj.doctree.sections:
@@ -265,12 +395,14 @@ class Renderer:
 
     def visit_Function(self, dobj: Function) -> None:
         self.title(dobj)
+        self._resolve_doc_from_sig(dobj)
         if dobj.doctree:
             self.newline()
             self.visit_Docstring(dobj.doctree)
 
     def visit_Class(self, dobj: Class) -> None:
         self.title(dobj)
+        self._resolve_doc_from_sig(dobj)
         if dobj.doctree:
             self.newline()
             self.visit_Docstring(dobj.doctree)
@@ -338,19 +470,26 @@ class Renderer:
 
     def visit_Args(self, dsobj: nodes.Args) -> None:
         self.fill(f"- **{dsobj.name}**")
+        rendered = False
         with self.block():
             for arg in dsobj.args:
+                rendered = True
                 self.newline()
                 self.visit_ColonArg(arg)
             if dsobj.vararg:
+                rendered = True
                 self.newline()
                 self.visit_ColonArg(dsobj.vararg, isvar=True)
             for arg in dsobj.kwonlyargs:
+                rendered = True
                 self.newline()
                 self.visit_ColonArg(arg)
             if dsobj.kwarg:
+                rendered = True
                 self.newline()
                 self.visit_ColonArg(dsobj.kwarg, iskw=True)
+            if not rendered:
+                self.newline("empty")
 
     def visit_Attributes(self, dsobj: nodes.Attributes) -> None:
         self.fill(f"- **{dsobj.name}**")

@@ -81,6 +81,7 @@ class FunctionSignature(Signature):
     """Precious signature for FunctionType."""
 
     parameters: MappingProxyType[str, AnnParameter]
+    return_annotation: Annotation | Any
 
 
 class Context(Dict[str, T_DefinitionOrRef]):
@@ -405,7 +406,7 @@ class Module:
             params[param.name] = param.replace(annotation=annotation, default=default)
         return_annotation = sig.return_annotation
         if return_annotation is not _empty:
-            return_annotation = ast.unparse(return_annotation)
+            return_annotation = self.build_static_ann(return_annotation)
         return FunctionSignature(
             list(params.values()), return_annotation=return_annotation
         )

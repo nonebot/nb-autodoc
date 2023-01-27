@@ -234,15 +234,15 @@ def typed_lru_cache(maxsize: int = 128, typed: bool = False) -> t.Callable[[T], 
 typed_lru_cache = __import__("functools").lru_cache
 
 
-class cached_property(t.Generic[T, TT]):
+class cached_property(t.Generic[T]):
     """Backport cached_property for py3.7 and lower."""
 
-    def __init__(self, func: t.Callable[[T], TT]) -> None:
+    def __init__(self, func: t.Callable[[t.Any], T]) -> None:
         self.func = func
         self.attrname = func.__name__
         self.__doc__ = func.__doc__
 
-    def __set_name__(self, owner: T, name: str) -> None:
+    def __set_name__(self, owner: t.Any, name: str) -> None:
         # decorator always same name
         if name != self.attrname:
             # assignment should keep same name
@@ -250,7 +250,7 @@ class cached_property(t.Generic[T, TT]):
                 f"cannot assign the cached_property named {self.attrname!r} to {name!r}"
             )
 
-    def __get__(self, instance: t.Optional[T], owner: t.Type[T]) -> TT:
+    def __get__(self, instance: t.Optional[t.Any], owner: t.Type[t.Any]) -> T:
         if instance is None:
             return self  # type: ignore
         try:
