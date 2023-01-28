@@ -1,9 +1,8 @@
 """Google Style Docstring Parser.
 """
 import re
-import warnings
 from functools import lru_cache, wraps
-from typing import Callable, List, Optional, Type, TypeVar, cast
+from typing import Callable, List, Match, Optional, Type, TypeVar, cast
 from typing_extensions import Concatenate, ParamSpec
 
 from nb_autodoc.log import logger
@@ -132,7 +131,10 @@ class GoogleStyleParser:
         for i in range(len(self.lines)):
             match = self._section_marker_re.match(self.lines[i])
             if match:
-                if match.group(1) not in self._sections | self._inline_sections:
+                if (
+                    match.group(1)
+                    not in self._sections.keys() | self._inline_sections.keys()
+                ):
                     # maybe 'Anything:' in description
                     continue
                 partition_lineno = i
@@ -232,7 +234,7 @@ class GoogleStyleParser:
         return obj
 
     @record_pos
-    def _section_dispatch(self, match: re.Match[str]) -> section:
+    def _section_dispatch(self, match: Match[str]) -> section:
         name, version = match.groups()
         marker_line = self.line
         self.lineno += 1

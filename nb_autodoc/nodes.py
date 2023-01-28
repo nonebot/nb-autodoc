@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 from inspect import Signature
-from typing import Any, Callable, ClassVar, Type, TypeVar
+from typing import Any, Callable, ClassVar, Mapping, Type, TypeVar
 from typing_extensions import Literal
 
 TD = TypeVar("TD", bound="Document")

@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from functools import singledispatch
 from inspect import Parameter
 from textwrap import indent
-from typing import Callable, Dict, Generator, Match, Optional, Union
+from typing import Callable, Dict, Generator, List, Match, Optional, Union
 from typing_extensions import Literal
 
 from nb_autodoc import nodes
@@ -33,13 +33,13 @@ _descr_role_re = re.compile(
 
 
 # renderer utils
-def _find_kind_from_roles(roles: list[nodes.Role]) -> Optional[str]:
+def _find_kind_from_roles(roles: List[nodes.Role]) -> Optional[str]:
     for role in roles:
         if role.name == "kind":
             return role.content
 
 
-def _find_ver_from_roles(roles: list[nodes.Role]) -> Optional[str]:
+def _find_ver_from_roles(roles: List[nodes.Role]) -> Optional[str]:
     for role in roles:
         if role.name == "ver" or role.name == "version":
             return role.content

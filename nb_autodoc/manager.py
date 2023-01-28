@@ -391,7 +391,8 @@ class Module:
             raise RuntimeError(
                 f"function {func.__name__!r} is defined on {func.__module__!r}"
             )
-        node = ast.parse(dedent(getsource(func))).body[0]
+        source = dedent(getsource(func))
+        node = ast.parse(source).body[0]
         assert isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         _empty = Parameter.empty
         sig = signature_from_ast(node.args, node.returns)
@@ -402,7 +403,7 @@ class Module:
             if annotation is not _empty:
                 annotation = self.build_static_ann(annotation)
             if default is not _empty:
-                default = _AlwaysStr(ast.unparse(default))
+                default = _AlwaysStr(ast.get_source_segment(source, default))
             params[param.name] = param.replace(annotation=annotation, default=default)
         return_annotation = sig.return_annotation
         if return_annotation is not _empty:
@@ -699,7 +700,7 @@ class Function:
             return modules[modulename].get_signature(func)
         else:
             logger.info(
-                f"function {func.__qualname__!r} is defined on {modulename!r} "
+                f"'{obj.__qualname__}.{func.__name__}' is defined on {func.__module__!r} "
                 "which is unreachable"
             )
 
