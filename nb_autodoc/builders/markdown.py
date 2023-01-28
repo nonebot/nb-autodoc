@@ -285,7 +285,11 @@ class Renderer:
     def _resolve_doc_from_sig(self, dobj: Union[Function, Class]) -> None:
         if not dobj.signature or not dobj.doctree:
             return None
-        sections = dobj.doctree.sections
+        sections = [
+            section
+            for section in dobj.doctree.sections
+            if not isinstance(section, nodes.InlineValue)
+        ]
         doc_args = None
         for section in sections:
             if not doc_args and isinstance(section, nodes.Args):
@@ -301,7 +305,7 @@ class Renderer:
             doc_args_dict = _args_to_dict(doc_args)
         # turn signature into Args section
         new_args = nodes.Args(
-            name="Args", args=[], vararg=None, kwonlyargs=[], kwarg=None
+            name="参数", args=[], vararg=None, kwonlyargs=[], kwarg=None  # TODO: i18n
         )
         for p in dobj.signature.parameters.values():
             doc_arg = None
@@ -351,7 +355,7 @@ class Renderer:
             for section in sections:
                 if not doc_rets and isinstance(section, nodes.Returns):
                     doc_rets = section
-            new_rets = nodes.Returns(name="Returns", version=None)
+            new_rets = nodes.Returns(name="返回", version=None)  # TODO: i18n
             new_rets.value = nodes.ColonArg(None, None, [], "", "")
             annotation = None
             if doc_rets:
@@ -479,12 +483,12 @@ class Renderer:
             if dsobj.long_descr:
                 self.newline(dsobj.long_descr)
         elif dsobj.long_descr:
-            self.fill("- **说明**")
+            self.fill("- **说明**")  # TODO: i18n
             with self.block():
                 self.newline(dsobj.descr)
                 self.newline(dsobj.long_descr)
         elif dsobj.descr:
-            self.fill("- **说明:** ")
+            self.fill("- **说明:** ")  # TODO: i18n
             self.write(dsobj.descr)
         # skip two special section
         # TODO: fix it
