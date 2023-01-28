@@ -45,7 +45,7 @@ class AssignData:
     annotation: Optional[ast.expr] = field(default=None, compare=False)
     type_comment: Optional[str] = None
     docstring: Optional[str] = None
-    value: Optional[ast.expr] = field(default=None, compare=False)
+    value: Optional[str] = field(default=None, compare=False)
 
     def merge(self, other: "AssignData") -> "AssignData":
         # used in merging `__init__` level AssignData into class-level AssignData
@@ -123,9 +123,10 @@ class DefinitionFinder:
     will be assigned to each name.
     """
 
-    def __init__(self, *, package: Optional[str]) -> None:
+    def __init__(self, *, package: Optional[str], source: str) -> None:
         self.package = package  # maybe null
         """Package name. Resolve relative import."""
+        self.source = source
         self.next_stmt: Optional[ast.stmt] = None
         self.current_classes: List[ClassDefData] = []
         self.current_function: Optional[ast.FunctionDef] = None
@@ -248,7 +249,8 @@ class DefinitionFinder:
             # bind docstring to its first declaration
             if docstring is not None and assign_data.docstring is None:
                 assign_data.docstring = docstring
-            assign_data.value = node.value
+            if node.value:
+                assign_data.value = ast.get_source_segment(self.source, node.value)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         return self.visit_Assign(node)  # type: ignore

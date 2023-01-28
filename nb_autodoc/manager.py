@@ -730,7 +730,11 @@ class Variable:
         self.astobj = astobj
         self.module = module
         self.cls = cls
-        docstring = astobj.docstring if isinstance(astobj, AssignData) else None
+        docstring = None
+        if isinstance(astobj, AssignData):
+            docstring = astobj.docstring
+        elif isinstance(pyobj, property):
+            docstring = pyobj.__doc__
         self.doc = docstring and cleandoc(docstring)
         self.doctree = (
             module.manager.parse_doc(self.doc) if self.doc is not None else None
@@ -750,6 +754,7 @@ class Variable:
     @property
     def is_typealias(self) -> bool:
         annotation = self.annotation
+        # don't make class to be type alias
         if isgenericalias(self.pyobj) or (annotation and annotation.is_typealias):
             return True
         return False
@@ -762,15 +767,27 @@ class Variable:
                 return False
         return self._is_instvar
 
-    # Annotation do static analysis so cacheable
     @cached_property
     def annotation(self) -> Annotation | None:
         if not self.module.manager.prepared:
             raise RuntimeError
-        ann = self.astobj.annotation if isinstance(self.astobj, AssignData) else None
-        if not ann:
-            return None
-        return self.module.build_static_ann(ann)
+        if isinstance(self.astobj, AssignData):
+            var_annotation = None
+            if self.astobj.annotation:
+                var_annotation = self.module.build_static_ann(self.astobj.annotation)
+            # var annotation is TypeAlias, or assignment value is genericalias
+            if (var_annotation and var_annotation.is_typealias) or (
+                not var_annotation and isgenericalias(self.pyobj)
+            ):
+                assert self.astobj.value, "TypeAlias must have assignment value"
+                var_annotation = self.module.build_static_ann(
+                    ast.parse(self.astobj.value, mode="eval").body
+                )
+            return var_annotation
+        elif isinstance(self.pyobj, property) and self.pyobj.fget:
+            sig = Function._get_signature(self.pyobj.fget, self.module.manager.modules)
+            if sig and sig.return_annotation is not Parameter.empty:
+                return sig.return_annotation
 
     def __repr__(self) -> str:
         return (

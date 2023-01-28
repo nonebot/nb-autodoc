@@ -64,7 +64,7 @@ class Analyzer:
     def analyze(self) -> None:
         code = open(self.path, "r").read()
         tree = ast_parse(code, self.path)
-        visitor = DefinitionFinder(package=self.package)
+        visitor = DefinitionFinder(package=self.package, source=code)
         visitor.visit(tree)
         self.module = visitor.module
 
