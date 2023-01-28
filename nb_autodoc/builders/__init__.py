@@ -40,10 +40,11 @@ class MemberIterator:
             else:
                 self.blacklist.add(name)
 
-    def filter(self, name: str, qualname: str) -> bool:
-        return qualname in self.whitelist or not (
-            name.startswith("_") or qualname in self.blacklist
-        )
+    def is_whitelisted(self, qualname: str) -> bool:
+        return qualname in self.whitelist
+
+    def is_blacklisted(self, qualname: str) -> bool:
+        return qualname.rpartition(".")[2].startswith("_") or qualname in self.blacklist
 
     def iter_module(self, module: Module) -> Iterable[T_ModuleMember]:
         for dobj in module.members.values():
@@ -52,18 +53,22 @@ class MemberIterator:
                     ref_found = dobj.find_definition()
                     if ref_found:
                         yield ref_found
+            elif self.is_whitelisted(dobj.qualname):
+                yield dobj
             elif isinstance(dobj, Variable) and not dobj.doctree:
                 pass
-            elif self.filter(dobj.name, dobj.qualname):
+            elif not self.is_blacklisted(dobj.qualname):
                 yield dobj
 
     def iter_class(self, cls: Class) -> Iterable[T_ClassMember]:
         # in case class is reference from other module (reexport), then
         # other module's `__autodoc__` for this class is invalid
         for dobj in cls.members.values():
-            if isinstance(dobj, Variable) and not dobj.doctree:
+            if self.is_whitelisted(dobj.qualname):
+                yield dobj
+            elif isinstance(dobj, Variable) and not dobj.doctree:
                 pass
-            elif self.filter(dobj.name, dobj.qualname):
+            elif not self.is_blacklisted(dobj.qualname):
                 yield dobj
 
     def _iter_all_definitions(self, module: Module) -> Iterable[T_Definition]:
