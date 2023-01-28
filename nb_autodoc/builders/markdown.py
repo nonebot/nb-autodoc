@@ -1,14 +1,14 @@
 import ast
 import inspect
+import re
 from contextlib import contextmanager
 from functools import singledispatch
 from inspect import Parameter
 from textwrap import indent
-from typing import Any, Callable, Dict, Generator, Optional, Union
+from typing import Callable, Dict, Generator, Match, Optional, Union
 from typing_extensions import Literal
 
 from nb_autodoc import nodes
-from nb_autodoc.annotation import Annotation
 from nb_autodoc.builders import Builder, MemberIterator
 from nb_autodoc.config import Config
 from nb_autodoc.log import logger
@@ -16,7 +16,7 @@ from nb_autodoc.manager import (
     Class,
     EnumMember,
     Function,
-    FunctionSignature,
+    ImportRef,
     LibraryAttr,
     Module,
     ModuleManager,
@@ -26,6 +26,10 @@ from nb_autodoc.typing import T_Definition
 from nb_autodoc.utils import calculate_relpath, isenumclass, stringify_signature
 
 from .helpers import vuepress_slugify
+
+_descr_role_re = re.compile(
+    r"{(?P<name>\w+?)}`(?:(?P<text>[^{}]+?) <)?(?P<content>[\w\.]+)(?(text)>)`"
+)
 
 
 # renderer utils
@@ -159,6 +163,7 @@ class Renderer:
         self._level: int = 1
 
     def write(self, s: str) -> None:
+        s = self.replace_descr(s)  # wild impl
         self._builder.append(s)
 
     @contextmanager
@@ -215,16 +220,67 @@ class Renderer:
         if self.add_heading_id:
             self.write(f" {{#{heading_id_slugify_impl(dobj)}}}")
 
-    def add_link(self, dobj: T_Definition) -> str:
+    def add_link(
+        self, dobj: T_Definition, *, warn_notfound: str = "", text: Optional[str] = None
+    ) -> str:
         modulename, anchor = self.builder.get_anchor_ref(dobj)
         if not anchor:
+            if warn_notfound:
+                logger.warning(warn_notfound)
             return dobj.qualname
+        text = text or dobj.qualname
         if modulename == self.current_module.name:
-            return f"[{dobj.qualname}](#{anchor})"
+            return f"[{text}](#{anchor})"
         path = self.builder.paths[modulename]
         current_path = self.builder.paths[self.current_module.name]
         relpath = calculate_relpath(path, current_path)
-        return f"[{dobj.qualname}]({relpath}#{anchor})"
+        return f"[{text}]({relpath}#{anchor})"
+
+    def _replace_descr(self, match: Match[str]) -> str:
+        role = match.groupdict()
+        name, text, content = role["name"], role["text"], role["content"]
+        matchtext = match.group()
+        modules = self.current_module.manager.modules
+        if name in ("version", "ver"):
+            return get_version_badge(role["content"])
+        elif name == "ref":
+            # search object use `get_canonical_member`
+            modulename, qualname = None, None
+            if ":" in content:
+                modulename, qualname = content.split(":")
+            # longest module prefix match
+            else:
+                moduleprefixes = sorted(
+                    (name + "." for name in modules), key=len, reverse=True
+                )
+                for name in moduleprefixes:
+                    if content.startswith(name):
+                        modulename = name[:-1]
+                        qualname = content[len(name) :]
+                        break
+            found = False
+            if modulename and qualname:
+                module = modules[modulename]
+                dobj = module.get_canonical_member(qualname)
+                if isinstance(dobj, ImportRef):
+                    dobj = dobj.find_definition()
+                if dobj:
+                    found = True
+                    return self.add_link(
+                        dobj,
+                        warn_notfound=f"ref {matchtext!r} found {dobj.fullname!r} "
+                        "which is unlinkable",
+                        text=text,
+                    )
+            if not found:
+                logger.warning(f"ref {matchtext!r} is not a member")
+        else:
+            logger.warning(f"role {matchtext!r} is invalid")
+        return text or content
+
+    def replace_descr(self, s: str) -> str:
+        """Replace description with markdown roles."""
+        return _descr_role_re.sub(self._replace_descr, s)
 
     def _resolve_doc_from_sig(self, dobj: Union[Function, Class]) -> None:
         if not dobj.signature or not dobj.doctree:
@@ -577,6 +633,3 @@ class MarkdownBuilder(Builder):
             builder=self,
         )
         return renderer.render(module)
-
-    # replace ref
-    # ref: r"{(?P<name>\w+?)}`(?:(?P<text>[^{}]+?) <)?(?P<content>[\w\.]+)(?(text)>)`"
