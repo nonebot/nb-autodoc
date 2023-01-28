@@ -233,7 +233,7 @@ class Renderer:
             return f"[{text}](#{anchor})"
         path = self.builder.paths[modulename]
         current_path = self.builder.paths[self.current_module.name]
-        relpath = calculate_relpath(path, current_path)
+        relpath = calculate_relpath(path, current_path.parent)
         return f"[{text}]({relpath}#{anchor})"
 
     def _replace_descr(self, match: Match[str]) -> str:
