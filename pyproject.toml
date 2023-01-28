@@ -2,29 +2,30 @@
 name = "nb-autodoc"
 description = "Powerful API Documentation Generator."
 authors = [{ name = "iyume", email = "iyumelive@gmail.com" }]
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 dynamic = ["version"]
 license = { text = "MIT" }
 readme = "README.md"
-keywords = ["nonebot", "autodoc"]
+keywords = ["nonebot", "autodoc", "ast", "inspect", "apidoc", "documentation-tool", "markdown"]
 dependencies = [
-    "click==8.*",
-    "typing-extensions==4.*",
+    "typing-extensions>=4.*",
 ]
 
 [project.optional-dependencies]
+click = [
+    "click==8.*",
+]
 
 [project.urls]
 homepage = "https://github.com/nonebot/nb-autodoc"
 repository = "https://github.com/nonebot/nb-autodoc"
-documentation = "https://github.com/nonebot/nb-autodoc/blob/master/README.md"
 
 [project.scripts]
 nb-autodoc = "nb_autodoc.__main__:main"
 
 [tool.black]
 line-length = 88
-target-version = ["py37"]
+target-version = ["py38"]
 
 [tool.isort]
 profile = "black"
@@ -34,9 +35,6 @@ skip_glob = ["tests/analyzerdata/*"]
 
 [tool.pyright]
 reportTypedDictNotRequiredAccess = false
-
-[tool.pytest.ini_options]
-log_cli = true  # for temporary debug
 
 [tool.pdm]
 version = { source = "file", path = "nb_autodoc/__init__.py" }
@@ -50,7 +48,6 @@ dev = [
     "isort>=5.10.1",
     "black>=22.6.0",
     "pytest>=7.1.2",
-    "pytest-benchmark>=3.4.1",
 ]
 
 [build-system]
