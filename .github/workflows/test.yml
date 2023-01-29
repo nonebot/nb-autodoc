@@ -1,0 +1,35 @@
+name: Code Test
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    paths: [nb_autodoc/**, tests/**]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    concurrency:
+      group: test-${{ github.ref }}-${{ matrix.os }}-${{ matrix.python-version }}
+      cancel-in-progress: true
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11"]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ./.github/actions/setup-python
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: pipx run pdm install
+        shell: bash
+
+      - name: Run Pytest
+        run: pipx run pdm run pytest
+        shell: bash
