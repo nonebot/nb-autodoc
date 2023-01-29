@@ -166,7 +166,7 @@ def partial_map(f: Callable[[T], TT], lst: List[T]) -> Callable[[], List[TT]]:
     return partial(list, map(f, lst))
 
 
-@pytest.mark.benchmark(group="utils.dedent")
+# @pytest.mark.benchmark(group="utils.dedent")
 def test_dedent(indented_texts: List[str]):
     # benchmark.pedantic(partial_map(dedent, indented_texts), iterations=10, rounds=100)
     for text in indented_texts:  # for string diff
@@ -182,7 +182,7 @@ def test_dedent(indented_texts: List[str]):
 #     )
 
 
-@pytest.mark.benchmark(group="utils.cleandoc")
+# @pytest.mark.benchmark(group="utils.cleandoc")
 def test_cleandoc(docstrings: List[str]):
     # benchmark.pedantic(partial_map(cleandoc, docstrings), iterations=10, rounds=100)
     for docstring in docstrings:
