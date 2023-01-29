@@ -175,3 +175,5 @@ class TestVariable:
         assert module.members["a"].is_typealias
         assert module.members["b"].is_typealias
         assert module.members["c"].is_typealias
+        assert not module.members["d"].is_typealias
+        assert not module.members["e"].is_typealias

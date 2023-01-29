@@ -753,7 +753,7 @@ class Variable:
 
     @property
     def is_typealias(self) -> bool:
-        annotation = self.annotation
+        annotation = self.var_annotation
         # don't make class to be type alias
         if isgenericalias(self.pyobj) or (annotation and annotation.is_typealias):
             return True
@@ -768,26 +768,26 @@ class Variable:
         return self._is_instvar
 
     @cached_property
+    def var_annotation(self) -> Annotation | None:
+        if isinstance(self.astobj, AssignData) and self.astobj.annotation:
+            return self.module.build_static_ann(self.astobj.annotation)
+
+    @cached_property
     def annotation(self) -> Annotation | None:
+        # annotation can be 1.AnnAssign annotation 2.TypeAlias 3.property return
         if not self.module.manager.prepared:
             raise RuntimeError
-        if isinstance(self.astobj, AssignData):
-            var_annotation = None
-            if self.astobj.annotation:
-                var_annotation = self.module.build_static_ann(self.astobj.annotation)
-            # var annotation is TypeAlias, or assignment value is genericalias
-            if (var_annotation and var_annotation.is_typealias) or (
-                not var_annotation and isgenericalias(self.pyobj)
-            ):
-                assert self.astobj.value, "TypeAlias must have assignment value"
-                var_annotation = self.module.build_static_ann(
-                    ast.parse(self.astobj.value, mode="eval").body
-                )
-            return var_annotation
+        if self.is_typealias:
+            astobj = cast(AssignData, self.astobj)
+            assert astobj.value, "TypeAlias must have assignment value"
+            return self.module.build_static_ann(
+                ast.parse(astobj.value, mode="eval").body
+            )
         elif isinstance(self.pyobj, property) and self.pyobj.fget:
             sig = Function._get_signature(self.pyobj.fget, self.module.manager.modules)
             if sig and sig.return_annotation is not Parameter.empty:
                 return sig.return_annotation
+        return self.var_annotation
 
     def __repr__(self) -> str:
         return (

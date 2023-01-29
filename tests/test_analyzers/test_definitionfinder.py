@@ -19,7 +19,7 @@ class TestDefinitionFinder:
     def test_simple_data(self):
         code = get_analyzer_data("simple-definition-ast.py")
         module = ast_parse(code)
-        visitor = DefinitionFinder(package="mypkg.pkg.pkg")
+        visitor = DefinitionFinder(package="mypkg.pkg.pkg", source=code)
         visitor.visit(module)
         del code, module
         # duplicated from repr
@@ -165,7 +165,7 @@ class TestDefinitionFinder:
     def test_assigndata_override(self):
         code = get_analyzer_data("assigndata-override-ast.py")
         module = ast_parse(code)
-        visitor = DefinitionFinder(package="<test>")
+        visitor = DefinitionFinder(package="<test>", source=code)
         visitor.visit(module)
         assert visitor.module.scope == {
             "a": AssignData(
@@ -180,7 +180,7 @@ class TestDefinitionFinder:
     def test_type_checking(self):
         code = get_analyzer_data("type-checking-ast.py")
         module = ast_parse(code)
-        visitor = DefinitionFinder(package="<test>")
+        visitor = DefinitionFinder(package="<test>", source=code)
         visitor.visit(module)
         assert visitor.module.scope == {
             "TYPE_CHECKING": ImportFromData(
