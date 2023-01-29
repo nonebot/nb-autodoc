@@ -70,6 +70,19 @@ def _args_to_dict(args: nodes.Args) -> Dict[str, nodes.ColonArg]:
     return res
 
 
+def _extract_inlinevalue(doctree: nodes.Docstring) -> Dict[str, str]:
+    # extract InlineValue and remove them from sections
+    res = {}
+    new_sections = []
+    for section in doctree.sections:
+        if isinstance(section, nodes.InlineValue):
+            res[section.type] = section.value
+        else:
+            new_sections.append(section)
+    doctree.sections[:] = new_sections
+    return res
+
+
 @singledispatch
 def get_bare_title(dobj: T_Definition) -> Optional[str]:
     """Returns None if not implementation found for object."""
@@ -285,11 +298,7 @@ class Renderer:
     def _resolve_doc_from_sig(self, dobj: Union[Function, Class]) -> None:
         if not dobj.signature or not dobj.doctree:
             return None
-        sections = [
-            section
-            for section in dobj.doctree.sections
-            if not isinstance(section, nodes.InlineValue)
-        ]
+        sections = dobj.doctree.sections
         doc_args = None
         for section in sections:
             if not doc_args and isinstance(section, nodes.Args):
@@ -404,9 +413,11 @@ class Renderer:
     def visit_Module(self, dobj: Module) -> None:
         frontmatter = None
         if dobj.doctree:
+            _extract_inlinevalue(dobj.doctree)
             for section in dobj.doctree.sections:
                 if isinstance(section, nodes.FrontMatter):
                     frontmatter = section
+                    dobj.doctree.sections.remove(section)
                     break
         if frontmatter:
             self.write("---\n")
@@ -424,6 +435,7 @@ class Renderer:
 
     def visit_LibraryAttr(self, dobj: LibraryAttr) -> None:
         self.title(dobj)
+        _extract_inlinevalue(dobj.doctree)
         self.newline()
         self.visit_Docstring(dobj.doctree)
 
@@ -437,24 +449,21 @@ class Renderer:
             dobj.module.build_static_ann(
                 ast.parse(dobj.doctree.annotation, mode="eval").body
             ).get_doc_linkify(self.add_link)
-        typeversion = None
+        inlinevalue = {}
         if dobj.doctree:
-            for section in dobj.doctree.sections:
-                if (
-                    isinstance(section, nodes.InlineValue)
-                    and section.type == "typeversion"
-                ):
-                    typeversion = section.value
-                    break
-        if typeversion:
+            inlinevalue = _extract_inlinevalue(dobj.doctree)
+        if inlinevalue.get("typeversion"):
             self.write(" ")
-            self.write(get_version_badge(typeversion))
+            self.write(get_version_badge(inlinevalue["typeversion"]))
         if dobj.doctree:
             self.newline()
             self.visit_Docstring(dobj.doctree)
 
     def visit_Function(self, dobj: Function) -> None:
         self.title(dobj)
+        if dobj.doctree:
+            # remove before resolve
+            _extract_inlinevalue(dobj.doctree)
         self._resolve_doc_from_sig(dobj)
         if dobj.doctree:
             self.newline()
@@ -462,6 +471,9 @@ class Renderer:
 
     def visit_Class(self, dobj: Class) -> None:
         self.title(dobj)
+        if dobj.doctree:
+            # remove before resolve
+            _extract_inlinevalue(dobj.doctree)
         self._resolve_doc_from_sig(dobj)
         if dobj.doctree:
             self.newline()
@@ -491,13 +503,9 @@ class Renderer:
             self.fill("- **说明:** ")  # TODO: i18n
             self.write(dsobj.descr)
         # skip two special section
-        # TODO: fix it
-        for member in filter(
-            lambda x: not isinstance(x, (nodes.InlineValue, nodes.FrontMatter)),
-            dsobj.sections,
-        ):
+        for section in dsobj.sections:
             self.newline()
-            self.visit(member)
+            self.visit(section)
 
     def visit_ColonArg(
         self, dsobj: nodes.ColonArg, isvar: bool = False, iskw: bool = False
