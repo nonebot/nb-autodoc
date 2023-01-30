@@ -283,8 +283,12 @@ class DefinitionFinder:
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         if self.current_function:
             return
-        if not self.current_classes and node.module in ("typing", "typing_extensions"):
-            # only analyze module-level importfrom
+        if (
+            not self.current_classes
+            and not node.level
+            and node.module in ("typing", "typing_extensions")
+        ):
+            # only analyze ansoluate module-level importfrom
             for alias in node.names:
                 self.imp_typing_names[alias.asname or alias.name] = alias.name
         absoluate_module = resolve_name(node, self.package)
