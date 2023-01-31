@@ -8,13 +8,11 @@ license = { text = "MIT" }
 readme = "README.md"
 keywords = ["nonebot", "autodoc", "ast", "inspect", "apidoc", "documentation-tool", "markdown"]
 dependencies = [
-    "typing-extensions>=4.*",
+    "typing-extensions>=4.0",
+    "click==8.*",
 ]
 
 [project.optional-dependencies]
-click = [
-    "click==8.*",
-]
 
 [project.urls]
 homepage = "https://github.com/nonebot/nb-autodoc"
@@ -40,7 +38,6 @@ reportTypedDictNotRequiredAccess = false
 version = { source = "file", path = "nb_autodoc/__init__.py" }
 
 [tool.pdm.build]
-# includes = ["nb_autodoc"]
 # editable-backend = "editables"  # break vscode interpreter searching
 
 [tool.pdm.dev-dependencies]
