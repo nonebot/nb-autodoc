@@ -55,8 +55,16 @@ _py310_ga_tpname = {"Tuple", "List", "Dict", "Set", "FrozenSet", "Type"}
 #             yield from _traverse_name(elemann)
 
 
+def _type_str(ann: _T_annexpr) -> str:
+    if ann is ...:
+        return "..."
+    elif ann is None:
+        return "None"
+    return str(ann)
+
+
 class _annexpr:
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         return AnnExprVisitor().render(self)
 
 
@@ -422,6 +430,9 @@ class Annotation:
         return AnnExprVisitor(globalns=self.globalns, add_link=add_link).render(
             self.ann
         )
+
+    def __str__(self) -> str:
+        return _type_str(self.ann)
 
     # @property
     # def is_callable(self) -> bool:

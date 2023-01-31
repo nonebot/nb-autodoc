@@ -117,9 +117,13 @@ def test_stringify_signature():
     sig = inspect.signature(func)
     assert stringify_signature(sig) == "(a, b={})"
     assert (
-        stringify_signature(sig, replace_ann=False, show_returns=True)
-        == "(a: int, b: dict = {}) -> str"
+        stringify_signature(sig, show_annotation=True, show_returns=True)
+        == "(a: int, b: dict = {}) -> <class 'str'>"
     )
+
+    sig = inspect.signature(lambda: ...)
+    assert stringify_signature(sig) == "()"
+    assert stringify_signature(sig, show_returns=True) == "() -> <untyped>"
 
 
 # def test_formatannotation():

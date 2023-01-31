@@ -204,3 +204,20 @@ class TestDefinitionFinder:
         assert tc_classes == [ast.ImportFrom, ast.ClassDef]
         tc_classes = [i.__class__ for i in visitor.module.scope["B"].type_checking_body]
         assert tc_classes == [ast.ImportFrom, ast.ClassDef, ast.If, ast.ImportFrom]
+
+    def test_overload(self):
+        code = get_analyzer_data("overload.py")
+        module = ast_parse(code)
+        visitor = DefinitionFinder(package="<test>", source=code)
+        visitor.visit(module)
+        func = visitor.module.scope["func"]
+        func2 = visitor.module.scope["func2"]
+        assert func.__class__ is FunctionDefData
+        assert len(func.overloads) == 2
+        assert func.overloads[0].docstring == "func o1"
+        assert func.overloads[1].docstring == "func o2"
+        assert func.signature
+        assert func2.__class__ is FunctionDefData
+        assert len(func2.overloads) == 2
+        assert not func2.signature
+        assert func2.assign_docstring == "func2 docstring"

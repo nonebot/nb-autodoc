@@ -63,6 +63,7 @@ class Analyzer:
 
     def analyze(self) -> None:
         code = open(self.path, "r").read()
+        self.code = code
         tree = ast_parse(code, self.path)
         visitor = DefinitionFinder(package=self.package, source=code)
         visitor.visit(tree)

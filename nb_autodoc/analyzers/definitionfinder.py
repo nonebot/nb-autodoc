@@ -71,7 +71,8 @@ class FunctionDefData:
     # None if function has no impl
     signature: Optional[Signature] = field(default=None, compare=False)
     overloads: List[_overload] = field(default_factory=list)
-    # don't pick docstring from ast because unreliable
+    # assign docstring if overloaded
+    assign_docstring: Optional[str] = None
 
 
 @dataclass
@@ -237,6 +238,8 @@ class DefinitionFinder:
             assign_data = scope.get(name)
             # if exists overloads, then ignore, otherwise create and cover
             if isinstance(assign_data, FunctionDefData) and assign_data.overloads:
+                if docstring:
+                    assign_data.assign_docstring = docstring
                 continue
             elif not isinstance(assign_data, AssignData):
                 assign_data = AssignData(next(self.counter), name)

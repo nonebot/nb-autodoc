@@ -32,6 +32,7 @@ from nb_autodoc.typing import (
 from nb_autodoc.utils import (
     cached_property,
     cleandoc,
+    cleanexpr,
     dedent,
     isenumclass,
     isnamedtuple,
@@ -385,6 +386,30 @@ class Module:
             globalns=self.get_all_definitions(),
         )
 
+    def _transform_ast_signature(
+        self, sig: Signature, source: str = ""
+    ) -> FunctionSignature:
+        if not source:
+            source = self.prime_analyzer.code
+        _empty = Parameter.empty
+        params = sig.parameters.copy()
+        for param in sig.parameters.values():
+            annotation = param.annotation
+            default = param.default
+            if annotation is not _empty:
+                annotation = self.build_static_ann(annotation)
+            if default is not _empty:
+                default = _AlwaysStr(
+                    cleanexpr(cast(str, ast.get_source_segment(source, default)))
+                )
+            params[param.name] = param.replace(annotation=annotation, default=default)
+        return_annotation = sig.return_annotation
+        if return_annotation is not _empty:
+            return_annotation = self.build_static_ann(return_annotation)
+        return FunctionSignature(
+            list(params.values()), return_annotation=return_annotation
+        )
+
     def get_signature(self, func: FunctionType) -> FunctionSignature:
         """Get signature from concrete FunctionType."""
         if not func.__module__ == self.name:
@@ -394,23 +419,8 @@ class Module:
         source = dedent(getsource(func))
         node = ast.parse(source).body[0]
         assert isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        _empty = Parameter.empty
         sig = signature_from_ast(node.args, node.returns)
-        params = sig.parameters.copy()
-        for param in sig.parameters.values():
-            annotation = param.annotation
-            default = param.default
-            if annotation is not _empty:
-                annotation = self.build_static_ann(annotation)
-            if default is not _empty:
-                default = _AlwaysStr(ast.get_source_segment(source, default))
-            params[param.name] = param.replace(annotation=annotation, default=default)
-        return_annotation = sig.return_annotation
-        if return_annotation is not _empty:
-            return_annotation = self.build_static_ann(return_annotation)
-        return FunctionSignature(
-            list(params.values()), return_annotation=return_annotation
-        )
+        return self._transform_ast_signature(sig, source)
 
     # def _evaluate(self, s: str, *, locals: dict[str, Any] | None = None) -> Any:
     #     # some library has stmt like `if TYPE_CHECKING...else...`
@@ -639,17 +649,19 @@ class Function:
         assign_doc: str | None = None,
     ) -> None:
         self.name = name
-        if isinstance(pyobj, FunctionType):
-            func = pyobj
-        elif not isinstance(pyobj.__func__, FunctionType):
-            raise RuntimeError("staticmethod or classmethod must be FunctionType")
-        else:
+        if isinstance(pyobj, (staticmethod, classmethod)):
+            if not isinstance(pyobj.__func__, FunctionType):
+                logger.warning("staticmethod or classmethod is not FunctionType")
             func = pyobj.__func__
+        else:
+            func = pyobj
         self.pyobj = pyobj
         self.func = func
         doc = assign_doc
         if not doc:
             doc = func.__doc__ and cleandoc(func.__doc__)
+        if not doc and astobj:
+            doc = astobj.assign_docstring and cleandoc(astobj.assign_docstring)
         self.doc = doc
         self.doctree = (
             module.manager.parse_doc(self.doc) if self.doc is not None else None
@@ -682,6 +694,21 @@ class Function:
         if sig and self.cls and isinstance(self.pyobj, (FunctionType, classmethod)):
             return _skip_signature_bound_arg(sig)
         return sig
+
+    @cached_property
+    def overloads(self) -> list[tuple[FunctionSignature, Docstring | None]] | None:
+        overloads = None
+        if isinstance(self.astobj, FunctionDefData) and self.astobj.overloads:
+            overloads = []
+            for overload in self.astobj.overloads:
+                doc = overload.docstring and cleandoc(overload.docstring)
+                overloads.append(
+                    (
+                        self.module._transform_ast_signature(overload.signature),
+                        self.module.manager.parse_doc(doc) if doc else None,
+                    )
+                )
+        return overloads
 
     @staticmethod
     def _get_signature(

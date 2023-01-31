@@ -90,9 +90,9 @@ class TestAnnotationTransformer:
             Name("A"),
         )
 
-    def test_repr(self):
+    def test_str(self):
         assert (
-            repr(
+            str(
                 GASubscript(
                     Name("Dict"),
                     [
@@ -105,7 +105,7 @@ class TestAnnotationTransformer:
             == "Dict[Union[int, str], None, Literal[int]]"
         )
         assert (
-            repr(
+            str(
                 UnionType(
                     [
                         GASubscript(TypingName("ttt", "List"), [Name("int")]),
@@ -121,10 +121,10 @@ class TestAnnotationTransformer:
             )
             == "list[int] | tuple[int] | set[int] | dict[str, int] | frozenset[int] | type[int]"
         )
-        assert repr(UnionType([Name("str"), None])) == "str | None"
-        assert repr(CallableType(..., Name("str"))) == "(...) -> str"
+        assert str(UnionType([Name("str"), None])) == "str | None"
+        assert str(CallableType(..., Name("str"))) == "(...) -> str"
         assert (
-            repr(
+            str(
                 CallableType(
                     [Name("int"), Name("str")],
                     CallableType([Name("str")], CallableType([], None)),
@@ -133,7 +133,7 @@ class TestAnnotationTransformer:
             == "(int, str) -> (str) -> () -> None"
         )
         assert (
-            repr(
+            str(
                 UnionType(
                     [
                         CallableType([], UnionType([Name("str"), None])),

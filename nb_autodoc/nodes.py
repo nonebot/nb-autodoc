@@ -174,6 +174,12 @@ class Args(section):
     kwarg: ColonArg | None
 
 
+class Overloads(section):
+    signature_str: list[str]
+    parameters: list[Args]
+    returns: list[Returns]
+
+
 class Attributes(section):
     name: str
     args: list[ColonArg]

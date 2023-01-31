@@ -1,6 +1,7 @@
 import __future__ as _future
 
 import os
+import re
 import sys
 import typing as t
 import typing_extensions as te
@@ -134,22 +135,29 @@ def determind_varname(obj: t.Union[type, FunctionType]) -> str:
 
 
 # TODO: extract function arguments without body
-def findparamsource(obj: FunctionType) -> str:
+def findparamsource(obj: FunctionType) -> str:  # type: ignore  # mypy
     ...
 
 
 def stringify_signature(
-    sig: Signature, *, replace_ann: bool = True, show_returns: bool = False
+    sig: Signature, *, show_annotation: bool = False, show_returns: bool = False
 ) -> str:
     sig = sig.replace()
     params = sig.parameters.copy()
-    if replace_ann:
+    if not show_annotation:
         for param in sig.parameters.values():
             params[param.name] = param.replace(annotation=Signature.empty)
-    return_ann = sig.return_annotation if show_returns else Signature.empty
-    return str(
-        sig.replace(parameters=list(params.values()), return_annotation=return_ann)
+    res = str(
+        sig.replace(parameters=list(params.values()), return_annotation=Signature.empty)
     )
+    if show_returns:
+        ret = "<untyped>"
+        if sig.return_annotation is not Signature.empty:
+            # current internal annotation is fully static
+            # so we don't need type_repr or formatannotation
+            ret = str(sig.return_annotation)
+        res += f" -> {ret}"
+    return res
 
 
 # Utilities
@@ -226,12 +234,19 @@ def calculate_relpath(p1: Path, p2: Path) -> str:
     return "/".join(builder)
 
 
-def typed_lru_cache(maxsize: int = 128, typed: bool = False) -> t.Callable[[T], T]:
-    ...
+def cleanexpr(code: str) -> str:
+    # this is incomplete, consider unparse
+    code = code.strip()
+    code = code.replace("\n", " ").replace("\r", " ")
+    code = re.sub(r"\s+", " ", code)
+    return code
 
 
-# `lru_cache` has no type hint, so trick the linter
-typed_lru_cache = __import__("functools").lru_cache
+def get_first_element(lst: t.List[t.Any], typ: t.Type[T]) -> t.Optional[T]:
+    return next(
+        filter(lambda x: isinstance(x, typ), lst),
+        None,
+    )
 
 
 class cached_property(t.Generic[T]):

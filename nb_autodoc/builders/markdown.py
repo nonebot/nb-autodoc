@@ -4,6 +4,7 @@ import re
 from contextlib import contextmanager
 from functools import singledispatch
 from inspect import Parameter
+from itertools import count
 from textwrap import indent
 from typing import Callable, Dict, Generator, List, Match, Optional, Union
 from typing_extensions import Literal
@@ -16,6 +17,7 @@ from nb_autodoc.manager import (
     Class,
     EnumMember,
     Function,
+    FunctionSignature,
     ImportRef,
     LibraryAttr,
     Module,
@@ -23,7 +25,12 @@ from nb_autodoc.manager import (
     Variable,
 )
 from nb_autodoc.typing import T_Definition
-from nb_autodoc.utils import calculate_relpath, isenumclass, stringify_signature
+from nb_autodoc.utils import (
+    calculate_relpath,
+    get_first_element,
+    isenumclass,
+    stringify_signature,
+)
 
 from .helpers import vuepress_slugify
 
@@ -295,35 +302,29 @@ class Renderer:
         """Replace description with markdown roles."""
         return _descr_role_re.sub(self._replace_descr, s)
 
-    def _resolve_doc_from_sig(self, dobj: Union[Function, Class]) -> None:
-        if not dobj.signature or not dobj.doctree:
-            return None
-        sections = dobj.doctree.sections
-        doc_args = None
-        for section in sections:
-            if not doc_args and isinstance(section, nodes.Args):
-                doc_args = section
-        if doc_args and sections.index(doc_args) != 0:
-            logger.warning(
-                f"found Args section in {dobj.fullname!r} docstring "
-                "with non-first position"
-            )
+    def _resolve_args_from_sig(
+        self,
+        *,
+        args: Optional[nodes.Args] = None,
+        sig: FunctionSignature,
+        bind_module: Module,
+    ) -> nodes.Args:
         doc_args_dict = None
         # maybe we should validate docstring's Args
-        if doc_args:
-            doc_args_dict = _args_to_dict(doc_args)
+        if args:
+            doc_args_dict = _args_to_dict(args)
         # turn signature into Args section
         new_args = nodes.Args(
             name="参数", args=[], vararg=None, kwonlyargs=[], kwarg=None  # TODO: i18n
         )
-        for p in dobj.signature.parameters.values():
+        for p in sig.parameters.values():
             doc_arg = None
             if doc_args_dict:
                 doc_arg = doc_args_dict.get(p.name)
             annotation = None
             # doc overridden annotation or parameter annotation
             if doc_arg and doc_arg.annotation:
-                annotation = dobj.module.build_static_ann(
+                annotation = bind_module.build_static_ann(
                     ast.parse(doc_arg.annotation, mode="eval").body
                 ).get_doc_linkify(self.add_link)
             elif p.annotation is not Parameter.empty:
@@ -343,11 +344,13 @@ class Renderer:
         if doc_args_dict:
             # the docstring arg doesn't match signature
             # we think these arguments are keyword-only
-            for name in doc_args_dict.keys() - dobj.signature.parameters.keys():
+            for name in doc_args_dict:
+                if name in sig.parameters:  # keep order
+                    continue
                 doc_arg = doc_args_dict[name]
                 annotation = None
                 if doc_arg.annotation:
-                    annotation = dobj.module.build_static_ann(
+                    annotation = bind_module.build_static_ann(
                         ast.parse(doc_arg.annotation, mode="eval").body
                     ).get_doc_linkify(self.add_link)
                 new_args.kwonlyargs.append(
@@ -355,47 +358,73 @@ class Renderer:
                         name, annotation, [], doc_arg.descr, doc_arg.long_descr
                     )
                 )
-        if doc_args:
-            sections.remove(doc_args)
-        sections.insert(0, new_args)
+        return new_args
+
+    def _resolve_rets_from_sig(
+        self,
+        *,
+        rets: Optional[nodes.Returns] = None,
+        sig: FunctionSignature,
+        bind_module: Module,
+    ) -> nodes.Returns:
+        new_rets = nodes.Returns(name="返回", version=None)  # TODO: i18n
+        new_rets.value = nodes.ColonArg(None, None, [], "", "")
+        annotation = None
+        if rets:
+            if isinstance(rets.value, nodes.ColonArg):
+                assert rets.value.annotation, "Returns ColonArg annotation must be str"
+                annotation = bind_module.build_static_ann(
+                    ast.parse(rets.value.annotation, mode="eval").body
+                ).get_doc_linkify(self.add_link)
+                descr = rets.value.descr
+                long_descr = rets.value.long_descr
+            else:
+                descr, _, long_descr = rets.value.partition("\n")  # type: ignore  # mypy
+                descr = descr.strip()
+                long_descr = long_descr.strip()
+            new_rets.value.descr = descr
+            new_rets.value.long_descr = long_descr
+        if annotation is None and sig.return_annotation is not Parameter.empty:
+            annotation = sig.return_annotation.get_doc_linkify(self.add_link)
+        elif annotation is None:
+            annotation = "untyped"
+        new_rets.value.annotation = annotation
+        return new_rets
+
+    def _resolve_doc_from_sig(self, dobj: Union[Function, Class]) -> None:
+        if not dobj.signature:
+            return None
+        if not dobj.doctree:
+            dobj.doctree = nodes.Docstring(
+                roles=[], annotation=None, descr="", long_descr="", sections=[]
+            )
+        sections = dobj.doctree.sections  # type: ignore  # mypy
+        doc_args = None
+        for i, section in enumerate(sections):
+            if isinstance(section, nodes.Args):
+                doc_args = section
+                sections.pop(i)
+                break
+        sections.insert(
+            0,
+            self._resolve_args_from_sig(
+                args=doc_args, sig=dobj.signature, bind_module=dobj.module
+            ),
+        )
         # resolve returns section for function
         if isinstance(dobj, Function):
             doc_rets = None
-            for section in sections:
-                if not doc_rets and isinstance(section, nodes.Returns):
+            for i, section in enumerate(sections):
+                if isinstance(section, nodes.Returns):
                     doc_rets = section
-            new_rets = nodes.Returns(name="返回", version=None)  # TODO: i18n
-            new_rets.value = nodes.ColonArg(None, None, [], "", "")
-            annotation = None
-            if doc_rets:
-                if isinstance(doc_rets.value, nodes.ColonArg):
-                    assert (
-                        doc_rets.value.annotation
-                    ), "Returns ColonArg annotation must be str"
-                    annotation = dobj.module.build_static_ann(
-                        ast.parse(doc_rets.value.annotation, mode="eval").body
-                    ).get_doc_linkify(self.add_link)
-                    descr = doc_rets.value.descr
-                    long_descr = doc_rets.value.long_descr
-                else:
-                    descr, *descr_chunk = doc_rets.value.split("\n", 1)
-                    descr = descr.strip()
-                    long_descr = (descr_chunk[0] if descr_chunk else "").strip()
-                new_rets.value.descr = descr
-                new_rets.value.long_descr = long_descr
-            if (
-                annotation is None
-                and dobj.signature.return_annotation is not Parameter.empty
-            ):
-                annotation = dobj.signature.return_annotation.get_doc_linkify(
-                    self.add_link
-                )
-            if annotation is None:
-                annotation = "untyped"
-            new_rets.value.annotation = annotation
-            if doc_rets:
-                sections.remove(doc_rets)
-            sections.insert(1, new_rets)
+                    sections.pop(i)
+                    break
+            sections.insert(
+                1,
+                self._resolve_rets_from_sig(
+                    rets=doc_rets, sig=dobj.signature, bind_module=dobj.module
+                ),
+            )
 
     def visit(self, dobj: Union[T_Definition, nodes.section]) -> None:
         visitor = getattr(self, "visit_" + dobj.__class__.__name__, None)
@@ -464,7 +493,36 @@ class Renderer:
         if dobj.doctree:
             # remove before resolve
             _extract_inlinevalue(dobj.doctree)
-        self._resolve_doc_from_sig(dobj)
+        if dobj.overloads:
+            overloads = nodes.Overloads([], [], [])
+            for sig, doctree in dobj.overloads:
+                overloads.signature_str.append(
+                    stringify_signature(sig, show_returns=True)
+                )
+                args = None
+                rets = None
+                if doctree:
+                    args = get_first_element(doctree.sections, nodes.Args)
+                    rets = get_first_element(doctree.sections, nodes.Returns)
+                overloads.parameters.append(
+                    self._resolve_args_from_sig(
+                        args=args,
+                        sig=sig,
+                        bind_module=dobj.module,
+                    )
+                )
+                overloads.returns.append(
+                    self._resolve_rets_from_sig(
+                        rets=rets,
+                        sig=sig,
+                        bind_module=dobj.module,
+                    )
+                )
+            if not dobj.doctree:
+                dobj.doctree = nodes.Docstring([], None, "", "", [])
+            dobj.doctree.sections.insert(0, overloads)  # type: ignore  # mypy
+        else:
+            self._resolve_doc_from_sig(dobj)
         if dobj.doctree:
             self.newline()
             self.visit_Docstring(dobj.doctree)
@@ -488,7 +546,9 @@ class Renderer:
         self.fill(f"- `{dobj.name}: {dobj.value!r}`")
 
     # docstring renderer
-    def visit_Docstring(self, dsobj: nodes.Docstring, is_module: bool = False) -> None:
+    def visit_Docstring(
+        self, dsobj: nodes.Docstring, *, is_module: bool = False
+    ) -> None:
         if is_module:
             if dsobj.descr:
                 self.write(dsobj.descr)
@@ -519,6 +579,7 @@ class Renderer:
                     self.write("**")
                 self.write(dsobj.name)
             if dsobj.annotation:
+                self.write(" ")
                 with self.delimit("(", ")"):
                     self.write(dsobj.annotation)
         elif dsobj.annotation:
@@ -558,6 +619,18 @@ class Renderer:
                 self.visit_ColonArg(dsobj.kwarg, iskw=True)
             if not rendered:
                 self.newline("empty")
+
+    def visit_Overloads(self, dsobj: nodes.Overloads) -> None:
+        self.fill("- **重载**")  # TODO: i18n
+        with self.block():
+            for index, signature_str, args, rets in zip(
+                count(1), dsobj.signature_str, dsobj.parameters, dsobj.returns
+            ):
+                self.newline(f"**{index}.** `{signature_str}`")
+                self.newline()
+                self.visit_Args(args)
+                self.newline()
+                self.visit_Returns(rets)
 
     def visit_Attributes(self, dsobj: nodes.Attributes) -> None:
         self.fill(f"- **{dsobj.name}**")
