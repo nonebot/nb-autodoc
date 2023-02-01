@@ -2,7 +2,7 @@ import ast
 import inspect
 import re
 from contextlib import contextmanager
-from functools import singledispatch
+from functools import partial, singledispatch
 from inspect import Parameter
 from itertools import count
 from textwrap import indent
@@ -35,7 +35,7 @@ from nb_autodoc.utils import (
 from .helpers import vuepress_slugify
 
 _descr_role_re = re.compile(
-    r"{(?P<name>\w+?)}`(?:(?P<text>[^{}]+?) <)?(?P<content>[\w\.]+)(?(text)>)`"
+    r"{(?P<name>\w+?)}`(?:(?P<text>[^{}]+?) <)?(?P<content>[\w\.\+\-]+)(?(text)>)`"
 )
 
 
@@ -178,6 +178,7 @@ class Renderer:
         self.add_heading_id = add_heading_id
         self.indent_size = config["markdown_indent_size"]
         self.builder = builder
+        self.is_auto_args: bool = False
         self._builder: list[str] = []
         self._indent: int = 0
         self._level: int = 1
@@ -262,7 +263,7 @@ class Renderer:
         matchtext = match.group()
         manager = self.current_module.manager
         if name in ("version", "ver"):
-            return get_version_badge(role["content"])
+            return get_version_badge(content)
         elif name == "ref":
             if ":" in content:
                 modulename, qualname = content.split(":")
@@ -290,7 +291,7 @@ class Renderer:
         self,
         *,
         args: Optional[nodes.Args] = None,
-        sig: FunctionSignature,
+        sig: Optional[FunctionSignature] = None,
         bind_module: Module,
     ) -> nodes.Args:
         doc_args_dict = None
@@ -299,37 +300,45 @@ class Renderer:
             doc_args_dict = _args_to_dict(args)
         # turn signature into Args section
         new_args = nodes.Args(
-            name="参数", args=[], vararg=None, kwonlyargs=[], kwarg=None  # TODO: i18n
+            name=args.name if args else "参数",  # TODO: i18n
+            args=[],
+            vararg=None,
+            kwonlyargs=[],
+            kwarg=None,
         )
-        for p in sig.parameters.values():
-            doc_arg = None
-            if doc_args_dict:
-                doc_arg = doc_args_dict.get(p.name)
-            annotation = None
-            # doc overridden annotation or parameter annotation
-            if doc_arg and doc_arg.annotation:
-                annotation = bind_module.build_static_ann(
-                    ast.parse(doc_arg.annotation, mode="eval").body
-                ).get_doc_linkify(self.add_link)
-            elif p.annotation is not Parameter.empty:
-                annotation = p.annotation.get_doc_linkify(self.add_link)
-            arg = nodes.ColonArg(p.name, annotation, [], "", "")
-            if doc_arg:
-                arg.descr = doc_arg.descr
-                arg.long_descr = doc_arg.long_descr
-            if p.kind in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD):
-                new_args.args.append(arg)
-            elif p.kind is Parameter.VAR_POSITIONAL:
-                new_args.vararg = arg
-            elif p.kind is Parameter.KEYWORD_ONLY:
-                new_args.kwonlyargs.append(arg)
-            elif p.kind is Parameter.VAR_KEYWORD:
-                new_args.kwarg = arg
+        if sig:
+            for p in sig.parameters.values():
+                doc_arg = None
+                if doc_args_dict:
+                    doc_arg = doc_args_dict.get(p.name)
+                annotation = None
+                # doc overridden annotation or parameter annotation
+                if doc_arg and doc_arg.annotation:
+                    annotation = bind_module.build_static_ann(
+                        ast.parse(doc_arg.annotation, mode="eval").body
+                    ).get_doc_linkify(self.add_link)
+                elif p.annotation is not Parameter.empty:
+                    annotation = p.annotation.get_doc_linkify(self.add_link)
+                arg = nodes.ColonArg(p.name, annotation, [], "", "")
+                if doc_arg:
+                    arg.descr = doc_arg.descr
+                    arg.long_descr = doc_arg.long_descr
+                if p.kind in (
+                    Parameter.POSITIONAL_ONLY,
+                    Parameter.POSITIONAL_OR_KEYWORD,
+                ):
+                    new_args.args.append(arg)
+                elif p.kind is Parameter.VAR_POSITIONAL:
+                    new_args.vararg = arg
+                elif p.kind is Parameter.KEYWORD_ONLY:
+                    new_args.kwonlyargs.append(arg)
+                elif p.kind is Parameter.VAR_KEYWORD:
+                    new_args.kwarg = arg
         if doc_args_dict:
             # the docstring arg doesn't match signature
             # we think these arguments are keyword-only
             for name in doc_args_dict:
-                if name in sig.parameters:  # keep order
+                if sig and name in sig.parameters:  # keep order
                     continue
                 doc_arg = doc_args_dict[name]
                 annotation = None
@@ -348,10 +357,12 @@ class Renderer:
         self,
         *,
         rets: Optional[nodes.Returns] = None,
-        sig: FunctionSignature,
+        sig: Optional[FunctionSignature] = None,
         bind_module: Module,
     ) -> nodes.Returns:
-        new_rets = nodes.Returns(name="返回", version=None)  # TODO: i18n
+        new_rets = nodes.Returns(
+            name=rets.name if rets else "返回", version=None  # TODO: i18n
+        )
         new_rets.value = nodes.ColonArg(None, None, [], "", "")
         annotation = None
         if rets:
@@ -368,7 +379,7 @@ class Renderer:
                 long_descr = long_descr.strip()
             new_rets.value.descr = descr
             new_rets.value.long_descr = long_descr
-        if annotation is None and sig.return_annotation is not Parameter.empty:
+        if annotation is None and sig and sig.return_annotation is not Parameter.empty:
             annotation = sig.return_annotation.get_doc_linkify(self.add_link)
         elif annotation is None:
             annotation = "untyped"
@@ -376,8 +387,6 @@ class Renderer:
         return new_rets
 
     def _resolve_doc_from_sig(self, dobj: Union[Function, Class]) -> None:
-        if not dobj.signature:
-            return None
         if not dobj.doctree:
             dobj.doctree = nodes.Docstring(
                 roles=[], annotation=None, descr="", long_descr="", sections=[]
@@ -507,9 +516,11 @@ class Renderer:
             dobj.doctree.sections.insert(0, overloads)  # type: ignore  # mypy
         else:
             self._resolve_doc_from_sig(dobj)
+        self.is_auto_args = bool(not dobj.signature)
         if dobj.doctree:
             self.newline()
             self.visit_Docstring(dobj.doctree)
+        self.is_auto_args = False
 
     def visit_Class(self, dobj: Class) -> None:
         self.title(dobj)
@@ -517,9 +528,11 @@ class Renderer:
             # remove before resolve
             _extract_inlinevalue(dobj.doctree)
         self._resolve_doc_from_sig(dobj)
+        self.is_auto_args = bool(not dobj.signature)
         if dobj.doctree:
             self.newline()
             self.visit_Docstring(dobj.doctree)
+        self.is_auto_args = False
         ctx = self.block() if isenumclass(dobj.pyobj) else self.heading()
         with ctx:
             for member in self.member_iterator.iter_class(dobj):
@@ -552,8 +565,17 @@ class Renderer:
             self.visit(section)
 
     def visit_ColonArg(
-        self, dsobj: nodes.ColonArg, isvar: bool = False, iskw: bool = False
+        self,
+        dsobj: nodes.ColonArg,
+        *,
+        isvar: bool = False,
+        iskw: bool = False,
+        link_ann: bool = False,
     ) -> None:
+        if link_ann and dsobj.annotation:
+            dsobj.annotation = self.current_module.build_static_ann(
+                ast.parse(dsobj.annotation, mode="eval").body
+            ).get_doc_linkify(self.add_link)
         self.fill("- ")
         if dsobj.name:
             with self.delimit("`", "`"):
@@ -582,6 +604,7 @@ class Renderer:
         self.write(dsobj.value)
 
     def visit_Args(self, dsobj: nodes.Args) -> None:
+        # NOTE: only function Args and Returns can have link (auto resolved)
         self.fill(f"- **{dsobj.name}**")
         rendered = False
         with self.block():
@@ -602,7 +625,10 @@ class Renderer:
                 self.newline()
                 self.visit_ColonArg(dsobj.kwarg, iskw=True)
             if not rendered:
-                self.newline("empty")
+                if self.is_auto_args:
+                    self.newline("auto")
+                else:
+                    self.newline("empty")
 
     def visit_Overloads(self, dsobj: nodes.Overloads) -> None:
         self.fill("- **重载**")  # TODO: i18n
@@ -633,9 +659,11 @@ class Renderer:
         with self.block():
             for arg in dsobj.args:
                 self.newline()
-                self.visit_ColonArg(arg)
+                self.visit_ColonArg(arg, link_ann=True)
 
-    def _visit_return_like(self, dsobj: Union[nodes.Returns, nodes.Yields]) -> None:
+    def _visit_return_like(
+        self, dsobj: Union[nodes.Returns, nodes.Yields], link_ann: bool = False
+    ) -> None:
         self.fill(f"- **{dsobj.name}**")
         if dsobj.version:
             self.write(" ")
@@ -645,9 +673,10 @@ class Renderer:
                 self.newline(dsobj.value)
             else:
                 self.newline()
-                self.visit_ColonArg(dsobj.value)
+                self.visit_ColonArg(dsobj.value, link_ann=link_ann)
 
-    visit_Returns = visit_Yields = _visit_return_like
+    visit_Returns = _visit_return_like
+    visit_Yields = partial(_visit_return_like, link_ann=True)
 
     def visit_Require(self, dsobj: nodes.Require) -> None:
         self.fill(f"- **{dsobj.name}**")

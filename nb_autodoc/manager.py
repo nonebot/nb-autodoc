@@ -400,6 +400,7 @@ class Module:
                 self.prime_analyzer.module.typing_names,
             ),
             globalns=self.get_all_definitions(),
+            manager=self.manager,
         )
 
     def _transform_ast_signature(

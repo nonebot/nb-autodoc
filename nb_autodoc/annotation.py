@@ -25,7 +25,7 @@ from nb_autodoc.analyzers.utils import (
 from nb_autodoc.utils import frozendict, interleave
 
 if t.TYPE_CHECKING:
-    from nb_autodoc.manager import _AnnContext
+    from nb_autodoc.manager import ModuleManager, _AnnContext
     from nb_autodoc.typing import T_Definition
 
 
@@ -297,9 +297,11 @@ class AnnExprVisitor:
         *,
         globalns: dict[str, T_Definition] = frozendict(),
         add_link: t.Callable[[T_Definition], str] = _add_link_empty,
+        eval_refname: t.Callable[[str], t.Optional[T_Definition]] = lambda x: None,
     ) -> None:
         self.globalns = globalns
         self.add_link = add_link
+        self.eval_refname = eval_refname
         self._builder: list[str] = []
 
     def write(self, s: str) -> None:
@@ -336,8 +338,9 @@ class AnnExprVisitor:
 
     def visit_Name(self, annexpr: Name) -> None:
         name = annexpr.name
-        if name in self.globalns:
-            self.write(self.add_link(self.globalns[name]))
+        dobj = self.globalns.get(name) or self.eval_refname(name)
+        if dobj:
+            self.write(self.add_link(dobj))
         else:
             self.write(name)
 
@@ -407,12 +410,14 @@ class Annotation:
         context: _AnnContext,
         *,
         globalns: dict[str, T_Definition] | None = None,
+        manager: ModuleManager,
     ) -> None:
         norm = _get_typing_normalizer(context)
         self.ann: _T_annexpr = AnnotationTransformer(norm).visit(ast_expr)
         if globalns is None:
             globalns = {}
         self.globalns = globalns
+        self.manager = manager
 
     @property
     def is_typealias(self) -> bool:
@@ -427,9 +432,11 @@ class Annotation:
         return False
 
     def get_doc_linkify(self, add_link: t.Callable[[T_Definition], str]) -> str:
-        return AnnExprVisitor(globalns=self.globalns, add_link=add_link).render(
-            self.ann
-        )
+        return AnnExprVisitor(
+            globalns=self.globalns,
+            add_link=add_link,
+            eval_refname=self.manager.get_definition_dotted,
+        ).render(self.ann)
 
     def __str__(self) -> str:
         return _type_str(self.ann)
