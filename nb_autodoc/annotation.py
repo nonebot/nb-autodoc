@@ -410,7 +410,7 @@ class Annotation:
         context: _AnnContext,
         *,
         globalns: dict[str, T_Definition] | None = None,
-        manager: ModuleManager,
+        manager: ModuleManager | None = None,
     ) -> None:
         norm = _get_typing_normalizer(context)
         self.ann: _T_annexpr = AnnotationTransformer(norm).visit(ast_expr)
@@ -435,7 +435,9 @@ class Annotation:
         return AnnExprVisitor(
             globalns=self.globalns,
             add_link=add_link,
-            eval_refname=self.manager.get_definition_dotted,
+            eval_refname=self.manager.get_definition_dotted
+            if self.manager
+            else lambda x: None,
         ).render(self.ann)
 
     def __str__(self) -> str:
