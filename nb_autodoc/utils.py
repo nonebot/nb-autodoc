@@ -37,7 +37,7 @@ def safe_getattr(obj: t.Any, *attrs: str, default: t.Any = _NULL) -> t.Any:
 
 
 def safe_evalattr(
-    attr: str, globalns: dict[str, t.Any], default: t.Any = _NULL
+    attr: str, globalns: t.Dict[str, t.Any], default: t.Any = _NULL
 ) -> t.Any:
     try:
         return eval(attr, globalns)
