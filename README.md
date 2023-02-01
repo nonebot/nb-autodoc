@@ -7,9 +7,9 @@
 ![python version](https://img.shields.io/badge/python-3.8+-%233eca5d)
 ![pypi version](https://img.shields.io/pypi/v/nb-autodoc)
 
-[简体中文](https://raw.githubusercontent.com/nonebot/nb-autodoc/main/README.md)
+[简体中文](https://github.com/nonebot/nb-autodoc/blob/main/README.md)
 ·
-[English](https://raw.githubusercontent.com/nonebot/nb-autodoc/main/README_en.md)
+[English](https://github.com/nonebot/nb-autodoc/blob/main/README_en.md)
 
 </div>
 
