@@ -18,7 +18,7 @@ from .utils import (
 _Member = Union["ImportFromData", "AssignData", "FunctionDefData", "ClassDefData"]
 
 
-def _extract_docstring_scope(scope: dict[str, _Member]) -> dict[str, str]:
+def _extract_docstring_scope(scope: Dict[str, _Member]) -> Dict[str, str]:
     res = {}
     for member in scope.values():
         if isinstance(member, FunctionDefData) and member.assign_docstring:
