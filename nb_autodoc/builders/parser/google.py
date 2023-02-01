@@ -173,9 +173,9 @@ class Docstring:
                     for match in re.finditer(r"{([\w]+)}`(.*?)`", s)
                 ]
 
-            anno_re = r"[\w\.\[\], ]+"
+            anno_re = r"[a-zA-Z0-9_\.]+(?:\[[a-zA-Z0-9_\.\[\], ]+\])?"
             name_re = anno_re if section.type is _RETURNS else r"[\w]+"
-            line_re = r"^(?! )({name})(?: *\(({anno})\))?(.*?):".format(  # noqa
+            line_re = r"^(?! )({name})(?: *\(({anno})\))?(.*?):[ \n]?".format(  # noqa
                 name=name_re, anno=anno_re
             )
             matches = list(re.finditer(line_re, section.source, flags=re.M))
@@ -187,6 +187,9 @@ class Docstring:
                     section.source[matches[i].end() : matches[i + 1].start()]
                 )
             descriptions.append(section.source[matches[-1].end() :])
+            for i in range(len(matches)):
+                if matches[i].group()[-1] == '\n':
+                    descriptions[i] = '\n' + descriptions[i]
             for i, description in enumerate(descriptions):
                 # self splitor rather than inspect.cleandoc
                 description, long_description = (description + "\n").split("\n", 1)
