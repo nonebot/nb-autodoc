@@ -4,7 +4,7 @@ if sys.version_info >= (3, 9):
     from types import GenericAlias
 
 from typing import TYPE_CHECKING, Any, Tuple, Union
-from typing_extensions import Protocol, TypeAlias, TypeGuard
+from typing_extensions import Protocol, TypeGuard
 
 if TYPE_CHECKING:
     from nb_autodoc.manager import (
