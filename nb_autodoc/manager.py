@@ -141,6 +141,22 @@ class ModuleManager:
     def parse_doc(self, s: str) -> Docstring:
         return parse_doc(s, self.config)
 
+    def get_definition(self, modulename: str, qualname: str) -> T_Definition | None:
+        module = self.modules.get(modulename)
+        if module:
+            return module.get_canonical_member(qualname)
+
+    def get_definition_dotted(self, refname: str) -> T_Definition | None:
+        # longest module first
+        modulename, dot, qualname = refname.rpartition(".")
+        while modulename:
+            if not dot:
+                break
+            if modulename in self.modules:
+                return self.modules[modulename].get_canonical_member(qualname)
+            modulename, dot, _ = modulename.rpartition(".")
+            qualname = refname[len(modulename) + 1 :]
+
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} {self.name!r}>"
 

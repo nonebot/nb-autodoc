@@ -260,39 +260,23 @@ class Renderer:
         role = match.groupdict()
         name, text, content = role["name"], role["text"], role["content"]
         matchtext = match.group()
-        modules = self.current_module.manager.modules
+        manager = self.current_module.manager
         if name in ("version", "ver"):
             return get_version_badge(role["content"])
         elif name == "ref":
-            # search object use `get_canonical_member`
-            modulename, qualname = None, None
             if ":" in content:
                 modulename, qualname = content.split(":")
-            # longest module prefix match
+                dobj = manager.get_definition(modulename, qualname)
             else:
-                moduleprefixes = sorted(
-                    (name + "." for name in modules), key=len, reverse=True
+                dobj = manager.get_definition_dotted(content)
+            if dobj:
+                return self.add_link(
+                    dobj,
+                    warn_notfound=f"ref {matchtext!r} found {dobj.fullname!r} "
+                    "which is unlinkable",
+                    text=text,
                 )
-                for name in moduleprefixes:
-                    if content.startswith(name):
-                        modulename = name[:-1]
-                        qualname = content[len(name) :]
-                        break
-            found = False
-            if modulename and qualname:
-                module = modules[modulename]
-                dobj = module.get_canonical_member(qualname)
-                if isinstance(dobj, ImportRef):
-                    dobj = dobj.find_definition()
-                if dobj:
-                    found = True
-                    return self.add_link(
-                        dobj,
-                        warn_notfound=f"ref {matchtext!r} found {dobj.fullname!r} "
-                        "which is unlinkable",
-                        text=text,
-                    )
-            if not found:
+            else:
                 logger.warning(f"ref {matchtext!r} is not a member")
         else:
             logger.warning(f"role {matchtext!r} is invalid")

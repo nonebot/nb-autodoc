@@ -81,6 +81,62 @@ class TestModuleManager:
             single = manager.modules["single"]
             assert single.members.keys() == {"foo", "func"}
 
+    def test_get_definition_dotted(self):
+        manager = ModuleManager("tests.managerdata.get_canonical_member")
+        moda = manager.modules["tests.managerdata.get_canonical_member.a"]
+        modb = manager.modules["tests.managerdata.get_canonical_member.b"]
+        moda_A_a = moda.members["A"].members["a"]
+        moda_b = moda.members["b"]
+        moda_B_b = moda.members["B"].members["b"]
+        modb_a = modb.members["a"]
+        modb_C = modb.members["C"]
+        modb_C_c = modb_C.members["c"]
+        assert (
+            manager.get_definition("tests.managerdata.get_canonical_member.a", "C")
+            is modb_C
+        )
+        assert (
+            manager.get_definition("tests.managerdata.get_canonical_member.a", "b")
+            is moda_b
+        )
+        assert (
+            manager.get_definition_dotted(
+                "tests.managerdata.get_canonical_member.a.A.a"
+            )
+            is moda_A_a
+        )
+        assert (
+            manager.get_definition_dotted(
+                "tests.managerdata.get_canonical_member.a.B.b"
+            )
+            is moda_B_b
+        )
+        assert (
+            manager.get_definition_dotted("tests.managerdata.get_canonical_member.a.C")
+            is modb_C
+        )
+        assert (
+            manager.get_definition_dotted(
+                "tests.managerdata.get_canonical_member.a.C.c"
+            )
+            is modb_C_c
+        )
+        assert (
+            manager.get_definition_dotted(
+                "tests.managerdata.get_canonical_member.a.B.c"
+            )
+            is modb_C_c
+        )
+        Foo_a = manager.modules["tests.managerdata.get_canonical_member.Foo"].members[
+            "a"
+        ]
+        assert (
+            manager.get_definition_dotted(
+                "tests.managerdata.get_canonical_member.Foo.a"
+            )
+            is Foo_a
+        )
+
 
 class TestModule:
     def test_get_canonical_member(self):
