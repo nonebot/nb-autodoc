@@ -26,8 +26,11 @@ class Config(TypedDict, total=False):
 
     Carefully add this option on a dependent module because we want to
     analyze python object relationship.
-
     Support `fnmatch` pattern, such as '*', '?', etc.
+
+    Default: `frozenset()`
+
+    CLI Flags: `-s`, `--skip`
     """
 
     ### Builder Config ###
@@ -46,10 +49,19 @@ class Config(TypedDict, total=False):
     """Exclude documentation modules.
 
     Support `fnmatch` pattern, such as '*', '?', etc.
+
+    Default: `frozenset()`
+
+    CLI Flags: `-u`, `--undoc`
     """
 
     output_dir: str
-    """Documentation output directory. Default to 'build'."""
+    """Documentation output directory.
+
+    Default: `'build'`.
+
+    CLI Flags: `-o`, `--output-dir`
+    """
 
     write_encoding: str
     """File encoding to write. Default to 'utf-8'."""
