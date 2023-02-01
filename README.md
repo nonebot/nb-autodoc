@@ -1,15 +1,15 @@
 <div align="center">
 
-<img src="logo/logo.png" width=200, height=200 alt="nb-autodoc"></img>
+<img src="https://raw.githubusercontent.com/nonebot/nb-autodoc/main/logo/logo.png" width=200, height=200 alt="nb-autodoc"></img>
 
 # nb-autodoc
 
 ![python version](https://img.shields.io/badge/python-3.8+-%233eca5d)
 ![pypi version](https://img.shields.io/pypi/v/nb-autodoc)
 
-[简体中文](README.md)
+[简体中文](https://raw.githubusercontent.com/nonebot/nb-autodoc/main/README.md)
 ·
-[English](README_en.md)
+[English](https://raw.githubusercontent.com/nonebot/nb-autodoc/main/README_en.md)
 
 </div>
 
