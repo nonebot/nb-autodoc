@@ -2,8 +2,7 @@ name: Code Test
 
 on:
   push:
-    branches:
-      - master
+    paths: [nb_autodoc/**, tests/**]
   pull_request:
     paths: [nb_autodoc/**, tests/**]
 
