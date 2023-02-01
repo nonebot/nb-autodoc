@@ -1,62 +1,32 @@
+<div align="center">
+
+<img src="logo/logo.png" width=200, height=200 alt="nb-autodoc"></img>
+
 # nb-autodoc
 
-![Python Version](https://img.shields.io/badge/Python-3.7%2B-%233eca5f)
+![python version](https://img.shields.io/badge/python-3.8+-%233eca5d)
+![pypi version](https://img.shields.io/pypi/v/nb-autodoc)
 
-### Module 处理标准
+[简体中文](README.md)
+·
+[English](README_en.md)
 
-1. 成员寻找和顺序
+</div>
 
-    所有子模块都会在内部 import (`config.skip_import_modules`)，严格依照 `__dict__` 或者有 stub 时调用 stub 的 definitions 进行解析
+## 简介
 
-2. definition 和 external
+nb-autodoc 是一个从 Python 源码的 [类型注解](https://docs.python.org/3/library/typing.html) 和 [Docstring](https://peps.python.org/pep-0257/) 自动生成 API 文档的工具。
 
-    definition 规定在本模块的定义成员。external 规定来自外部模块的成员，只有 from...import 中解析到对应模块名才会认为是 external
+本工具从包里查找所有的模块并导入，解析各模块的抽象语法树、运行时类型，链接内部对象，解析函数签名和 docstring 语法树，最终生成完整、可靠、带有链接的 API 文档。
 
-    动态创建的函数或类都可以由 definition finder 配合 inspect 解决
+## 主要特性
 
-3. stub 和 real
+- 基于 AST 的类型分析系统
 
-    stub 会以 CO_FUTURE_ANNOTATIONS flag compile 并执行。
+- stub (.pyi) 支持
 
-    当存在 stub 和 real 时，real 仅用于获取 docstring（可能是 c extension）
+- TYPE_CHECKING 支持
 
-    当 real 不是 sourcefile (etc. c extension) 并且没有 stub 时，不做处理
+- Re-export 支持，从 AST 解析导入引用
 
-    当 stub 是独立的，没有实际模块时，也会进行输出（相当于把 real docstring 设为空）
-
-    以上信息由 Module 解析提供，Module 仅向外部提供可访问的 definition 和 external
-
-4. docstring 绑定则不可变，annotation 重复出现则覆盖
-
-### Class 处理标准
-
-待定，估计有一些 type parameter 和成员类型的问题。
-
-### autodoc problem
-
-考虑这样一个情况:
-
-```
-./
-main.py
-internal/
-    __init__.py
-external/
-    __init__.py
-```
-
-internal 有个 Foo 类，包括成员 a 和 b，需要在 external 控制 Foo 和其成员要怎么做？
-
-
-解决方案：根据 ast from...import 进行链式解析。
-
-### Literal annotation
-
-1. 验证是否 new style，由于 new style 处理过于复杂（FunctionType 嵌套和转换问题），对其只进行 refname 替换
-
-2. 不是 new style 则进行 evaluate
-
-### others
-
-问题:
-    1. 来自其他模块的对象在本模块输出，链接问题
+- Overload 重载函数支持
