@@ -18,6 +18,20 @@ from .utils import (
 _Member = Union["ImportFromData", "AssignData", "FunctionDefData", "ClassDefData"]
 
 
+def _extract_docstring_scope(scope: dict[str, _Member]) -> dict[str, str]:
+    res = {}
+    for member in scope.values():
+        if isinstance(member, FunctionDefData) and member.assign_docstring:
+            res[member.name] = member.assign_docstring
+        elif isinstance(member, AssignData) and member.docstring:
+            res[member.name] = member.docstring
+        elif isinstance(member, ClassDefData):
+            clsdocstring = _extract_docstring_scope(member.scope)
+            for name, docstring in clsdocstring.items():
+                res[f"{member.name}.{name}"] = docstring
+    return res
+
+
 @dataclass
 class ModuleData:
     scope: Dict[str, _Member] = field(default_factory=dict)
@@ -27,6 +41,9 @@ class ModuleData:
     typing_module: List[str] = field(default_factory=list)
     # names is Mapping of `varname: name`
     typing_names: Dict[str, str] = field(default_factory=dict)
+
+    def _extract_docstring(self) -> Dict[str, str]:
+        return _extract_docstring_scope(self.scope)
 
 
 @dataclass

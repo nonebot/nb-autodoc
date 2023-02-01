@@ -50,6 +50,7 @@ def ast_unparse(node: ast.AST, _default: t.Optional[str] = None) -> str:
 
 ### For analyzers
 
+
 # Although python compat node in previous version
 # It's not good idea to fixup and return correct node
 def is_constant_node(node: ast.expr) -> bool:

@@ -36,6 +36,7 @@ from nb_autodoc.utils import (
     dedent,
     isenumclass,
     isnamedtuple,
+    safe_evalattr,
 )
 
 T = TypeVar("T")
@@ -306,6 +307,23 @@ class Module:
             self.prime_analyzer.module.type_checking_body, globalns
         )
         return globalns
+
+    @cached_property
+    def py_vardocstring_remain(self) -> dict[str, str] | None:
+        if self.pyi_analyzer and self.py_analyzer:
+            return self.py_analyzer.module._extract_docstring()
+
+    def infer_py_docstring(self, qualname: str) -> str | None:
+        """Infer docstring from py if both py and pyi exist."""
+        if self.pyi_analyzer and self.py_analyzer and self.py and self.pyi:
+            if self.py_vardocstring_remain and qualname in self.py_vardocstring_remain:
+                return self.py_vardocstring_remain[qualname]
+            NULL = object()
+            obj = safe_evalattr(
+                f"{qualname}.__doc__", self.py.sm_dict.copy(), default=NULL
+            )
+            if isinstance(obj, str):
+                return obj
 
     def add_member(self, name: str, obj: T_ModuleMember | ImportRef) -> None:
         self.members[name] = self.manager.context[f"{self.name}:{name}"] = obj
@@ -674,19 +692,22 @@ class Function:
             func = pyobj
         self.pyobj = pyobj
         self.func = func
+        # None if function is dynamic creation without overload or c extension reexport
+        self.astobj = astobj
+        self.module = module
+        self.cls = cls
         doc = assign_doc
         if not doc:
             doc = func.__doc__ and cleandoc(func.__doc__)
         if not doc and astobj:
             doc = astobj.assign_docstring and cleandoc(astobj.assign_docstring)
+        if not doc:
+            docstring = module.infer_py_docstring(self.qualname)
+            doc = docstring and cleandoc(docstring)
         self.doc = doc
         self.doctree = (
             module.manager.parse_doc(self.doc) if self.doc is not None else None
         )
-        # None if function is dynamic creation without overload or c extension reexport
-        self.astobj = astobj
-        self.module = module
-        self.cls = cls
         # evaluate signature_from_ast `expr | str` using globals and class locals
         # __text_signature__ should be respected
         # https://github.com/python/cpython/blob/5cf317ade1e1b26ee02621ed84d29a73181631dc/Objects/typeobject.c#L8597
@@ -779,6 +800,8 @@ class Variable:
             docstring = astobj.docstring
         elif isinstance(pyobj, property):
             docstring = pyobj.__doc__
+        if not docstring:
+            docstring = module.infer_py_docstring(self.qualname)
         self.doc = docstring and cleandoc(docstring)
         self.doctree = (
             module.manager.parse_doc(self.doc) if self.doc is not None else None

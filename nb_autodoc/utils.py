@@ -8,6 +8,7 @@ import typing_extensions as te
 from enum import Enum
 from importlib.machinery import all_suffixes
 from inspect import Signature
+from operator import attrgetter
 from os.path import commonprefix
 from pathlib import Path
 from types import BuiltinFunctionType, FunctionType, MappingProxyType
@@ -24,17 +25,26 @@ KT = t.TypeVar("KT")
 _NULL: t.Any = object()
 
 
-def safe_getattr(obj: t.Any, attr: str, default: t.Any = _NULL) -> t.Any:
+def safe_getattr(obj: t.Any, *attrs: str, default: t.Any = _NULL) -> t.Any:
     """Safe getattr that turns all exception into AttributeError."""
-    if default is _NULL:
-        try:
-            return getattr(obj, attr)
-        except Exception:
-            raise AttributeError(f"{obj!r} has no attribute {attr!r}") from None
-    else:
-        try:
-            return getattr(obj, attr, default)
-        except Exception:
+    try:
+        return attrgetter(*attrs)(obj)
+    except Exception:
+        if default is _NULL:
+            raise AttributeError(f"{obj!r} has no attribute {attrs!r}") from None
+        else:
+            return default
+
+
+def safe_evalattr(
+    attr: str, globalns: dict[str, t.Any], default: t.Any = _NULL
+) -> t.Any:
+    try:
+        return eval(attr, globalns)
+    except Exception:
+        if default is _NULL:
+            raise AttributeError
+        else:
             return default
 
 
@@ -270,7 +280,9 @@ class cached_property(t.Generic[T]):
             return self  # type: ignore
         try:
             cache = instance.__dict__
-        except AttributeError:  # not all objects have __dict__ (e.g. class defines slots)
+        except (
+            AttributeError
+        ):  # not all objects have __dict__ (e.g. class defines slots)
             msg = (
                 f"No '__dict__' attribute on {type(instance).__name__!r} "
                 f"instance to cache {self.attrname!r} property."

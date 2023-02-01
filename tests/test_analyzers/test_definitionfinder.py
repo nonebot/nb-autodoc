@@ -15,6 +15,19 @@ def get_analyzer_data(filename: str) -> str:
     return open(Path(__file__).parent.parent / "analyzerdata" / filename).read()
 
 
+class TestModuleData:
+    def test_extract_docstring(self):
+        code = get_analyzer_data("extract-docstring.py")
+        module = ast_parse(code)
+        visitor = DefinitionFinder(package="<test>", source=code)
+        visitor.visit(module)
+        assert visitor.module._extract_docstring() == {
+            "a": "a docstring",
+            "b": "b docstring",
+            "A.a": "A.a docstring",
+        }
+
+
 class TestDefinitionFinder:
     def test_simple_data(self):
         code = get_analyzer_data("simple-definition-ast.py")
