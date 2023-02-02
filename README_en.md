@@ -30,3 +30,33 @@ This tool finds and imports all modules from the package, analyzes the AST and r
 - Re-export support, resolve import reference from AST
 
 - Overload function support
+
+## Usage
+
+Install via pip:
+
+```
+pip install nb-autodoc
+```
+
+Run nb-autodoc:
+
+```
+nb-autodoc {package_name}
+```
+
+Other CLI options:
+
+```
+Usage: nb-autodoc [OPTIONS] MODULE
+
+Options:
+  -o, --output-dir DIRECTORY      [default: build]
+  -s, --skip TEXT                 skip import modules
+  -u, --undoc TEXT                undocument modules
+  --markdown-linkmode [heading_id|vuepress]
+                                  [default: heading_id]
+  --help                          Show this message and exit.
+```
+
+**tip:** use `--undoc` rather than `--skip`，the latter will skip the module import and analysis.

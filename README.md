@@ -30,3 +30,33 @@ nb-autodoc 是一个从 Python 源码的 [类型注解](https://docs.python.org/
 - Re-export 支持，从 AST 解析导入引用
 
 - Overload 重载函数支持
+
+## 用法
+
+从 pip 安装:
+
+```
+pip install nb-autodoc
+```
+
+运行 nb-autodoc:
+
+```
+nb-autodoc {package_name}
+```
+
+其他命令行选项:
+
+```
+Usage: nb-autodoc [OPTIONS] MODULE
+
+Options:
+  -o, --output-dir DIRECTORY      [default: build]
+  -s, --skip TEXT                 skip import modules
+  -u, --undoc TEXT                undocument modules
+  --markdown-linkmode [heading_id|vuepress]
+                                  [default: heading_id]
+  --help                          Show this message and exit.
+```
+
+**提示:** 使用 `--undoc` 而不是 `--skip`，后者会跳过模块的导入和分析。
