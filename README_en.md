@@ -23,6 +23,8 @@ This tool finds and imports all modules from the package, analyzes the AST and r
 
 - type annotation analysis system based on AST
 
+- modern typing representation, such as `X | Y`, `list[str]`, `(*args) -> Any`
+
 - stub (.pyi) support
 
 - TYPE_CHECKING support

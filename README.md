@@ -23,6 +23,8 @@ nb-autodoc 是一个从 Python 源码的 [类型注解](https://docs.python.org/
 
 - 基于 AST 的类型分析系统
 
+- 现代的类型展示，如 `X | Y`、`list[str]`、`(*args) -> Any`
+
 - stub (.pyi) 支持
 
 - TYPE_CHECKING 支持
