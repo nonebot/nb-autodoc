@@ -298,10 +298,13 @@ class AnnExprVisitor:
         globalns: dict[str, T_Definition] = frozendict(),
         add_link: t.Callable[[T_Definition], str] = _add_link_empty,
         eval_refname: t.Callable[[str], t.Optional[T_Definition]] = lambda x: None,
+        escape_impl: t.Callable[[str], str] = lambda x: x,
     ) -> None:
         self.globalns = globalns
         self.add_link = add_link
         self.eval_refname = eval_refname
+        # escape for name contains md chars; or Literal string
+        self.escape_impl = escape_impl
         self._builder: list[str] = []
 
     def write(self, s: str) -> None:
@@ -342,7 +345,7 @@ class AnnExprVisitor:
         if dobj:
             self.write(self.add_link(dobj))
         else:
-            self.write(name)
+            self.write(self.escape_impl(name))
 
     def visit_TypingName(self, annexpr: TypingName) -> None:
         if annexpr.tp_name in _py310_ga_tpname:
@@ -359,7 +362,7 @@ class AnnExprVisitor:
                 lambda: self.write(", "),
                 lambda arg: self.visit_Name(arg)
                 if isinstance(arg, Name)
-                else self.write(repr(arg)),
+                else self.write(self.escape_impl(repr(arg))),
                 annexpr.args,
             )
 
@@ -431,13 +434,18 @@ class Annotation:
             return _ga_subst_outer_check(self.ann, "ClassVar")
         return False
 
-    def get_doc_linkify(self, add_link: t.Callable[[T_Definition], str]) -> str:
+    def get_doc_linkify(
+        self,
+        add_link: t.Callable[[T_Definition], str],
+        escape_impl: t.Callable[[str], str],
+    ) -> str:
         return AnnExprVisitor(
             globalns=self.globalns,
             add_link=add_link,
             eval_refname=self.manager.get_definition_dotted
             if self.manager
             else lambda x: None,
+            escape_impl=escape_impl,
         ).render(self.ann)
 
     def __str__(self) -> str:

@@ -39,6 +39,19 @@ _descr_role_re = re.compile(
 )
 
 
+def escape_md_chars(s: str) -> str:
+    return (
+        s.replace("*", r"\*")
+        .replace("#", r"\#")
+        .replace("(", r"\(")
+        .replace(")", r"\)")
+        .replace("<", r"\<")
+        .replace(">", r"\>")
+        .replace("_", r"\_")
+        .replace("`", r"\`")
+    )
+
+
 # renderer utils
 def _find_kind_from_roles(roles: List[nodes.Role]) -> Optional[str]:
     for role in roles:
@@ -249,7 +262,7 @@ class Renderer:
             if warn_notfound:
                 logger.warning(warn_notfound)
             return dobj.qualname
-        text = text or dobj.qualname
+        text = escape_md_chars(text or dobj.qualname)
         if modulename == self.current_module.name:
             return f"[{text}](#{anchor})"
         path = self.builder.paths[modulename]
@@ -316,9 +329,11 @@ class Renderer:
                 if doc_arg and doc_arg.annotation:
                     annotation = bind_module.build_static_ann(
                         ast.parse(doc_arg.annotation, mode="eval").body
-                    ).get_doc_linkify(self.add_link)
+                    ).get_doc_linkify(self.add_link, escape_md_chars)
                 elif p.annotation is not Parameter.empty:
-                    annotation = p.annotation.get_doc_linkify(self.add_link)
+                    annotation = p.annotation.get_doc_linkify(
+                        self.add_link, escape_md_chars
+                    )
                 arg = nodes.ColonArg(p.name, annotation, [], "", "")
                 if doc_arg:
                     arg.descr = doc_arg.descr
@@ -345,7 +360,7 @@ class Renderer:
                 if doc_arg.annotation:
                     annotation = bind_module.build_static_ann(
                         ast.parse(doc_arg.annotation, mode="eval").body
-                    ).get_doc_linkify(self.add_link)
+                    ).get_doc_linkify(self.add_link, escape_md_chars)
                 new_args.kwonlyargs.append(
                     nodes.ColonArg(
                         name, annotation, [], doc_arg.descr, doc_arg.long_descr
@@ -370,7 +385,7 @@ class Renderer:
                 assert rets.value.annotation, "Returns ColonArg annotation must be str"
                 annotation = bind_module.build_static_ann(
                     ast.parse(rets.value.annotation, mode="eval").body
-                ).get_doc_linkify(self.add_link)
+                ).get_doc_linkify(self.add_link, escape_md_chars)
                 descr = rets.value.descr
                 long_descr = rets.value.long_descr
             else:
@@ -380,7 +395,9 @@ class Renderer:
             new_rets.value.descr = descr
             new_rets.value.long_descr = long_descr
         if annotation is None and sig and sig.return_annotation is not Parameter.empty:
-            annotation = sig.return_annotation.get_doc_linkify(self.add_link)
+            annotation = sig.return_annotation.get_doc_linkify(
+                self.add_link, escape_md_chars
+            )
         elif annotation is None:
             annotation = "untyped"
         new_rets.value.annotation = annotation
@@ -466,11 +483,11 @@ class Renderer:
         self.newline("- **类型:**")
         if dobj.annotation:
             self.write(" ")
-            self.write(dobj.annotation.get_doc_linkify(self.add_link))
+            self.write(dobj.annotation.get_doc_linkify(self.add_link, escape_md_chars))
         elif dobj.doctree and dobj.doctree.annotation:
             dobj.module.build_static_ann(
                 ast.parse(dobj.doctree.annotation, mode="eval").body
-            ).get_doc_linkify(self.add_link)
+            ).get_doc_linkify(self.add_link, escape_md_chars)
         inlinevalue = {}
         if dobj.doctree:
             inlinevalue = _extract_inlinevalue(dobj.doctree)
@@ -575,7 +592,7 @@ class Renderer:
         if link_ann and dsobj.annotation:
             dsobj.annotation = self.current_module.build_static_ann(
                 ast.parse(dsobj.annotation, mode="eval").body
-            ).get_doc_linkify(self.add_link)
+            ).get_doc_linkify(self.add_link, escape_md_chars)
         self.fill("- ")
         if dsobj.name:
             with self.delimit("`", "`"):
