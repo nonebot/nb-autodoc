@@ -255,14 +255,21 @@ class Renderer:
             self.write(f" {{#{heading_id_slugify_impl(dobj)}}}")
 
     def add_link(
-        self, dobj: T_Definition, *, warn_notfound: str = "", text: Optional[str] = None
+        self,
+        dobj: T_Definition,
+        *,
+        warn_notfound: str = "",
+        text: Optional[str] = None,
+        autoescape: bool = True,
     ) -> str:
         modulename, anchor = self.builder.get_anchor_ref(dobj)
         if not anchor:
             if warn_notfound:
                 logger.warning(warn_notfound)
             return dobj.qualname
-        text = escape_md_chars(text or dobj.qualname)
+        text = text or dobj.qualname
+        if autoescape:
+            text = escape_md_chars(text)
         if modulename == self.current_module.name:
             return f"[{text}](#{anchor})"
         path = self.builder.paths[modulename]
@@ -289,6 +296,7 @@ class Renderer:
                     warn_notfound=f"ref {matchtext!r} found {dobj.fullname!r} "
                     "which is unlinkable",
                     text=text,
+                    autoescape=False,
                 )
             else:
                 logger.warning(f"ref {matchtext!r} is not a member")
