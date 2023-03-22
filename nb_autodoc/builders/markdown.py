@@ -689,8 +689,9 @@ class Renderer:
 
 def heading_id_slugify_impl(dobj: T_Definition) -> str:
     # EnumMember is unlinkable and expect None, but we skipped
-    return dobj.qualname.replace(".", "-")
-    # return dobj.qualname  # docusauras cannot recognize "."
+    # replace . because docusaurus 2.0.0 not support (2.3.0 work)
+    # replace _ for: https://github.com/facebook/docusaurus/issues/8617
+    return dobj.qualname.replace(".", "-").replace("_", "-")
 
 
 def vuepress_slugify_impl(dobj: T_Definition) -> Optional[str]:
