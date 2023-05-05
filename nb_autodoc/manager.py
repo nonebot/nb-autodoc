@@ -7,6 +7,7 @@ import dataclasses
 from inspect import Parameter, Signature, getsource, unwrap
 from types import FunctionType, MappingProxyType, ModuleType
 from typing import Any, Dict, NamedTuple, TypeVar, cast
+from typing_extensions import TypeAlias
 
 from nb_autodoc.analyzers.analyzer import Analyzer
 from nb_autodoc.analyzers.definitionfinder import (
@@ -676,7 +677,7 @@ class Function:
     def __init__(
         self,
         name: str,
-        pyobj: FunctionType | staticmethod[Any] | classmethod[Any],
+        pyobj: FunctionType | staticmethod[Any, Any] | classmethod[Any, Any, Any],
         astobj: FunctionDefData | None,
         *,
         module: Module,
@@ -735,7 +736,7 @@ class Function:
 
     @cached_property
     def overloads(self) -> list[tuple[FunctionSignature, Docstring | None]] | None:
-        overloads = None
+        overloads: list[tuple[FunctionSignature, Docstring | None]] | None = None
         if isinstance(self.astobj, FunctionDefData) and self.astobj.overloads:
             overloads = []
             for overload in self.astobj.overloads:
@@ -746,6 +747,10 @@ class Function:
                         self.module.manager.parse_doc(doc) if doc else None,
                     )
                 )
+        if overloads and self.cls:
+            overloads = [
+                (_skip_signature_bound_arg(sig), doc) for sig, doc in overloads
+            ]
         return overloads
 
     @staticmethod
