@@ -488,14 +488,17 @@ class Renderer:
 
     def visit_Variable(self, dobj: Variable) -> None:
         self.title(dobj)
-        self.newline("- **类型:**")
+        self.newline("- **类型:** ")
         if dobj.annotation:
-            self.write(" ")
             self.write(dobj.annotation.get_doc_linkify(self.add_link, escape_md_chars))
         elif dobj.doctree and dobj.doctree.annotation:
-            dobj.module.build_static_ann(
-                ast.parse(dobj.doctree.annotation, mode="eval").body
-            ).get_doc_linkify(self.add_link, escape_md_chars)
+            self.write(
+                dobj.module.build_static_ann(
+                    ast.parse(dobj.doctree.annotation, mode="eval").body
+                ).get_doc_linkify(self.add_link, escape_md_chars)
+            )
+        else:
+            self.write("untyped")
         inlinevalue = {}
         if dobj.doctree:
             inlinevalue = _extract_inlinevalue(dobj.doctree)
