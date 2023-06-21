@@ -376,6 +376,10 @@ class GoogleStyleParser:
                 descr = self.line.strip()
             self.lineno += 1
             self.col = 0  # descr may behind roles, so set to zero
+            # join following text line into short descr
+            while l := self.line:
+                self.lineno += 1
+                descr += l.strip()
             descr_chunk = self.lines[self.lineno : partition_lineno]
             self.lineno += len(descr_chunk)  # maybe zero
             long_descr = "\n".join(descr_chunk).strip()
