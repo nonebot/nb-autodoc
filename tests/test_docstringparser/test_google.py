@@ -22,8 +22,8 @@ class TestGoogleStyleParser:
         assert parse("int: descr\nlong descr") == Docstring(
             roles=[],
             annotation="int",
-            descr="descr",
-            long_descr="long descr",
+            descr="descr long descr",
+            long_descr="",
             sections=[],
         )
         assert parse("{ver}`1.1.0+` descr") == Docstring(
@@ -50,8 +50,8 @@ class TestGoogleStyleParser:
         assert parse("{ver}`1.1.0+` Union[int, str]: descr\nlong descr") == Docstring(
             roles=[Role("ver", None, "1.1.0+")],
             annotation="Union[int, str]",
-            descr="descr",
-            long_descr="long descr",
+            descr="descr long descr",
+            long_descr="",
             sections=[],
         )
         assert parse(
