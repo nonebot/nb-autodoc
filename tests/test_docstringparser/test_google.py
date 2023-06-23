@@ -1,5 +1,5 @@
 from nb_autodoc.docstringparser.google import GoogleStyleParser
-from nb_autodoc.nodes import Args, ColonArg, Docstring, Returns, Role, Text
+from nb_autodoc.nodes import Args, ColonArg, Docstring, Returns, Role, Text, Raises
 from nb_autodoc.utils import cleandoc
 
 
@@ -167,6 +167,79 @@ class TestGoogleStyleParser:
                         descr="descr",
                         long_descr="",
                     ),
+                ),
+            ],
+        )
+
+    def test_combined_colonarg_short_description(self):
+        parse = lambda doc: GoogleStyleParser(doc).parse()
+        doc = cleandoc(
+            """
+            Args:
+                arg: short
+                    short descr.
+                arg2: short
+                    short descr.
+
+                    long
+                    long descr.
+                arg3: short descr.
+
+                    long descr.
+            Raises:
+                ValueError: short
+                    short descr.
+
+                    long
+                    long descr.
+            """
+        )
+        assert parse(doc) == Docstring(
+            roles=[],
+            annotation=None,
+            descr="",
+            long_descr="",
+            sections=[
+                Args(
+                    name="Args",
+                    args=[
+                        ColonArg(
+                            name="arg",
+                            annotation=None,
+                            roles=[],
+                            descr="short short descr.",
+                            long_descr="",
+                        ),
+                        ColonArg(
+                            name="arg2",
+                            annotation=None,
+                            roles=[],
+                            descr="short short descr.",
+                            long_descr="long\nlong descr.",
+                        ),
+                        ColonArg(
+                            name="arg3",
+                            annotation=None,
+                            roles=[],
+                            descr="short descr.",
+                            long_descr="long descr.",
+                        ),
+                    ],
+                    vararg=None,
+                    kwonlyargs=[],
+                    kwarg=None,
+                ),
+                Raises(
+                    name="Raises",
+                    args=[
+                        ColonArg(
+                            name=None,
+                            annotation="ValueError",
+                            roles=[],
+                            descr="short short descr.",
+                            long_descr="long\nlong descr.",
+                        )
+                    ],
                 ),
             ],
         )

@@ -192,14 +192,24 @@ class GoogleStyleParser:
             self.lineno += 1
         descr_chunk = []
         breaked = False
+        merging_short = True
+        line_count = 0
         for i in range(self.lineno, len(self.lines)):
             line = self.lines[i]
+            line_count += 1
+            if include_short and not line.strip() and merging_short:
+                merging_short = False
+                continue
             if line and len(line) - len(line.lstrip()) < least_indent:
                 breaked = True
+                line_count -= 1
                 break
+            if include_short and merging_short and obj is not None:
+                obj.descr += " " + line.strip()
+                continue
             descr_chunk.append(line)
         if breaked:
-            self.lineno += len(descr_chunk)
+            self.lineno += line_count
         else:
             self.lineno = len(self.lines) - 1  # move to ending
         long_descr = dedent("\n".join(descr_chunk)).strip()
