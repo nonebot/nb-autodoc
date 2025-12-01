@@ -548,9 +548,9 @@ class Class:
             return _skip_signature_bound_arg(sig)
 
     def add_member(self, name: str, obj: T_ClassMember) -> None:
-        self.members[name] = self.module.manager.context[
-            f"{self.fullname}.{name}"
-        ] = obj
+        self.members[name] = self.module.manager.context[f"{self.fullname}.{name}"] = (
+            obj
+        )
 
     def get_canonical_member(self, name: str) -> T_ClassMember | None:
         # if "mro" not in self.__dict__:

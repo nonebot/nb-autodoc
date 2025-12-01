@@ -296,8 +296,9 @@ class DefinitionFinder:
             return
         # do not add definition
         for alias in node.names:
-            if alias.name in ("typing", "typing_extensions"):
+            if alias.name in ("typing", "typing_extensions", "collections.abc"):
                 # just make symbol typing import
+                # TODO(iyume): `collections.abc` 这种带子模块的导入解析很复杂，只能先规范用法
                 self.imp_typing.append(alias.asname or alias.name)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
@@ -306,7 +307,7 @@ class DefinitionFinder:
         if (
             not self.current_classes
             and not node.level
-            and node.module in ("typing", "typing_extensions")
+            and node.module in ("typing", "typing_extensions", "collections.abc")
         ):
             # only analyze ansoluate module-level importfrom
             for alias in node.names:
