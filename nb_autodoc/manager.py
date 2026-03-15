@@ -853,7 +853,7 @@ class Variable:
             astobj = cast(AssignData, self.astobj)
             assert astobj.value, "TypeAlias must have assignment value"
             return self.module.build_static_ann(
-                ast.parse(astobj.value, mode="eval").body
+                ast.parse(cleanexpr(astobj.value), mode="eval").body
             )
         elif isinstance(self.pyobj, property) and self.pyobj.fget:
             sig = Function._get_signature(self.pyobj.fget, self.module.manager.modules)

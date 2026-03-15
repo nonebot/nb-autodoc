@@ -231,5 +231,18 @@ class TestVariable:
         assert module.members["a"].is_typealias
         assert module.members["b"].is_typealias
         assert module.members["c"].is_typealias
+        assert module.members["f"].is_typealias
         assert not module.members["d"].is_typealias
         assert not module.members["e"].is_typealias
+
+    def test_multiline_typealias_annotation(self):
+        from .managerdata import variable_is_typealias
+
+        manager = ModuleManager(variable_is_typealias)
+        _, module = manager.modules.popitem()
+        annotation = module.members["f"].annotation
+        assert annotation is not None
+        assert (
+            str(annotation)
+            == "set[int] | set[str] | dict[int, f] | dict[str, f] | None"
+        )
