@@ -5,6 +5,7 @@ on:
     paths: [nb_autodoc/**, tests/**]
   pull_request:
     paths: [nb_autodoc/**, tests/**]
+  workflow_dispatch:
 
 jobs:
   test:
