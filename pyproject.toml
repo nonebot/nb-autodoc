@@ -31,15 +31,12 @@ skip_glob = ["tests/analyzerdata/*"]
 [tool.pyright]
 reportTypedDictNotRequiredAccess = false
 
-[tool.pdm]
-version = { source = "file", path = "nb_autodoc/__init__.py" }
+[tool.hatch.version]
+path = "nb_autodoc/__init__.py"
 
-[tool.pdm.build]
-# editable-backend = "editables"  # break vscode interpreter searching
-
-[tool.pdm.dev-dependencies]
+[dependency-groups]
 dev = ["isort>=5.10.1", "black>=22.6.0", "pytest>=7.1.2"]
 
 [build-system]
-requires = ["pdm-backend"]
-build-backend = "pdm.backend"
+requires = ["hatchling"]
+build-backend = "hatchling.build"

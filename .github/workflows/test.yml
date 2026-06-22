@@ -26,9 +26,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: pipx run pdm install
+        run: uv sync
         shell: bash
 
       - name: Run Pytest
-        run: pipx run pdm run pytest
+        run: uv run pytest
         shell: bash
