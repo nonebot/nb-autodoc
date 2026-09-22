@@ -1,7 +1,6 @@
 """Builder."""
 
 import abc
-import shutil
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional, Tuple
@@ -12,6 +11,9 @@ from nb_autodoc.manager import Class, ImportRef, Module, ModuleManager, Variable
 from nb_autodoc.typing import T_ClassMember, T_Definition, T_ModuleMember
 
 default_slugify = lambda dobj: None
+
+
+class UnsafeOutputDir(RuntimeError): ...
 
 
 def default_path_factory(modulename: str, ispkg: bool) -> List[str]:
@@ -163,20 +165,30 @@ class Builder(abc.ABC):
     def get_member_iterator(self, module: Module) -> MemberIterator:
         return self._member_iterators[module]
 
+    def _check_output_dir_empty(self) -> None:
+        if not self.output_dir.exists():
+            return
+        if not self.output_dir.is_dir():
+            raise UnsafeOutputDir(
+                f"output dir {str(self.output_dir)!r} is a file, not a directory"
+            )
+        leftovers = sorted(entry.name for entry in self.output_dir.iterdir())
+        if leftovers:
+            shown = ", ".join(leftovers[:5])
+            if len(leftovers) > 5:
+                shown += f" (and {len(leftovers) - 5} more)"
+            raise UnsafeOutputDir(
+                f"output dir {str(self.output_dir)!r} is not empty: {shown}. "
+                f"nb-autodoc never deletes anything, so remove it yourself "
+                f"and run again."
+            )
+
     @final
     def write(self) -> None:
-        # prepare top-level empty dir
-        if not self.manager.is_single_module:  # skip for single module
-            path = self.paths[min(self.paths)]
-            if path.parent.is_file():
-                path.parent.unlink()
-            elif path.parent.is_dir():
-                logger.info(f"deleting directory {str(path.parent)!r}...")
-                shutil.rmtree(path.parent)
+        self._check_output_dir_empty()
         for modname, path in self.paths.items():
             path.parent.mkdir(parents=True, exist_ok=True)
             doc = self.text(self.modules[modname])
-            path.touch(exist_ok=False)
             path.write_text(doc, encoding=self.write_encoding)
 
     @abc.abstractmethod
