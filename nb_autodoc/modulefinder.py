@@ -139,6 +139,7 @@ class _Finder:
         self.is_exclude_module: _Filter = _Finder._build_filter(
             config["skip_import_modules"]
         )
+        self.skipped_modules: t.List[t.Tuple[str, BaseException]] = []
 
     @t.final
     @staticmethod
@@ -273,7 +274,12 @@ class ModuleFinder(_Finder):
                 childfullname = fullname + "." + modname
                 if self.is_exclude_module(childfullname):
                     continue
-                module = import_module(childfullname)
+                try:
+                    module = import_module(childfullname)
+                except Exception as exc:
+                    self.skipped_modules.append((childfullname, exc))
+                    logger.warning(f"skipping {childfullname!r}: {exc!r}")
+                    continue
                 modules[childfullname] = module
                 seen.add(modname)
                 if is_package:
@@ -293,6 +299,7 @@ class ModuleFinder(_Finder):
     def find_all_modules(
         self, module: t.Union[str, types.ModuleType]
     ) -> t.Tuple[t.Dict[str, types.ModuleType], t.Dict[str, types.ModuleType]]:
+        self.skipped_modules = []
         if isinstance(module, str):
             module = import_module(module)
         # top-level needs a special treat because we don't want to
@@ -328,6 +335,13 @@ class ModuleFinder(_Finder):
         self, module: t.Union[str, types.ModuleType]
     ) -> ModuleFoundResultProxy:
         modules, stubs = self.find_all_modules(module)
+        if self.skipped_modules:
+            logger.warning(
+                f"{len(self.skipped_modules)} module(s) could not be imported "
+                f"and were left out of the documentation:"
+            )
+            for name, exc in self.skipped_modules:
+                logger.warning(f"  {name}: {exc!r}")
         return ModuleFoundResultProxy(
             transform_dict_value(modules, ModuleProperties.from_module),
             transform_dict_value(stubs, ModuleProperties.from_module),
@@ -386,7 +400,7 @@ _commonprefix = os.path.commonprefix
 
 
 def _fix_inconsistent_modules(
-    modules: t.Dict[str, types.ModuleType]
+    modules: t.Dict[str, types.ModuleType],
 ) -> t.Dict[str, types.ModuleType]:
     """Fix intermediate missing module (ordered).
 
