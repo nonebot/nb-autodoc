@@ -17,5 +17,4 @@ if False:
     import os
 
 
-class A:
-    ...
+class A: ...

@@ -1,5 +1,4 @@
 foo = 1
 
 
-def func() -> str:
-    ...
+def func() -> str: ...

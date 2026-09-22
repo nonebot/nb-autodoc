@@ -1,30 +1,25 @@
 # type: ignore
 from typing import TYPE_CHECKING
 
-
 if TYPE_CHECKING:
     from mypkg import A
 
-    class A_:
-        ...
+    class A_: ...
 
 
 if ...:
 
-    def a():
-        ...
+    def a(): ...
 
 
 class B:
     if TYPE_CHECKING:
         from mypkg import f
 
-        class B_:
-            ...
+        class B_: ...
 
         if ...:
 
-            class B__:
-                ...
+            class B__: ...
 
         from mypkg import f2

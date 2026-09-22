@@ -65,8 +65,7 @@ class Page(Document):
     body: list[root]
 
 
-class root(Document):
-    ...
+class root(Document): ...
 
 
 _identifier = str
@@ -146,8 +145,7 @@ class ColonArg(docstring):
     long_descr: str
 
 
-class section(docstring):
-    ...
+class section(docstring): ...
 
 
 class InlineValue(section):

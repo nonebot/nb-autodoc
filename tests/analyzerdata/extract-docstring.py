@@ -1,14 +1,12 @@
 # type: ignore
 from typing import overload
 
-
 a = 1
 """a docstring"""
 
 
 @overload
-def b():
-    ...
+def b(): ...
 
 
 b = 1

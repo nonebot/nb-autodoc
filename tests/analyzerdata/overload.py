@@ -14,18 +14,15 @@ def func(dct: int) -> complex:
     """func o2"""
 
 
-def func(dct: int = 1) -> str | complex:
-    ...
+def func(dct: int = 1) -> str | complex: ...
 
 
 @overload
-def func2() -> str:
-    ...
+def func2() -> str: ...
 
 
 @overload
-def func2(dct: int) -> complex:
-    ...
+def func2(dct: int) -> complex: ...
 
 
 func2 = _make_func2("")

@@ -1,5 +1,5 @@
-"""Google Style Docstring Parser.
-"""
+"""Google Style Docstring Parser."""
+
 import re
 from functools import lru_cache, wraps
 from typing import Callable, List, Match, Optional, Type, TypeVar, cast
@@ -32,7 +32,7 @@ RT = TypeVar("RT")
 
 
 def record_pos(
-    func: Callable[Concatenate[TP, P], RT]
+    func: Callable[Concatenate[TP, P], RT],
 ) -> Callable[Concatenate[TP, P], RT]:
     """Parser Position Recorder."""
 
@@ -435,5 +435,4 @@ class GoogleStyleParser:
         return "\n".join(builder)
 
 
-class ParserError(RuntimeError):
-    ...
+class ParserError(RuntimeError): ...

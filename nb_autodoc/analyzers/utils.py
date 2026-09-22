@@ -29,13 +29,11 @@ def ast_parse(source: str, filename: str = "<unknown>") -> ast.Module:
 
 
 @t.overload
-def ast_unparse(node: ast.AST) -> str:
-    ...
+def ast_unparse(node: ast.AST) -> str: ...
 
 
 @t.overload
-def ast_unparse(node: ast.AST, _default: str) -> str:
-    ...
+def ast_unparse(node: ast.AST, _default: str) -> str: ...
 
 
 def ast_unparse(node: ast.AST, _default: t.Optional[str] = None) -> str:
@@ -196,7 +194,7 @@ def eval_import_stmt(
 
 
 def get_docstring(
-    node: t.Union[ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef]
+    node: t.Union[ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef],
 ) -> t.Optional[str]:
     """Return node raw docstring."""
     stmt = node.body[0]
@@ -216,15 +214,13 @@ _TS = t.TypeVar("_TS", bound=Signature)
 @t.overload
 def signature_from_ast(
     args: ast.arguments, returns: t.Optional[ast.expr] = None
-) -> Signature:
-    ...
+) -> Signature: ...
 
 
 @t.overload
 def signature_from_ast(
     args: ast.arguments, returns: t.Optional[ast.expr] = None, *, sigcls: t.Type[_TS]
-) -> _TS:
-    ...
+) -> _TS: ...
 
 
 def signature_from_ast(

@@ -11,8 +11,7 @@ _PATH = "tests/modulefinderdata"
 
 class TestModuleFinder:
     @pytest.fixture(autouse=True)
-    def _setup(self):
-        ...
+    def _setup(self): ...
 
     def test_is_exclude_module(self):
         config: Any = {"skip_import_modules": {"pkg.*"}}

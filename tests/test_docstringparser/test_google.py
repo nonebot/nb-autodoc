@@ -63,12 +63,10 @@ class TestGoogleStyleParser:
             long_descr="long descr\n\nlong long descr",
             sections=[],
         )
-        doc = cleandoc(
-            """
+        doc = cleandoc("""
             Args:
                 a: descr
-            """
-        )
+            """)
         assert parse(doc) == Docstring(
             roles=[],
             annotation=None,
@@ -92,12 +90,10 @@ class TestGoogleStyleParser:
                 )
             ],
         )
-        doc = cleandoc(
-            """description.
+        doc = cleandoc("""description.
             Args:
                 a: descr
-            """
-        )
+            """)
         assert parse(doc) == Docstring(
             roles=[],
             annotation=None,
@@ -121,8 +117,7 @@ class TestGoogleStyleParser:
                 )
             ],
         )
-        doc = cleandoc(
-            """description.
+        doc = cleandoc("""description.
 
             Args:
                 a: descr
@@ -133,8 +128,7 @@ class TestGoogleStyleParser:
 
             返回:
                 Union[int, str]: descr
-            """
-        )
+            """)
         assert parse(doc) == Docstring(
             roles=[],
             annotation=None,
@@ -173,8 +167,7 @@ class TestGoogleStyleParser:
 
     def test_combined_colonarg_short_description(self):
         parse = lambda doc: GoogleStyleParser(doc).parse()
-        doc = cleandoc(
-            """
+        doc = cleandoc("""
             Args:
                 arg: short
                     short descr.
@@ -192,8 +185,7 @@ class TestGoogleStyleParser:
 
                     long
                     long descr.
-            """
-        )
+            """)
         assert parse(doc) == Docstring(
             roles=[],
             annotation=None,

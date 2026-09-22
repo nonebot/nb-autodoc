@@ -111,8 +111,7 @@ def test_getmodulename():
 
 
 def test_stringify_signature():
-    def func(a: int, b: dict = {}) -> str:
-        ...
+    def func(a: int, b: dict = {}) -> str: ...
 
     sig = inspect.signature(func)
     assert stringify_signature(sig) == "(a, b={})"

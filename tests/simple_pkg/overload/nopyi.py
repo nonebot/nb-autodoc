@@ -41,12 +41,10 @@ def func(arg: Union[ContextVar[int], int]) -> Union[T_Type, int]:
 
 class A:
     @overload
-    def foo(self, s: T_Type) -> str:
-        ...
+    def foo(self, s: T_Type) -> str: ...
 
     @overload
-    def foo(self, s: str) -> str:
-        ...
+    def foo(self, s: str) -> str: ...
 
     def foo(self, s: Union[T_Type, str]) -> str:
         """Should this documented?"""

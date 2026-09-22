@@ -25,6 +25,7 @@ class A:
     def __init__(self) -> None:
         self.x = 1
         """self.x docstring"""
+
     def ping(self, name: str) -> str: ...
     def pingelse(self, name: str = ...) -> str:
         """pingelse override docstring
@@ -33,6 +34,7 @@ class A:
             name (Union[int, str]): common desc
         """
         ...
+
     @property
     def dummyping(self) -> str: ...
     def __getattr__(self, name: str) -> str: ...

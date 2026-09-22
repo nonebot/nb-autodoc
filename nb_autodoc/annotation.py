@@ -10,6 +10,7 @@ Note: static annotation analysis needs to build a big type system.
 And function annotation depends on its definition (needs inferer).
 
 """
+
 from __future__ import annotations
 
 import ast
@@ -360,9 +361,11 @@ class AnnExprVisitor:
         with self.delimit("Literal[", "]"):
             interleave(
                 lambda: self.write(", "),
-                lambda arg: self.visit_Name(arg)
-                if isinstance(arg, Name)
-                else self.write(self.escape_impl(repr(arg))),
+                lambda arg: (
+                    self.visit_Name(arg)
+                    if isinstance(arg, Name)
+                    else self.write(self.escape_impl(repr(arg)))
+                ),
                 annexpr.args,
             )
 
@@ -442,9 +445,9 @@ class Annotation:
         return AnnExprVisitor(
             globalns=self.globalns,
             add_link=add_link,
-            eval_refname=self.manager.get_definition_dotted
-            if self.manager
-            else lambda x: None,
+            eval_refname=(
+                self.manager.get_definition_dotted if self.manager else lambda x: None
+            ),
             escape_impl=escape_impl,
         ).render(self.ann)
 

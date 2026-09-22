@@ -16,6 +16,7 @@ FrontMatter:
     option:
         a: b
 """
+
 from typing import (
     TYPE_CHECKING,
     Callable,
@@ -92,12 +93,10 @@ class Foo:
         ...
 
     @staticmethod
-    def iamstatic() -> Type["Api2"]:
-        ...
+    def iamstatic() -> Type["Api2"]: ...
 
     @classmethod
-    def iamclass(cls) -> Callable[..., int]:
-        ...
+    def iamclass(cls) -> Callable[..., int]: ...
 
     def privatefunc(self) -> None:
         """Internal."""

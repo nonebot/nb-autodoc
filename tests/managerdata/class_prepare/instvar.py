@@ -4,8 +4,7 @@ from typing import ClassVar, NamedTuple
 class A(NamedTuple):
     a: int
 
-    def f(self) -> bool:
-        ...
+    def f(self) -> bool: ...
 
 
 class B:
@@ -17,8 +16,7 @@ class B:
     def __init__(self) -> None:
         self.e: int
 
-    def _call_impl(self, x: str) -> str:
-        ...
+    def _call_impl(self, x: str) -> str: ...
 
     __call__ = _call_impl
 

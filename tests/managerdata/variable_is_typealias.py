@@ -8,15 +8,13 @@ b: te.TypeAlias = "dict[str, str]"
 # TODO: add this after ast unparse expr implemented
 c: "te.TypeAlias" = "dict[str, str]"
 
-f: te.TypeAlias = (
-    t.Union[
-        t.Set[int],
-        t.Set[str],
-        t.Dict[int, "f"],
-        t.Dict[str, "f"],
-        None,
-    ]
-)
+f: te.TypeAlias = t.Union[
+    t.Set[int],
+    t.Set[str],
+    t.Dict[int, "f"],
+    t.Dict[str, "f"],
+    None,
+]
 
 
 d: int = 1

@@ -10,5 +10,4 @@ if TYPE_CHECKING:
 
     b = a
 
-    def func() -> X | Y:
-        ...
+    def func() -> X | Y: ...

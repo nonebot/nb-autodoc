@@ -5,8 +5,7 @@ def fa(x: int) -> None:
     """reexport in package"""
 
 
-def fb(x: int) -> None:
-    ...
+def fb(x: int) -> None: ...
 
 
 def _fc(x: int) -> None:

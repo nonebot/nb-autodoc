@@ -26,8 +26,7 @@ class T_GenericAlias(Protocol):
     __args__: Tuple[Any, ...]
     __parameters__: Tuple[Any, ...]
 
-    def __getitem__(self, __k: Any) -> "T_GenericAlias":
-        ...
+    def __getitem__(self, __k: Any) -> "T_GenericAlias": ...
 
 
 T_Annot = Union[T_GenericAlias, type, str, None]
